@@ -1,0 +1,28 @@
+{
+  "atlas": "sample_atlas.png",
+  "textures": [
+    {"id": 1, "width": 256, "height": 256, "format": 7}
+  ],
+  "parts": [
+    {
+      "widget": "button",
+      "part": "background",
+      "state": "normal",
+      "atlasRegion": {"x": 0, "y": 0, "w": 64, "h": 32},
+      "ninePatch": {"left": 8, "top": 8, "right": 8, "bottom": 8, "layout": 0},
+      "tint": {"r": 255, "g": 255, "b": 255, "a": 255},
+      "alpha": 1.0,
+      "padding": {"left": 4, "top": 4, "right": 4, "bottom": 4},
+      "minSize": {"w": 32, "h": 20}
+    },
+    {
+      "widget": "button",
+      "part": "background",
+      "state": "hovered",
+      "atlasRegion": {"x": 64, "y": 0, "w": 64, "h": 32},
+      "ninePatch": {"left": 8, "top": 8, "right": 8, "bottom": 8},
+      "tint": {"r": 220, "g": 220, "b": 255, "a": 255},
+      "alpha": 1.0
+    }
+  ]
+}

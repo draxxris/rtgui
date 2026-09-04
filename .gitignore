@@ -1,0 +1,42 @@
+# Binaries — never commit compiled outputs
+/widget_gallery
+/examples/widget_gallery/widget_gallery
+*.exe
+*.test
+*.out
+rtgui
+rtgui-*
+
+# Screenshots and gallery outputs — ephemeral; keep only testdata/golden as eyeball reference
+out.png
+/tmp/
+screenshots/
+shots/
+*.png
+!testdata/golden/*.png
+!testdata/skins/*.png
+!testdata/skins/*.png.sh
+
+# Go coverage / profiling outputs
+coverage.out
+coverage.html
+coverage.txt
+*.cover
+*.prof
+*.pprof
+cpu.prof
+mem.prof
+
+# Go build cache / module download cache (local)
+vendor/
+
+# Xvfb / X authority leftovers on CI
+.Xauthority
+.xauth*
+
+# Editor / OS cruft
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*~

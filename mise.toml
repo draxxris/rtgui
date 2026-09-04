@@ -1,0 +1,19 @@
+[tools]
+go = "1.27"
+"go:github.com/fzipp/gocyclo/cmd/gocyclo" = "0.6.0"
+
+[tasks.test]
+description = "Run headless unit tests"
+run = "go test ./..."
+
+[tasks.vet]
+description = "Vet all packages"
+run = "go vet ./..."
+
+[tasks.gallery]
+description = "Run the widget gallery example"
+run = "go run ./examples/widget_gallery"
+
+[tasks.complexity]
+description = "Check for cyclomatic complexity"
+run = "gocyclo -over 15 `find . -name '*.go' -type f`"
