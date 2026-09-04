@@ -1,5 +1,8 @@
 // Package transform maps between physical window coordinates and logical UI
-// coordinates. State is explicit so applications can own more than one UI.
+// coordinates. The logical size is the fixed design resolution chosen at
+// startup; the physical viewport tracks the live window. Resizing the window
+// rescales the mapping instead of reflowing the layout, so components scale
+// with the window. State is explicit so applications can own more than one UI.
 package transform
 
 import (
@@ -19,18 +22,35 @@ func (t *Transform) SetViewport(viewport core.Viewport) error {
 	if viewport.Viewport.W <= 0 || viewport.Viewport.H <= 0 {
 		return core.StatusInvalidArg
 	}
+	if viewport.LogicalSize.X <= 0 || viewport.LogicalSize.Y <= 0 {
+		return core.StatusInvalidArg
+	}
 	t.Viewport = viewport
 	return nil
 }
 
+// Scale reports the physical-per-logical stretch on each axis: window size
+// over design size. Axes are independent (stretch); a uniform factor is the
+// caller's choice. Non-positive dimensions fall back to 1 so zero-value
+// transforms keep the old 1:1 offset behavior instead of dividing by zero.
+func (t Transform) Scale() (sx, sy float32) {
+	viewport, logical := t.Viewport.Viewport, t.Viewport.LogicalSize
+	if viewport.W <= 0 || viewport.H <= 0 || logical.X <= 0 || logical.Y <= 0 {
+		return 1, 1
+	}
+	return viewport.W / logical.X, viewport.H / logical.Y
+}
+
 func (t Transform) ViewportToPhysical(p core.Vec2) core.Vec2 {
+	sx, sy := t.Scale()
 	viewport := t.Viewport.Viewport
-	return core.Vec2{X: p.X + viewport.X, Y: p.Y + viewport.Y}
+	return core.Vec2{X: p.X*sx + viewport.X, Y: p.Y*sy + viewport.Y}
 }
 
 func (t Transform) PhysicalToViewport(p core.Vec2) core.Vec2 {
+	sx, sy := t.Scale()
 	viewport := t.Viewport.Viewport
-	return core.Vec2{X: p.X - viewport.X, Y: p.Y - viewport.Y}
+	return core.Vec2{X: (p.X - viewport.X) / sx, Y: (p.Y - viewport.Y) / sy}
 }
 
 // HitTestPhysical maps input from the window into logical coordinates before

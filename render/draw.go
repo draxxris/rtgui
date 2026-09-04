@@ -157,11 +157,15 @@ func (t *Theme) drawTextInContent(kind core.WidgetKind, value string, content co
 	} else if state == core.StatePressed {
 		textColor = color.RGBA{R: 30, G: 30, B: 30, A: 255}
 	}
-	x := int32(math.Round(float64(content.X + 6)))
-	y := int32(math.Round(float64(content.Y + (content.H-float32(fontSize))/2)))
+	x := float32(math.Round(float64(content.X + 6)))
+	y := float32(math.Round(float64(content.Y + (content.H-float32(fontSize))/2)))
 	t.logDrawCall(kind, skin.PartText, state, content, content, skin.SkinDescriptor{}, textColor, false)
 	if rl.IsWindowReady() {
-		rl.DrawText(value, x, y, fontSize, textColor)
+		if t != nil && t.hasFont {
+			rl.DrawTextEx(t.FontForSize(float32(fontSize)), value, rl.NewVector2(x, y), float32(fontSize), float32(fontSize)/10, textColor)
+		} else {
+			rl.DrawText(value, int32(x), int32(y), fontSize, textColor)
+		}
 	}
 }
 
@@ -210,14 +214,27 @@ func (t *Theme) DrawWidget(info core.WidgetInfo, value string, amount float32, c
 func (t *Theme) drawCheckbox(info core.WidgetInfo, value string, content core.Rect, checked bool) {
 	if checked {
 		t.drawCheckmark(info, content)
+	} else {
+		t.drawUncheckedBox(info, content)
 	}
 	t.drawTextInContent(info.Kind, value, content, info.State)
+}
+
+// drawUncheckedBox renders the empty box icon when a textured PartIcon is
+// registered for checkboxes. Without one it draws nothing, preserving the
+// old no-skin behavior of an empty unchecked box.
+func (t *Theme) drawUncheckedBox(info core.WidgetInfo, content core.Rect) {
+	descriptor, fallback := t.resolveDescriptor(info.Kind, skin.PartIcon, info.State)
+	if !hasTexture(descriptor, fallback) {
+		return
+	}
+	t.drawCenteredIcon(info, content, skin.PartIcon, descriptor)
 }
 
 func (t *Theme) drawCheckmark(info core.WidgetInfo, content core.Rect) {
 	descriptor, fallback := t.resolveDescriptor(info.Kind, skin.PartCheckmark, info.State)
 	if hasTexture(descriptor, fallback) {
-		t.drawTexturedCheckmark(info, content, descriptor)
+		t.drawCenteredIcon(info, content, skin.PartCheckmark, descriptor)
 		return
 	}
 	t.drawGeometryCheckmark(info, fallback)
@@ -227,7 +244,9 @@ func hasTexture(descriptor skin.SkinDescriptor, fallback bool) bool {
 	return !fallback && descriptor.HasTexture && descriptor.Texture.ID != 0
 }
 
-func (t *Theme) drawTexturedCheckmark(info core.WidgetInfo, content core.Rect, descriptor skin.SkinDescriptor) {
+// drawCenteredIcon renders a small centered part (checkmark or unchecked box)
+// from a textured descriptor, capping it at 60% of the content box.
+func (t *Theme) drawCenteredIcon(info core.WidgetInfo, content core.Rect, part skin.SkinPart, descriptor skin.SkinDescriptor) {
 	tint := effectiveTint(descriptor, false)
 	width, height := checkmarkSize(descriptor, content)
 	destination := t.snap(core.Rect{
@@ -236,7 +255,7 @@ func (t *Theme) drawTexturedCheckmark(info core.WidgetInfo, content core.Rect, d
 		W: width,
 		H: height,
 	})
-	t.logDrawCall(info.Kind, skin.PartCheckmark, info.State, destination, destination, descriptor, tint, false)
+	t.logDrawCall(info.Kind, part, info.State, destination, destination, descriptor, tint, false)
 	if !rl.IsWindowReady() {
 		return
 	}

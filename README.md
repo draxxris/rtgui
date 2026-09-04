@@ -23,9 +23,11 @@ Go application → widgets / layout / transform → render → raylib-go
 | `rtgui/layout` | Anchors, measurement, arrangement, and relative movement |
 | `rtgui/dragdrop` | Drag state, targets, payloads, and ghosts |
 | `rtgui/sim` | Headless harness that simulates human events (`Click`/`Type`) |
+| `rtgui/ui` | Application facade: registry, `HandleMouse`/`HandleKey` dispatch, `OnClick`/`OnChange`/`OnText`, `Draw` |
 
 The module root contains no Go package. `render` is the only library package
-that imports raylib; the other packages remain headless and renderer-neutral.
+that imports raylib; the other packages (`ui` included) remain headless and
+renderer-neutral.
 
 ## Requirements
 
@@ -54,6 +56,7 @@ and the `mise run test` and `mise run vet` shortcuts.
 
 ```sh
 go run ./examples/widget_gallery -frames 3 -screenshot out.png
+go run ./examples/ui_sample -frames 3
 ```
 
 For a headless Linux run, use a virtual display:
@@ -68,7 +71,9 @@ placeholder PNG when `-screenshot` is supplied.
 
 ## API shape
 
-The application owns state explicitly:
+The application fixes a logical design resolution at startup. Resizing the
+window rescales the UI around it instead of reflowing the layout, so
+components scale with the window:
 
 ```go
 viewport := core.Viewport{
@@ -111,6 +116,43 @@ unknown, disabled, or wrong-kind targets.
 `transform.Transform` are instance-owned, so separate windows do not share
 hidden global UI state.
 
+Most applications should use the `rtgui/ui` facade instead of wiring the
+primitives above by hand. Raylib still owns the OS window and frame loop; the
+UI reports whether it consumed each polled input so game input keeps working:
+
+```go
+u := ui.New(800, 600)
+u.Add(widgets.NewButton("primaryButton", core.Rect{X: 40, Y: 40, W: 200, H: 42}, "Primary"))
+u.OnClick("primaryButton", func() { status = "Primary clicked" })
+u.OnChange("valueSlider", func(v float32) { progress.Value = v })
+u.OnText("inputBox", func(s string) { status = "typed: " + s })
+
+physical := rl.GetMousePosition()
+mouseHandled := u.HandleMouse(ui.MouseEvent{
+    Pos:      u.ToLogical(core.Vec2{X: physical.X, Y: physical.Y}),
+    Pressed:  rl.IsMouseButtonPressed(rl.MouseButtonLeft),
+    Down:     rl.IsMouseButtonDown(rl.MouseButtonLeft),
+    Released: rl.IsMouseButtonReleased(rl.MouseButtonLeft),
+    Wheel:    rl.GetMouseWheelMove(),
+})
+if !mouseHandled {
+    // UI did not want it: camera zoom / drag / world picking runs here.
+}
+keyHandled := u.HandleKey(ui.KeyEvent{Chars: runes, Backspace: bs, Escape: esc})
+if !keyHandled {
+    // No focused textbox ate the input: game hotkeys run here.
+}
+u.Draw()
+```
+
+`HandleMouse`/`HandleKey` return `handled=true` only when the UI used the
+input: press/drag/release on a hit widget (or an active capture), wheel over
+a scrolled widget, chars/backspace into a focused textbox, or an `Escape` that
+blurred focus. Hover alone, empty-space clicks (which blur but pass through),
+and off-widget wheel/keys return `false`. `Add` overwrites duplicates without
+changing order (unlike `sim.Register`, which errors); callbacks for unknown
+names are stored and fire once the widget is added; `nil` removes a callback.
+
 ## Gallery contract
 
 The gallery demonstrates buttons, checkbox state, UTF-8 text editing, a
@@ -118,9 +160,14 @@ dropdown popup, slider/progress interaction, scrolling with application-owned
 scissor mode, relative frame movement, and widget-state samples. It accepts
 `-frames N` and `-screenshot PATH`.
 
-The checked-in button texture is
-`testdata/skins/button_rectangle_border.png`. Remaining gallery skin regions
-come from a procedural atlas.
+Widget art comes from two checked-in sources: the procedural atlas for panel
+fills, tracks, and progress, and the Kenney set under `testdata/skins/kenney/`
+for button states (blue line rest, blue border hover, red border press),
+checkbox empty/cross icons, the slider handle, the dropdown arrow, and the
+grey 8-patch panel ring on frames.
+Gallery typography uses the Grenze family (SIL OFL,
+`testdata/fonts/Grenze-OFL.txt`): `Grenze-Light.ttf` for titles, values,
+and widget text, `Grenze-LightItalic.ttf` for captions and the status line.
 
 ## Raylib pin
 

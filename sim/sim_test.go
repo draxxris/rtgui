@@ -39,7 +39,6 @@ func TestStringIDModel(t *testing.T) {
 	}
 	// All constructors store the external name with a nonzero internal ID.
 	all := []*widgets.Widget{
-		widgets.NewRectangle("rect1", core.Rect{W: 10, H: 10}),
 		widgets.NewLabel("label1", core.Rect{W: 10, H: 10}, "hi"),
 		widgets.NewCheckbox("check1", core.Rect{W: 20, H: 20}, false),
 		widgets.NewTextbox("text1", core.Rect{W: 100, H: 30}, 64),

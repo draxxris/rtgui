@@ -50,7 +50,6 @@ type WidgetKind int32
 
 const (
 	WidgetButton WidgetKind = iota
-	WidgetRectangle
 	WidgetLabel
 	WidgetCheckbox
 	WidgetTextbox

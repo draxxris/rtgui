@@ -1,8 +1,15 @@
 // widget_gallery is the single runnable demo proving the pure-Go rtgui library end-to-end.
 //
-// It uses only stock Go + github.com/gen2brain/raylib-go/raylib. Rendering,
-// input, widgets, transforms, and data types are explicit package instances;
-// there is no package-global UI state.
+// It uses stock Go + github.com/gen2brain/raylib-go/raylib plus the rtgui/ui
+// facade. The UI owns transform, capture, theme, registry, focus, and
+// callbacks; the gallery only polls raylib, forwards to the facade, and draws
+// app-specific layers (scroll contents, dropdown popup, state samples).
+// There is no package-global UI state.
+//
+// Gallery typography uses the Grenze family (SIL OFL, see
+// testdata/fonts/Grenze-OFL.txt): Grenze-Light for titles, values, and rows,
+// Grenze-LightItalic for captions and the status line. Widget text rendered
+// through render.Theme uses Grenze-Light once the theme font loads.
 //
 // Gallery contract: two panels, button, checkbox (toggles button enabled),
 // textbox (typing + backspace including multi-byte UTF-8),
@@ -18,8 +25,8 @@
 //     prepends GetWorkingDirectory).
 //   - Without a display (no WAYLAND_DISPLAY / DISPLAY) raylib fails to init;
 //     the gallery does NOT crash: it runs a headless smoke path that exercises
-//     the pure-Go draw log (NinePatchRects, ContentRect, fallback) and writes
-//     a placeholder PNG via the stdlib image/png if -screenshot was requested.
+//     the facade dispatch and draw log and writes a placeholder PNG via the
+//     stdlib image/png if -screenshot was requested.
 //     The window path requires a display — use xvfb-run on headless CI.
 //     `go run ./examples/widget_gallery -frames 3 -screenshot out.png` therefore
 //     never crashes; under xvfb it produces a real framebuffer screenshot.
@@ -38,11 +45,10 @@ import (
 
 	rl "github.com/gen2brain/raylib-go/raylib"
 	"rtgui/core"
-	"rtgui/input"
 	"rtgui/layout"
 	"rtgui/render"
 	"rtgui/skin"
-	"rtgui/transform"
+	"rtgui/ui"
 	"rtgui/widgets"
 )
 
@@ -63,16 +69,13 @@ type galleryLayout struct {
 	button, checkbox      core.Rect
 	textbox, dropdown     core.Rect
 	slider, progress      core.Rect
-	rectangle, label      core.Rect
+	panel, label          core.Rect
 	frame, frameButton    core.Rect
 	scroll                core.Rect
 }
 
 type gallery struct {
-	buttonTexture rl.Texture2D
-	theme         *render.Theme
-	transform     *transform.Transform
-	capture       *input.Capture
+	facade *ui.UI
 
 	leftPanel   *widgets.Widget
 	rightPanel  *widgets.Widget
@@ -82,7 +85,7 @@ type gallery struct {
 	dropdown    *widgets.Widget
 	slider      *widgets.Widget
 	progress    *widgets.Widget
-	rectangle   *widgets.Widget
+	panel       *widgets.Widget
 	label       *widgets.Widget
 	frame       *widgets.Widget
 	frameButton *widgets.Widget
@@ -92,12 +95,10 @@ type gallery struct {
 	frameNode      *layout.Node
 	frameChildNode *layout.Node
 
-	pressed      *widgets.Widget
-	focused      *widgets.Widget
 	dropdownOpen bool
 	status       string
-	lastWidth    int
-	lastHeight   int
+	designWidth  float32
+	designHeight float32
 	layout       galleryLayout
 }
 
@@ -119,23 +120,23 @@ func main() {
 	rl.SetTargetFPS(60)
 
 	// Pure-Go path: textures loaded directly via raylib, no loader shim.
-	buttonTexture := loadButtonTexture()
-	defer rl.UnloadTexture(buttonTexture)
+	kenney := loadKenneyTextures()
+	defer kenney.unload()
 	auxAtlas := makeAuxAtlas()
 	defer rl.UnloadTexture(auxAtlas)
-	viewport := core.Viewport{Viewport: core.Rect{W: float32(windowWidth), H: float32(windowHeight)}, LogicalSize: core.Vec2{X: float32(windowWidth), Y: float32(windowHeight)}}
-	uiTransform := transform.New(viewport)
-	theme := render.NewTheme(uiTransform)
-	if err := registerTheme(theme, buttonTexture, auxAtlas); err != nil {
+	facade := ui.New(int(windowWidth), int(windowHeight))
+	if err := registerTheme(facade.Theme(), auxAtlas, kenney); err != nil {
 		log.Fatal(err)
 	}
+	loadGalleryFonts(facade.Theme())
+	defer facade.Theme().UnloadFonts()
 
-	g := newGallery(buttonTexture, theme, transform.New(viewport), input.NewCapture())
-	// Seed initial viewport before first frame (on resize: SetViewport)
-	g.resizeIfNeeded(int(windowWidth), int(windowHeight))
+	g := newGallery(facade)
 
 	for frame := 0; !rl.WindowShouldClose(); frame++ {
-		g.resizeIfNeeded(rl.GetScreenWidth(), rl.GetScreenHeight())
+		// Forward the live window size; the logical design resolution stays
+		// fixed, so the window rescales the UI instead of reflowing it.
+		g.facade.Resize(rl.GetScreenWidth(), rl.GetScreenHeight())
 		g.handleInput()
 		g.draw()
 
@@ -144,7 +145,7 @@ func main() {
 				if err := saveScreenshot(*screenshot); err != nil {
 					// Fallback to placeholder so headless smoke still produces a file
 					log.Printf("screenshot via GPU failed (%v) — writing placeholder", err)
-					if err2 := createPlaceholderScreenshot(*screenshot, g); err2 != nil {
+					if err2 := createPlaceholderScreenshot(*screenshot); err2 != nil {
 						log.Printf("placeholder screenshot failed: %v", err2)
 					}
 				} else {
@@ -156,26 +157,31 @@ func main() {
 	}
 }
 
-// runHeadlessSmoke exercises the pure-Go library without a GL context.
-// It sets viewport, drives a few DrawWidget calls headlessly (guarded by
-// IsWindowReady in draw.go, so no GL is touched, but DrawCall log + fallback
-// logic still runs), and writes a placeholder PNG if requested.
+// runHeadlessSmoke exercises the facade without a GL context.
+// It drives synthetic press/release, typing, and slider drag through
+// HandleMouse/HandleKey (guarded by IsWindowReady in draw.go, so no GL is
+// touched, but the DrawCall log still runs), and writes a placeholder PNG if
+// requested.
 func runHeadlessSmoke() {
-	viewport := core.Viewport{Viewport: core.Rect{W: 800, H: 600}, LogicalSize: core.Vec2{X: 800, Y: 600}}
-	theme := render.NewTheme(transform.New(viewport))
-	// Drive a few headless DrawWidget calls to prove NinePatch/ContentRect/fallback.
-	// Missing skin falls back to color 200,200,200 — exercised by drawing without texture.
-	theme.ClearDrawLog()
-	_ = theme.DrawWidgetPart(core.WidgetButton, skin.PartBackground, core.Rect{X: 10, Y: 10, W: 100, H: 40}, core.StateNormal)
-	_ = theme.DrawWidget(core.WidgetInfo{ID: 99, Name: "smokeCheckbox", Bounds: core.Rect{X: 10, Y: 60, W: 120, H: 40}, Kind: core.WidgetCheckbox, State: core.StateNormal}, "", 0, true)
-	_ = theme.DrawWidget(core.WidgetInfo{ID: 100, Name: "smokeSlider", Bounds: core.Rect{X: 10, Y: 110, W: 120, H: 40}, Kind: core.WidgetSlider, State: core.StateNormal}, "", 0.5, false)
-	calls := theme.DrawLog()
-	log.Printf("headless smoke: %d draw calls logged (fallback=%v)", len(calls), len(calls) > 0 && calls[0].Fallback)
+	facade := ui.New(800, 600)
+	button := widgets.NewButton("smokeButton", core.Rect{X: 10, Y: 10, W: 100, H: 40}, "OK")
+	checkbox := widgets.NewCheckbox("smokeCheckbox", core.Rect{X: 10, Y: 60, W: 120, H: 40}, true)
+	slider := widgets.NewSlider("smokeSlider", core.Rect{X: 10, Y: 110, W: 120, H: 40}, 0.5)
+	field := widgets.NewTextbox("smokeField", core.Rect{X: 10, Y: 160, W: 200, H: 30}, 64)
+	facade.Add(button, checkbox, slider, field)
+	clicks := 0
+	facade.OnClick("smokeButton", func() { clicks++ })
+	center := core.Vec2{X: 60, Y: 30}
+	facade.HandleMouse(ui.MouseEvent{Pos: center, Pressed: true})
+	facade.HandleMouse(ui.MouseEvent{Pos: center, Released: true})
+	facade.HandleKey(ui.KeyEvent{Chars: []rune("hi")})
+	facade.Draw()
+	calls := facade.Theme().DrawLog()
+	log.Printf("headless smoke: %d draw calls logged (clicks=%d fallback=%v)", len(calls), clicks, len(calls) > 0 && calls[0].Fallback)
 
 	if *screenshot != "" {
 		// Create a placeholder image that documents headless mode.
-		g := &gallery{status: "headless smoke — no display"}
-		if err := createPlaceholderScreenshot(*screenshot, g); err != nil {
+		if err := createPlaceholderScreenshot(*screenshot); err != nil {
 			log.Printf("headless placeholder failed: %v", err)
 			os.Exit(1)
 		}
@@ -213,7 +219,7 @@ func saveScreenshot(path string) error {
 
 // createPlaceholderScreenshot writes a stdlib PNG so headless -screenshot
 // still produces a viewable file even without GL.
-func createPlaceholderScreenshot(path string, g *gallery) error {
+func createPlaceholderScreenshot(path string) error {
 	dir := filepath.Dir(path)
 	if dir != "." && dir != "" {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -260,45 +266,138 @@ func drawRect(img *image.RGBA, x, y, w, h int, c color.RGBA) {
 	}
 }
 
-func loadButtonTexture() rl.Texture2D {
-	path := findButtonTexture()
-	if path == "" {
-		log.Fatalf("button texture not found; expected testdata/skins/button_rectangle_border.png or set RTG_BUTTON_TEXTURE (searched cwd and exe parents)")
+// loadGalleryFonts loads the checked-in Grenze TTFs into the theme.
+// Widget text uses Grenze-Light via drawTextInContent; captions and the
+// status line use Grenze-LightItalic through the gallery draw helpers.
+func loadGalleryFonts(theme *render.Theme) {
+	regular := findFontFile("Grenze-Light.ttf")
+	if regular == "" {
+		log.Fatalf("gallery font not found; expected testdata/fonts/Grenze-Light.ttf (searched cwd and exe parents)")
 	}
-	tex := rl.LoadTexture(path)
-	if tex.ID == 0 {
-		log.Fatalf("could not load button texture %q", path)
+	if err := theme.LoadFont(regular); err != nil {
+		log.Fatalf("could not load gallery font %q: %v", regular, err)
 	}
-	rl.SetTextureFilter(tex, rl.FilterPoint)
-	return tex
+	italic := findFontFile("Grenze-LightItalic.ttf")
+	if italic == "" {
+		log.Fatalf("gallery italic font not found; expected testdata/fonts/Grenze-LightItalic.ttf (searched cwd and exe parents)")
+	}
+	if err := theme.LoadItalicFont(italic); err != nil {
+		log.Fatalf("could not load gallery italic font %q: %v", italic, err)
+	}
 }
 
-func findButtonTexture() string {
-	return firstExistingFile(textureCandidates())
+// findFontFile locates a checked-in gallery font, mirroring texture lookup.
+func findFontFile(name string) string {
+	return firstExistingFile(fontCandidates(name))
 }
 
-func textureCandidates() []string {
+// fontCandidates searches RTG_FONT_DIR, then cwd and exe parents.
+func fontCandidates(name string) []string {
 	candidates := []string{}
-	if configured := os.Getenv("RTG_BUTTON_TEXTURE"); configured != "" {
-		candidates = append(candidates, configured)
+	if configured := os.Getenv("RTG_FONT_DIR"); configured != "" {
+		candidates = append(candidates, filepath.Join(configured, name))
 	}
 	if cwd, err := os.Getwd(); err == nil {
-		candidates = appendParentTextureCandidates(candidates, cwd)
+		candidates = appendParentFontCandidates(candidates, cwd, name)
 	}
 	if exe, err := os.Executable(); err == nil {
-		candidates = appendParentTextureCandidates(candidates, filepath.Dir(exe))
+		candidates = appendParentFontCandidates(candidates, filepath.Dir(exe), name)
 	}
 	return candidates
 }
 
-func appendParentTextureCandidates(candidates []string, root string) []string {
+// appendParentFontCandidates walks up to 5 parents for testdata/fonts/name.
+func appendParentFontCandidates(candidates []string, root, name string) []string {
 	for dir, depth := root, 0; dir != filepath.Dir(dir) && depth < 5; dir, depth = filepath.Dir(dir), depth+1 {
 		if dir == "" {
 			continue
 		}
 		candidates = append(candidates,
-			filepath.Join(dir, "testdata", "skins", "button_rectangle_border.png"),
-			filepath.Join(dir, "rtgui", "testdata", "skins", "button_rectangle_border.png"),
+			filepath.Join(dir, "testdata", "fonts", name),
+			filepath.Join(dir, "rtgui", "testdata", "fonts", name),
+		)
+	}
+	return candidates
+}
+
+// kenneySet holds the Kenney UI textures (testdata/skins/kenney) that give
+// the gallery its button states, checkbox icons, slider handle, and arrow.
+type kenneySet struct {
+	button, buttonHover, buttonPressed rl.Texture2D
+	checkEmpty, checkCross             rl.Texture2D
+	sliderHandle, arrow                rl.Texture2D
+	panelBorder                        rl.Texture2D
+}
+
+// loadKenneyTextures loads every Kenney file the gallery needs.
+func loadKenneyTextures() kenneySet {
+	return kenneySet{
+		button:        loadSkinTexture("kenney/blue/button_rectangle_line.png"),
+		buttonHover:   loadSkinTexture("kenney/blue/button_rectangle_border.png"),
+		buttonPressed: loadSkinTexture("kenney/red/button_rectangle_border.png"),
+		checkEmpty:    loadSkinTexture("kenney/blue/check_square_grey.png"),
+		checkCross:    loadSkinTexture("kenney/blue/check_square_grey_cross.png"),
+		sliderHandle:  loadSkinTexture("kenney/blue/slide_hangle.png"),
+		arrow:         loadSkinTexture("kenney/blue/arrow_basic_s_small.png"),
+		panelBorder:   loadSkinTexture("kenney/panel_border_grey.png"),
+	}
+}
+
+// unload releases every Kenney texture.
+func (k kenneySet) unload() {
+	rl.UnloadTexture(k.button)
+	rl.UnloadTexture(k.buttonHover)
+	rl.UnloadTexture(k.buttonPressed)
+	rl.UnloadTexture(k.checkEmpty)
+	rl.UnloadTexture(k.checkCross)
+	rl.UnloadTexture(k.sliderHandle)
+	rl.UnloadTexture(k.arrow)
+	rl.UnloadTexture(k.panelBorder)
+}
+
+// loadSkinTexture loads one file below testdata/skins, fatal on failure.
+func loadSkinTexture(rel string) rl.Texture2D {
+	path := findSkinFile(rel)
+	if path == "" {
+		log.Fatalf("gallery skin not found; expected testdata/skins/%s (searched cwd and exe parents)", rel)
+	}
+	tex := rl.LoadTexture(path)
+	if tex.ID == 0 {
+		log.Fatalf("could not load gallery skin %q", path)
+	}
+	rl.SetTextureFilter(tex, rl.FilterPoint)
+	return tex
+}
+
+// findSkinFile locates a file below testdata/skins, mirroring font lookup.
+func findSkinFile(rel string) string {
+	return firstExistingFile(skinCandidates(rel))
+}
+
+// skinCandidates searches RTG_SKIN_DIR, then cwd and exe parents.
+func skinCandidates(rel string) []string {
+	candidates := []string{}
+	if configured := os.Getenv("RTG_SKIN_DIR"); configured != "" {
+		candidates = append(candidates, filepath.Join(configured, rel))
+	}
+	if cwd, err := os.Getwd(); err == nil {
+		candidates = appendParentSkinCandidates(candidates, cwd, rel)
+	}
+	if exe, err := os.Executable(); err == nil {
+		candidates = appendParentSkinCandidates(candidates, filepath.Dir(exe), rel)
+	}
+	return candidates
+}
+
+// appendParentSkinCandidates walks up to 5 parents for testdata/skins/rel.
+func appendParentSkinCandidates(candidates []string, root, rel string) []string {
+	for dir, depth := root, 0; dir != filepath.Dir(dir) && depth < 5; dir, depth = filepath.Dir(dir), depth+1 {
+		if dir == "" {
+			continue
+		}
+		candidates = append(candidates,
+			filepath.Join(dir, "testdata", "skins", rel),
+			filepath.Join(dir, "rtgui", "testdata", "skins", rel),
 		)
 	}
 	return candidates
@@ -378,12 +477,20 @@ func patchDescriptor(tex skin.Texture, region core.Rect, tint core.Color, border
 	}
 }
 
+// fullIconDescriptor wraps a whole texture as an icon descriptor.
+func fullIconDescriptor(tex skin.Texture, tint core.Color) skin.SkinDescriptor {
+	return iconDescriptor(tex, core.Rect{W: float32(tex.Width), H: float32(tex.Height)}, tint)
+}
+
 func iconDescriptor(tex skin.Texture, region core.Rect, tint core.Color) skin.SkinDescriptor {
 	return skin.SkinDescriptor{Texture: tex, AtlasRegion: region, Tint: tint, Alpha: 1, HasTexture: true}
 }
 
-func registerTheme(theme *render.Theme, buttonAtlas, auxAtlas rl.Texture2D) error {
-	buttonTex, auxTex := textureOf(buttonAtlas), textureOf(auxAtlas)
+// registerTheme skins every widget kind. Panel fills, tracks, and progress
+// come from the procedural atlas; buttons, checkbox icons, slider handle,
+// and dropdown arrow come from the Kenney set (testdata/skins/kenney).
+func registerTheme(theme *render.Theme, auxAtlas rl.Texture2D, kenney kenneySet) error {
+	auxTex := textureOf(auxAtlas)
 	states := []core.WidgetState{core.StateNormal, core.StateFocused, core.StateHovered, core.StatePressed, core.StateDisabled, core.StateSelected}
 	stateTints := []core.Color{
 		{R: 255, G: 255, B: 255, A: 255}, {R: 225, G: 242, B: 255, A: 255},
@@ -391,64 +498,125 @@ func registerTheme(theme *render.Theme, buttonAtlas, auxAtlas rl.Texture2D) erro
 		{R: 185, G: 185, B: 195, A: 255}, {R: 245, G: 255, B: 245, A: 255},
 	}
 	backgroundKinds := []core.WidgetKind{
-		core.WidgetButton, core.WidgetRectangle, core.WidgetLabel,
+		core.WidgetLabel,
 		core.WidgetCheckbox, core.WidgetTextbox, core.WidgetScrollPanel, core.WidgetDropdown,
 		core.WidgetFrame,
 	}
 	for _, kind := range backgroundKinds {
 		for i, state := range states {
-			if err := registerBackground(theme, kind, state, stateTints[i], buttonTex, auxTex, i); err != nil {
+			if err := registerBackground(theme, kind, state, stateTints[i], auxTex, i); err != nil {
 				return err
 			}
 		}
 	}
 
 	for i, state := range states {
-		if err := registerStateParts(theme, state, stateTints[i], auxTex); err != nil {
+		if err := registerStateParts(theme, state, stateTints[i], auxTex, kenney); err != nil {
+			return err
+		}
+	}
+	if err := registerKenneyButtons(theme, states, stateTints, kenney); err != nil {
+		return err
+	}
+	if err := registerPanelBorder(theme, states, stateTints, kenney); err != nil {
+		return err
+	}
+	return registerFrameBackground(theme, states, stateTints, auxTex)
+}
+
+// registerPanelBorder skins frame borders from the Kenney grey panel
+// ring (64x64, 8px edges, empty center) as an 8-patch: nine-patch insets with
+// CenterFill false so the transparent middle is never drawn.
+func registerPanelBorder(theme *render.Theme, states []core.WidgetState, tints []core.Color, kenney kenneySet) error {
+	tex := textureOf(kenney.panelBorder)
+	region := core.Rect{W: float32(tex.Width), H: float32(tex.Height)}
+	for i, state := range states {
+		border := patchDescriptor(tex, region, tints[i], 8, false)
+		if err := theme.SetSkinPart(skin.SkinKey{Widget: core.WidgetFrame, Part: skin.PartBorder, State: state}, border); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func registerBackground(theme *render.Theme, kind core.WidgetKind, state core.WidgetState, tint core.Color, buttonTex, auxTex skin.Texture, stateIndex int) error {
-	backgroundTexture, backgroundRegion := backgroundSource(kind, stateIndex, buttonTex, auxTex)
+// registerFrameBackground gives frames a flat fill.
+// The aux state patches carry a painted 2px outline that would read as a
+// second border behind the Kenney ring, so the region is cropped 3px on each
+// side to cut the outline off and drawn unstretched (no nine-patch).
+func registerFrameBackground(theme *render.Theme, states []core.WidgetState, tints []core.Color, auxTex skin.Texture) error {
+	for i, state := range states {
+		region := core.Rect{X: float32(i*68 + 3), Y: 3, W: 54, H: 30}
+		background := patchDescriptor(auxTex, region, tints[i], 0, true)
+		if err := theme.SetSkinPart(skin.SkinKey{Widget: core.WidgetFrame, Part: skin.PartBackground, State: state}, background); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// blue border for focus/hover/selected, red border for pressed. All are
+// 192x64 with an 8-pixel nine-patch border, like the retired button image.
+func registerKenneyButtons(theme *render.Theme, states []core.WidgetState, tints []core.Color, kenney kenneySet) error {
+	byState := map[core.WidgetState]skin.Texture{
+		core.StateNormal:   textureOf(kenney.button),
+		core.StateFocused:  textureOf(kenney.buttonHover),
+		core.StateHovered:  textureOf(kenney.buttonHover),
+		core.StatePressed:  textureOf(kenney.buttonPressed),
+		core.StateDisabled: textureOf(kenney.button),
+		core.StateSelected: textureOf(kenney.buttonHover),
+	}
+	for i, state := range states {
+		tex := byState[state]
+		region := core.Rect{W: float32(tex.Width), H: float32(tex.Height)}
+		background := patchDescriptor(tex, region, tints[i], 8, true)
+		if err := theme.SetSkinPart(skin.SkinKey{Widget: core.WidgetButton, Part: skin.PartBackground, State: state}, background); err != nil {
+			return err
+		}
+		border := patchDescriptor(tex, region, tints[i], 8, false)
+		if err := theme.SetSkinPart(skin.SkinKey{Widget: core.WidgetButton, Part: skin.PartBorder, State: state}, border); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func registerBackground(theme *render.Theme, kind core.WidgetKind, state core.WidgetState, tint core.Color, auxTex skin.Texture, stateIndex int) error {
+	backgroundTexture, backgroundRegion := backgroundSource(stateIndex, auxTex)
 	background := patchDescriptor(backgroundTexture, backgroundRegion, tint, 8, true)
 	if err := theme.SetSkinPart(skin.SkinKey{Widget: kind, Part: skin.PartBackground, State: state}, background); err != nil {
 		return err
 	}
-	borderTexture, borderRegion := borderSource(kind, buttonTex, auxTex)
+	borderTexture, borderRegion := borderSource(auxTex)
 	border := patchDescriptor(borderTexture, borderRegion, tint, 8, false)
 	return theme.SetSkinPart(skin.SkinKey{Widget: kind, Part: skin.PartBorder, State: state}, border)
 }
 
-func backgroundSource(kind core.WidgetKind, stateIndex int, buttonTex, auxTex skin.Texture) (skin.Texture, core.Rect) {
-	if kind == core.WidgetButton {
-		// This is the checked-in 192x64 button image. Its 8-pixel border is
-		// preserved while the center stretches.
-		return buttonTex, core.Rect{W: 192, H: 64}
-	}
+func backgroundSource(stateIndex int, auxTex skin.Texture) (skin.Texture, core.Rect) {
 	return auxTex, core.Rect{X: float32(stateIndex * 68), W: 60, H: 36}
 }
 
-func borderSource(kind core.WidgetKind, buttonTex, auxTex skin.Texture) (skin.Texture, core.Rect) {
-	if kind == core.WidgetButton {
-		return buttonTex, core.Rect{W: 192, H: 64}
-	}
+func borderSource(auxTex skin.Texture) (skin.Texture, core.Rect) {
 	return auxTex, core.Rect{X: 168, Y: 104, W: 96, H: 42}
 }
 
-func registerStateParts(theme *render.Theme, state core.WidgetState, tint core.Color, atlas skin.Texture) error {
+// registerStateParts skins tracks, fills, and icons per state. The slider
+// handle, dropdown arrow, and checkbox icons come from the Kenney set; the
+// checkbox empty box rides PartIcon so unchecked boxes render without touching
+// the checkmark path.
+func registerStateParts(theme *render.Theme, state core.WidgetState, tint core.Color, atlas skin.Texture, kenney kenneySet) error {
+	handle := fullIconDescriptor(textureOf(kenney.sliderHandle), tint)
+	arrow := fullIconDescriptor(textureOf(kenney.arrow), tint)
+	cross := fullIconDescriptor(textureOf(kenney.checkCross), tint)
 	parts := []struct {
 		part       skin.SkinPart
 		descriptor skin.SkinDescriptor
 	}{
 		{skin.PartTrack, patchDescriptor(atlas, core.Rect{X: 208, Y: 48, W: 96, H: 20}, tint, 6, true)},
-		{skin.PartThumb, iconDescriptor(atlas, core.Rect{X: 312, Y: 48, W: 28, H: 28}, tint)},
+		{skin.PartThumb, handle},
 		{skin.PartTrack, patchDescriptor(atlas, core.Rect{X: 208, Y: 48, W: 96, H: 20}, tint, 6, true)},
 		{skin.PartOverlay, patchDescriptor(atlas, core.Rect{X: 408, Y: 48, W: 96, H: 20}, tint, 6, true)},
-		{skin.PartArrow, iconDescriptor(atlas, core.Rect{X: 376, Y: 48, W: 28, H: 28}, tint)},
-		{skin.PartCheckmark, iconDescriptor(atlas, core.Rect{X: 344, Y: 48, W: 28, H: 28}, tint)},
+		{skin.PartArrow, arrow},
+		{skin.PartCheckmark, cross},
 	}
 	kinds := []core.WidgetKind{
 		core.WidgetSlider, core.WidgetSlider, core.WidgetProgressBar,
@@ -460,49 +628,75 @@ func registerStateParts(theme *render.Theme, state core.WidgetState, tint core.C
 			return err
 		}
 	}
-	return nil
+	empty := fullIconDescriptor(textureOf(kenney.checkEmpty), tint)
+	return theme.SetSkinPart(skin.SkinKey{Widget: core.WidgetCheckbox, Part: skin.PartIcon, State: state}, empty)
 }
 
-func newGallery(buttonTexture rl.Texture2D, theme *render.Theme, uiTransform *transform.Transform, capture *input.Capture) *gallery {
+// newGallery builds the widget set, registers it with the facade in draw
+// order, and wires the gallery callbacks. All hover/press/focus/capture
+// state lives in the facade; the gallery keeps only app concerns (popup open,
+// frame nodes, status text, layout cache).
+func newGallery(facade *ui.UI) *gallery {
 	g := &gallery{
-		buttonTexture: buttonTexture,
-		theme:         theme, transform: uiTransform, capture: capture,
-		leftPanel: widgets.NewFrame("leftPanel", core.Rect{}), rightPanel: widgets.NewFrame("rightPanel", core.Rect{}),
-		button:   widgets.NewButton("primaryButton", core.Rect{}, "Primary button"),
-		checkbox: widgets.NewCheckbox("enableCheckbox", core.Rect{}, true),
-		textbox:  widgets.NewTextbox("inputTextbox", core.Rect{}, 128),
-		dropdown: widgets.NewDropdown("classDropdown", core.Rect{}, []string{"Warrior", "Ranger", "Mage"}, 0),
-		slider:   widgets.NewSlider("valueSlider", core.Rect{}, 0.35), progress: widgets.NewProgressBar("valueProgress", core.Rect{}, 0.35),
-		rectangle: widgets.NewRectangle("demoRectangle", core.Rect{}), label: widgets.NewLabel("demoLabel", core.Rect{}, "Textured label"),
-		frame: widgets.NewFrame("demoFrame", core.Rect{}), frameButton: widgets.NewButton("frameChildButton", core.Rect{}, "Frame child"),
-		scroll: widgets.NewScrollPanel("scrollPanel", core.Rect{}), status: "Click a widget to interact with it — press R to MoveFrame",
+		facade:      facade,
+		leftPanel:   widgets.NewFrame("leftPanel", core.Rect{}),
+		rightPanel:  widgets.NewFrame("rightPanel", core.Rect{}),
+		button:      widgets.NewButton("primaryButton", core.Rect{}, "Primary button"),
+		checkbox:    widgets.NewCheckbox("enableCheckbox", core.Rect{}, true),
+		textbox:     widgets.NewTextbox("inputTextbox", core.Rect{}, 128),
+		dropdown:    widgets.NewDropdown("classDropdown", core.Rect{}, []string{"Warrior", "Ranger", "Mage"}, 0),
+		slider:      widgets.NewSlider("valueSlider", core.Rect{}, 0.35),
+		progress:    widgets.NewProgressBar("valueProgress", core.Rect{}, 0.35),
+		panel:       widgets.NewFrame("demoPanel", core.Rect{}),
+		label:       widgets.NewLabel("demoLabel", core.Rect{}, "Textured label"),
+		frame:       widgets.NewFrame("demoFrame", core.Rect{}),
+		frameButton: widgets.NewButton("frameChildButton", core.Rect{}, "Frame child"),
+		scroll:      widgets.NewScrollPanel("scrollPanel", core.Rect{}),
+		status:      "Click a widget to interact with it — press R to MoveFrame",
 	}
 	g.textbox.TextBuf.Set("Type here")
+	facade.Add(g.leftPanel, g.rightPanel, g.button, g.checkbox, g.textbox, g.dropdown, g.slider, g.progress, g.panel, g.label, g.frame, g.frameButton, g.scroll)
+	facade.OnClick("primaryButton", func() {
+		g.status = "Primary button clicked"
+	})
+	facade.OnClick("enableCheckbox", func() {
+		g.button.Enabled = g.checkbox.Checked
+		g.status = fmt.Sprintf("Checkbox is %v; primary button enabled=%v", g.checkbox.Checked, g.button.Enabled)
+	})
+	facade.OnClick("frameChildButton", func() {
+		g.status = "Frame child button clicked"
+	})
+	facade.OnClick("classDropdown", func() {
+		g.dropdownOpen = !g.dropdownOpen
+	})
+	facade.OnChange("valueSlider", func(v float32) {
+		g.progress.Value = v
+		g.status = fmt.Sprintf("Slider value %.0f%%", v*100)
+	})
 	// Layout nodes for relative-move child demo (layout.MoveFrame semantics)
 	g.frameNode = layout.New("frame", core.Rect{})
 	g.frameChildNode = layout.New("frameChild", core.Rect{})
 	g.frameChildNode.SetAnchor(layout.AnchorTopLeft)
 	g.frameChildNode.SetFixedSize(core.Vec2{X: 120, Y: 40})
 	g.frameNode.AddChild(g.frameChildNode)
+	// Layout is computed once from the fixed design resolution; later window
+	// resizes rescale around these bounds instead of reflowing them.
+	logical := facade.Transform().Viewport.LogicalSize
+	g.designWidth, g.designHeight = logical.X, logical.Y
+	g.layout = calculateLayout(logical.X, logical.Y)
+	g.applyLayout()
 	return g
 }
 
-func (g *gallery) resizeIfNeeded(width, height int) {
-	if width == g.lastWidth && height == g.lastHeight {
-		return
-	}
-	g.lastWidth, g.lastHeight = width, height
-	w, h := float32(width), float32(height)
-	g.layout = calculateLayout(w, h)
-	viewport := core.Viewport{Viewport: core.Rect{W: w, H: h}, LogicalSize: core.Vec2{X: w, Y: h}}
-	if err := g.transform.SetViewport(viewport); err != nil {
-		log.Fatal(err)
-	}
+// applyLayout assigns the cached design-resolution bounds to widgets and
+// syncs the frame layout nodes. It runs once at startup; bounds never follow
+// the live window size after that.
+func (g *gallery) applyLayout() {
 	g.leftPanel.Bounds, g.rightPanel.Bounds = g.layout.leftPanel, g.layout.rightPanel
 	g.button.Bounds, g.checkbox.Bounds = g.layout.button, g.layout.checkbox
 	g.textbox.Bounds, g.dropdown.Bounds = g.layout.textbox, g.layout.dropdown
 	g.slider.Bounds, g.progress.Bounds = g.layout.slider, g.layout.progress
-	g.rectangle.Bounds, g.label.Bounds = g.layout.rectangle, g.layout.label
+	g.panel.Bounds, g.label.Bounds = g.layout.panel, g.layout.label
 	g.frame.Bounds, g.frameButton.Bounds = g.layout.frame, g.layout.frameButton
 	g.scroll.Bounds = g.layout.scroll
 	// Sync layout nodes with new viewport arrangement
@@ -528,7 +722,7 @@ func calculateLayout(width, height float32) galleryLayout {
 		dropdown:    core.Rect{X: widgetX, Y: left.Y + 240, W: widgetW, H: 42},
 		slider:      core.Rect{X: widgetX, Y: left.Y + 304, W: widgetW, H: 42},
 		progress:    core.Rect{X: widgetX, Y: left.Y + 368, W: widgetW, H: 42},
-		rectangle:   core.Rect{X: widgetX, Y: left.Y + 440, W: widgetW, H: 94},
+		panel:       core.Rect{X: widgetX, Y: left.Y + 440, W: widgetW, H: 94},
 		label:       core.Rect{X: right.X + 24, Y: right.Y + 40, W: right.W - 48, H: 32},
 		frame:       core.Rect{X: right.X + 24, Y: right.Y + 92, W: right.W - 48, H: 164},
 		frameButton: core.Rect{X: right.X + 48, Y: right.Y + 166, W: right.W - 96, H: 42},
@@ -536,46 +730,84 @@ func calculateLayout(width, height float32) galleryLayout {
 	}
 }
 
+// handleInput polls raylib once per frame and forwards to the facade.
+// The dropdown popup gets first refusal on left-press; everything else flows
+// through ui.HandleMouse/HandleKey, which report handled for game gating.
+// Frame-move (R) and the idle sine animation mutate frame bounds directly.
 func (g *gallery) handleInput() {
-	mouse := g.mousePosition()
-	g.handleEscape()
+	physical := rl.GetMousePosition()
+	mouse := g.facade.ToLogical(core.Vec2{X: physical.X, Y: physical.Y})
+	pressedEdge := rl.IsMouseButtonPressed(rl.MouseButtonLeft)
+	if g.dropdownOpen && pressedEdge {
+		if g.handleDropdownClick(mouse) {
+			// Popup consumed this press (row selection or outside close):
+			// still pump keys so Escape works, but skip mouse dispatch to
+			// avoid opening a second gesture underneath.
+			g.facade.HandleMouse(ui.MouseEvent{Pos: mouse, Down: rl.IsMouseButtonDown(rl.MouseButtonLeft), Wheel: rl.GetMouseWheelMove()})
+			g.handleKeys()
+			g.handleFrameMove()
+			g.animateFrame()
+			return
+		}
+		// else: the press landed on the dropdown widget itself — fall through
+		// to normal dispatch so press/release fires OnClick and toggles the
+		// popup closed.
+	}
+	mouseHandled := g.facade.HandleMouse(ui.MouseEvent{
+		Pos:      mouse,
+		Pressed:  pressedEdge,
+		Down:     rl.IsMouseButtonDown(rl.MouseButtonLeft),
+		Released: rl.IsMouseButtonReleased(rl.MouseButtonLeft),
+		Wheel:    rl.GetMouseWheelMove(),
+	})
+	_ = mouseHandled
+	// The facade scrolls unclamped; the gallery bounds its demo list.
+	g.scroll.Scroll.Y = clamp(g.scroll.Scroll.Y, 0, 170)
+	g.handleKeys()
 	g.handleFrameMove()
 	g.animateFrame()
-	if g.dropdownOpen {
-		g.handleDropdownInput(mouse)
-	} else {
-		g.handlePointerInput(mouse)
-	}
-	g.handleTextInput()
 }
 
-func (g *gallery) mousePosition() core.Vec2 {
-	physical := rl.GetMousePosition()
-	return g.transform.PhysicalToViewport(core.Vec2{X: physical.X, Y: physical.Y})
-}
-
-func (g *gallery) handleEscape() {
-	if rl.IsKeyPressed(rl.KeyEscape) {
+// handleKeys forwards chars, backspace, and escape to the facade.
+// Escape also closes the dropdown popup when it is open.
+func (g *gallery) handleKeys() {
+	escape := rl.IsKeyPressed(rl.KeyEscape)
+	if escape && g.dropdownOpen {
 		g.dropdownOpen = false
-		g.focus(nil)
 	}
+	chars := drainGalleryChars()
+	backspace := rl.IsKeyPressed(rl.KeyBackspace) || rl.IsKeyPressedRepeat(rl.KeyBackspace)
+	_ = g.facade.HandleKey(ui.KeyEvent{Chars: chars, Backspace: backspace, Escape: escape})
 }
 
+// drainGalleryChars collects pending raylib runes for this frame.
+func drainGalleryChars() []rune {
+	var out []rune
+	for codepoint := rl.GetCharPressed(); codepoint > 0; codepoint = rl.GetCharPressed() {
+		if codepoint >= 32 && codepoint != 127 {
+			out = append(out, rune(codepoint))
+		}
+	}
+	return out
+}
+
+// handleFrameMove nudges the demo frame on R.
 func (g *gallery) handleFrameMove() {
 	if !rl.IsKeyPressed(rl.KeyR) {
 		return
 	}
 	delta := core.Vec2{X: 12, Y: 8}
-	if g.frame.Bounds.X+delta.X+g.frame.Bounds.W > float32(g.lastWidth)-20 {
+	if g.frame.Bounds.X+delta.X+g.frame.Bounds.W > g.designWidth-20 {
 		delta.X = -40
 	}
-	if g.frame.Bounds.Y+delta.Y+g.frame.Bounds.H > float32(g.lastHeight)-20 {
+	if g.frame.Bounds.Y+delta.Y+g.frame.Bounds.H > g.designHeight-20 {
 		delta.Y = -30
 	}
 	g.applyFrameMove(delta)
 	g.status = fmt.Sprintf("MoveFrame %+v — child follows (%.0f,%.0f)", delta, g.frameButton.Bounds.X, g.frameButton.Bounds.Y)
 }
 
+// animateFrame drifts the demo frame on a sine wave.
 func (g *gallery) animateFrame() {
 	if g.frameNode == nil || rl.IsKeyDown(rl.KeyR) {
 		return
@@ -594,119 +826,16 @@ func (g *gallery) animateFrame() {
 	g.applyFrameMove(delta)
 }
 
+// applyFrameMove moves the frame node and syncs widget bounds to it.
 func (g *gallery) applyFrameMove(delta core.Vec2) {
 	layout.MoveFrame(g.frameNode, delta)
 	g.frame.Bounds = g.frameNode.Resolved
 	g.frameButton.Bounds = g.frameChildNode.Resolved
 }
 
-func (g *gallery) handlePointerInput(mouse core.Vec2) {
-	g.updateHover(mouse)
-	g.handleWheel(mouse)
-	if rl.IsMouseButtonPressed(rl.MouseButtonLeft) {
-		g.press(mouse)
-	}
-	if rl.IsMouseButtonDown(rl.MouseButtonLeft) && g.pressed == g.slider {
-		g.setSlider(mouse)
-	}
-	if rl.IsMouseButtonReleased(rl.MouseButtonLeft) {
-		g.release(mouse)
-	}
-}
-
-func (g *gallery) updateHover(mouse core.Vec2) {
-	for _, w := range g.interactive() {
-		if w == g.pressed || w == g.focused {
-			continue
-		}
-		w.UpdateHover(mouse)
-	}
-	if !g.button.Enabled {
-		g.button.State = core.StateDisabled
-	}
-}
-
-func (g *gallery) interactive() []*widgets.Widget {
-	return []*widgets.Widget{g.button, g.checkbox, g.textbox, g.dropdown, g.slider, g.frameButton}
-}
-
-func (g *gallery) hitInteractive(mouse core.Vec2) *widgets.Widget {
-	for _, w := range g.interactive() {
-		if w.Enabled && w.HitTest(mouse) {
-			return w
-		}
-	}
-	return nil
-}
-
-func (g *gallery) press(mouse core.Vec2) {
-	w := g.hitInteractive(mouse)
-	if w == nil {
-		g.focus(nil)
-		return
-	}
-	if w == g.textbox {
-		g.focus(w)
-	}
-	if !w.Press(mouse, g.capture) {
-		return
-	}
-	g.pressed = w
-	if w == g.dropdown {
-		g.dropdownOpen = true
-	}
-	if w == g.slider {
-		g.setSlider(mouse)
-	}
-}
-
-func (g *gallery) release(mouse core.Vec2) {
-	if g.pressed == nil {
-		return
-	}
-	w := g.pressed
-	clicked := w.Release(mouse, g.capture)
-	g.pressed = nil
-	if !clicked {
-		return
-	}
-	switch w {
-	case g.button:
-		g.status = "Primary button clicked"
-	case g.checkbox:
-		g.button.Enabled = g.checkbox.Checked
-		g.status = fmt.Sprintf("Checkbox is %v; primary button enabled=%v", g.checkbox.Checked, g.button.Enabled)
-	case g.frameButton:
-		g.status = "Frame child button clicked"
-	}
-	if w == g.slider {
-		g.progress.Value = g.slider.Value
-		g.status = fmt.Sprintf("Slider value %.0f%%", g.slider.Value*100)
-	}
-}
-
-func (g *gallery) setSlider(mouse core.Vec2) {
-	value := (mouse.X - g.slider.Bounds.X) / g.slider.Bounds.W
-	g.slider.SetSlider(value)
-	g.progress.Value = g.slider.Value
-}
-
-func (g *gallery) handleWheel(mouse core.Vec2) {
-	if !g.scroll.HitTest(mouse) {
-		return
-	}
-	delta := rl.GetMouseWheelMove()
-	if delta == 0 {
-		return
-	}
-	g.scroll.ScrollBy(0, -delta*28)
-	g.scroll.Scroll.Y = clamp(g.scroll.Scroll.Y, 0, 170)
-}
-
-func (g *gallery) handleDropdownInput(mouse core.Vec2) {
-	if !rl.IsMouseButtonPressed(rl.MouseButtonLeft) {
-		return
-	}
+// handleDropdownClick selects a popup row or closes on outside click.
+// It reports true when the press was consumed by the popup.
+func (g *gallery) handleDropdownClick(mouse core.Vec2) bool {
 	popup := g.dropdownPopup()
 	if popup.Contains(mouse) {
 		row := int((mouse.Y - popup.Y) / 36)
@@ -716,143 +845,90 @@ func (g *gallery) handleDropdownInput(mouse core.Vec2) {
 			g.dropdown.State = core.StateHovered
 			g.status = "Dropdown selected: " + g.dropdown.DropdownItems[row]
 		}
-		return
+		return true
 	}
 	if !g.dropdown.HitTest(mouse) {
 		g.dropdownOpen = false
+		return true
 	}
+	return false
 }
 
+// dropdownPopup returns the popup bounds below the dropdown widget.
 func (g *gallery) dropdownPopup() core.Rect {
 	return core.Rect{X: g.dropdown.Bounds.X, Y: g.dropdown.Bounds.Y + g.dropdown.Bounds.H + 4, W: g.dropdown.Bounds.W, H: float32(len(g.dropdown.DropdownItems) * 36)}
 }
 
-func (g *gallery) focus(widget *widgets.Widget) {
-	if g.focused == widget {
-		return
-	}
-	if g.focused != nil {
-		g.focused.Blur()
-	}
-	g.focused = widget
-	if g.focused != nil {
-		g.focused.Focus()
-	}
-}
-
-func (g *gallery) handleTextInput() {
-	if g.focused != g.textbox {
-		return
-	}
-	for codepoint := rl.GetCharPressed(); codepoint > 0; codepoint = rl.GetCharPressed() {
-		// UTF-8: TextBuffer truncates safely, multi-byte backspace handled in Backspace()
-		if codepoint >= 32 && codepoint != 127 {
-			g.textbox.TypeChar(rune(codepoint))
-		}
-	}
-	if rl.IsKeyPressed(rl.KeyBackspace) || rl.IsKeyPressedRepeat(rl.KeyBackspace) {
-		g.textbox.Backspace()
-	}
-}
-
+// draw renders the facade widgets plus app-specific layers. Everything is
+// expressed in logical design coordinates; the matrix stretch maps it onto
+// the live window, so resizing scales the UI instead of reflowing it.
 func (g *gallery) draw() {
 	rl.BeginDrawing()
 	rl.ClearBackground(color.RGBA{R: 13, G: 17, B: 27, A: 255})
 
-	rl.DrawText("RTG textured widget gallery", 28, 24, 26, color.RGBA{R: 226, G: 239, B: 255, A: 255})
-	rl.DrawText("Every v1 widget uses an atlas part, nine-patch, tint, alpha, or the documented fallback path. Press R to MoveFrame.", 30, 51, 14, color.RGBA{R: 153, G: 174, B: 202, A: 255})
-	panelTitle(g.layout.leftPanel, "Widgets")
-	panelTitle(g.layout.rightPanel, "Containers, clipping, and states")
+	sx, sy := g.facade.Scale()
+	rl.PushMatrix()
+	rl.Scalef(sx, sy, 1)
 
-	g.drawWidget(g.leftPanel)
-	g.drawWidget(g.rightPanel)
-	g.drawWidget(g.button)
-	g.drawWidget(g.checkbox)
-	g.drawWidget(g.textbox)
-	g.drawWidget(g.dropdown)
-	g.drawWidget(g.slider)
-	g.drawWidget(g.progress)
-	g.drawWidget(g.rectangle)
-	g.drawWidget(g.label)
-	g.drawWidget(g.frame)
-	g.drawWidget(g.frameButton)
-	g.drawWidget(g.scroll)
+	g.drawText("RTG textured widget gallery", 28, 24, 26, color.RGBA{R: 226, G: 239, B: 255, A: 255})
+	g.drawItalic("Every v1 widget uses an atlas part, nine-patch, tint, alpha, or the documented fallback path. Press R to MoveFrame.", 30, 51, 14, color.RGBA{R: 153, G: 174, B: 202, A: 255})
+	g.panelTitle(g.layout.leftPanel, "Widgets")
+	g.panelTitle(g.layout.rightPanel, "Containers, clipping, and states")
 
-	rl.DrawText("Enable primary button", int32(g.checkbox.Bounds.X+40), int32(g.checkbox.Bounds.Y+8), 18, color.RGBA{R: 205, G: 218, B: 238, A: 255})
-	rl.DrawText("Textbox (click, type, backspace — UTF-8)", int32(g.textbox.Bounds.X), int32(g.textbox.Bounds.Y-23), 15, color.RGBA{R: 153, G: 174, B: 202, A: 255})
-	rl.DrawText("Dropdown (click to open)", int32(g.dropdown.Bounds.X), int32(g.dropdown.Bounds.Y-23), 15, color.RGBA{R: 153, G: 174, B: 202, A: 255})
-	rl.DrawText("Slider drives the progress bar", int32(g.slider.Bounds.X), int32(g.slider.Bounds.Y-23), 15, color.RGBA{R: 153, G: 174, B: 202, A: 255})
-	rl.DrawText(fmt.Sprintf("%.0f%%", g.slider.Value*100), int32(g.slider.Bounds.X+g.slider.Bounds.W-48), int32(g.slider.Bounds.Y+13), 16, color.RGBA{R: 230, G: 242, B: 255, A: 255})
-	rl.DrawText(fmt.Sprintf("Progress: %.0f%%", g.progress.Value*100), int32(g.progress.Bounds.X+12), int32(g.progress.Bounds.Y+13), 16, color.RGBA{R: 235, G: 255, B: 240, A: 255})
-	rl.DrawText("Rectangle primitive / frame decoration", int32(g.rectangle.Bounds.X+14), int32(g.rectangle.Bounds.Y+38), 17, color.RGBA{R: 218, G: 230, B: 248, A: 255})
-	rl.DrawText("Frame child moves with its parent (R / sine)", int32(g.frame.Bounds.X+18), int32(g.frame.Bounds.Y+20), 15, color.RGBA{R: 153, G: 174, B: 202, A: 255})
+	g.facade.Draw()
+
+	g.drawText("Enable primary button", int32(g.checkbox.Bounds.X+40), int32(g.checkbox.Bounds.Y+8), 18, color.RGBA{R: 205, G: 218, B: 238, A: 255})
+	g.drawItalic("Textbox (click, type, backspace — UTF-8)", int32(g.textbox.Bounds.X), int32(g.textbox.Bounds.Y-23), 15, color.RGBA{R: 153, G: 174, B: 202, A: 255})
+	g.drawItalic("Dropdown (click to open)", int32(g.dropdown.Bounds.X), int32(g.dropdown.Bounds.Y-23), 15, color.RGBA{R: 153, G: 174, B: 202, A: 255})
+	g.drawItalic("Slider drives the progress bar", int32(g.slider.Bounds.X), int32(g.slider.Bounds.Y-23), 15, color.RGBA{R: 153, G: 174, B: 202, A: 255})
+	g.drawText(fmt.Sprintf("%.0f%%", g.slider.Value*100), int32(g.slider.Bounds.X+g.slider.Bounds.W-48), int32(g.slider.Bounds.Y+13), 16, color.RGBA{R: 230, G: 242, B: 255, A: 255})
+	g.drawText(fmt.Sprintf("Progress: %.0f%%", g.progress.Value*100), int32(g.progress.Bounds.X+12), int32(g.progress.Bounds.Y+13), 16, color.RGBA{R: 235, G: 255, B: 240, A: 255})
+	g.drawText("Panel frame decoration", int32(g.panel.Bounds.X+14), int32(g.panel.Bounds.Y+38), 17, color.RGBA{R: 218, G: 230, B: 248, A: 255})
+	g.drawText("Frame child moves with its parent (R / sine)", int32(g.frame.Bounds.X+18), int32(g.frame.Bounds.Y+20), 15, color.RGBA{R: 153, G: 174, B: 202, A: 255})
 
 	g.drawScrollContents()
 	if g.dropdownOpen {
 		g.drawDropdownPopup()
 	}
 	g.drawStateSamples()
-	rl.DrawText(g.status, 30, int32(g.lastHeight-18), 15, color.RGBA{R: 161, G: 192, B: 224, A: 255})
+	g.drawItalic(g.status, 30, int32(g.designHeight-18), 15, color.RGBA{R: 161, G: 192, B: 224, A: 255})
 
+	rl.PopMatrix()
 	rl.EndDrawing()
 }
 
-func panelTitle(bounds core.Rect, title string) {
-	rl.DrawText(title, int32(bounds.X+24), int32(bounds.Y+15), 20, color.RGBA{R: 224, G: 235, B: 252, A: 255})
+// drawText renders gallery chrome with the Grenze-Light theme font.
+func (g *gallery) drawText(value string, x, y int32, size float32, tint color.RGBA) {
+	theme := g.facade.Theme()
+	if theme.HasFont() {
+		rl.DrawTextEx(theme.FontForSize(size), value, rl.NewVector2(float32(x), float32(y)), size, size/10, tint)
+		return
+	}
+	rl.DrawText(value, x, y, int32(size), tint)
 }
 
-func (g *gallery) drawWidget(w *widgets.Widget) {
-	if !w.Enabled {
-		w.State = core.StateDisabled
+// drawItalic renders captions and status with the Grenze-LightItalic font.
+func (g *gallery) drawItalic(value string, x, y int32, size float32, tint color.RGBA) {
+	theme := g.facade.Theme()
+	if theme.HasItalicFont() {
+		rl.DrawTextEx(theme.ItalicForSize(size), value, rl.NewVector2(float32(x), float32(y)), size, size/10, tint)
+		return
 	}
-	info := w.Info()
-	info.HasCapture = g.capture.IsCaptured() && g.capture.ID() == w.ID
-	if err := g.drawWidgetParts(w, info, g.widgetText(w)); err != nil {
-		log.Fatal(err)
-	}
+	rl.DrawText(value, x, y, int32(size), tint)
 }
 
-func (g *gallery) widgetText(w *widgets.Widget) string {
-	text := w.Text
-	if w.TextBuf != nil {
-		text = w.TextBuf.String()
-	}
-	if w == g.dropdown && w.DropdownIndex >= 0 && w.DropdownIndex < len(w.DropdownItems) {
-		text = w.DropdownItems[w.DropdownIndex]
-	}
-	return text
+// panelTitle renders a panel heading with the Grenze-Light theme font.
+func (g *gallery) panelTitle(bounds core.Rect, title string) {
+	g.drawText(title, int32(bounds.X+24), int32(bounds.Y+15), 20, color.RGBA{R: 224, G: 235, B: 252, A: 255})
 }
 
-func (g *gallery) drawWidgetParts(w *widgets.Widget, info core.WidgetInfo, text string) error {
-	if w == g.label {
-		if err := g.theme.DrawWidgetPart(w.Kind, skin.PartBackground, w.Bounds, w.State); err != nil {
-			return err
-		}
-	}
-	if err := g.theme.DrawWidget(info, text, w.Value, w.Checked); err != nil {
-		return err
-	}
-	if needsBorder(w.Kind) {
-		if err := g.theme.DrawWidgetPart(w.Kind, skin.PartBorder, w.Bounds, w.State); err != nil {
-			return err
-		}
-	}
-	if w == g.dropdown {
-		arrow := core.Rect{X: w.Bounds.X + w.Bounds.W - 34, Y: w.Bounds.Y + 7, W: 28, H: 28}
-		if err := g.theme.DrawWidgetPart(w.Kind, skin.PartArrow, arrow, w.State); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func needsBorder(kind core.WidgetKind) bool {
-	return kind == core.WidgetButton || kind == core.WidgetRectangle || kind == core.WidgetLabel || kind == core.WidgetTextbox || kind == core.WidgetScrollPanel || kind == core.WidgetDropdown || kind == core.WidgetFrame
-}
-
+// drawScrollContents renders the clipped demo rows. Scissor stays app-side,
+// and takes physical pixels, so the logical panel bounds are scaled by hand
+// (the matrix stretch does not apply to the GPU scissor test).
 func (g *gallery) drawScrollContents() {
 	// Scissor is left to the app (draw.go never calls BeginScissorMode)
-	rl.BeginScissorMode(int32(g.scroll.Bounds.X), int32(g.scroll.Bounds.Y), int32(g.scroll.Bounds.W), int32(g.scroll.Bounds.H))
+	sx, sy := g.facade.Scale()
+	rl.BeginScissorMode(int32(g.scroll.Bounds.X*sx), int32(g.scroll.Bounds.Y*sy), int32(g.scroll.Bounds.W*sx), int32(g.scroll.Bounds.H*sy))
 	start := g.scroll.Bounds.Y + 12 - g.scroll.Scroll.Y
 	for i := 0; i < 10; i++ {
 		y := start + float32(i*34)
@@ -861,42 +937,47 @@ func (g *gallery) drawScrollContents() {
 			fill = color.RGBA{R: 29, G: 40, B: 59, A: 255}
 		}
 		rl.DrawRectangleRec(rl.Rectangle{X: g.scroll.Bounds.X + 10, Y: y, Width: g.scroll.Bounds.W - 20, Height: 28}, fill)
-		rl.DrawText(fmt.Sprintf("Clipped row %02d  •  scroll offset %.0f", i+1, g.scroll.Scroll.Y), int32(g.scroll.Bounds.X+20), int32(y+6), 14, color.RGBA{R: 194, G: 211, B: 235, A: 255})
+		g.drawText(fmt.Sprintf("Clipped row %02d  •  scroll offset %.0f", i+1, g.scroll.Scroll.Y), int32(g.scroll.Bounds.X+20), int32(y+6), 14, color.RGBA{R: 194, G: 211, B: 235, A: 255})
 	}
 	rl.EndScissorMode()
-	rl.DrawText("Scroll panel — wheel over this area", int32(g.scroll.Bounds.X+12), int32(g.scroll.Bounds.Y-22), 15, color.RGBA{R: 153, G: 174, B: 202, A: 255})
+	g.drawItalic("Scroll panel — wheel over this area", int32(g.scroll.Bounds.X+12), int32(g.scroll.Bounds.Y-22), 15, color.RGBA{R: 153, G: 174, B: 202, A: 255})
 }
 
+// drawDropdownPopup renders the open popup and its hover highlight.
 func (g *gallery) drawDropdownPopup() {
+	theme := g.facade.Theme()
 	popup := g.dropdownPopup()
 	info := core.WidgetInfo{ID: 1001, Name: "dropdownPopup", Bounds: popup, Kind: core.WidgetDropdown, State: core.StatePressed}
-	if err := g.theme.DrawWidget(info, "", 0, false); err != nil {
+	if err := theme.DrawWidget(info, "", 0, false); err != nil {
 		log.Fatal(err)
 	}
-	if err := g.theme.DrawWidgetPart(core.WidgetDropdown, skin.PartBorder, popup, core.StatePressed); err != nil {
+	if err := theme.DrawWidgetPart(core.WidgetDropdown, skin.PartBorder, popup, core.StatePressed); err != nil {
 		log.Fatal(err)
 	}
+	physical := rl.GetMousePosition()
+	mouse := g.facade.ToLogical(core.Vec2{X: physical.X, Y: physical.Y})
 	for i, item := range g.dropdown.DropdownItems {
 		y := popup.Y + float32(i*36)
-		mouse := g.transform.PhysicalToViewport(core.Vec2{X: rl.GetMousePosition().X, Y: rl.GetMousePosition().Y})
 		rowBounds := core.Rect{X: popup.X, Y: y, W: popup.W, H: 36}
 		if rowBounds.Contains(mouse) {
 			rl.DrawRectangle(int32(popup.X+4), int32(y+3), int32(popup.W-8), 30, color.RGBA{R: 67, G: 97, B: 139, A: 255})
 		}
-		rl.DrawText(item, int32(popup.X+16), int32(y+8), 16, color.RGBA{R: 230, G: 240, B: 255, A: 255})
+		g.drawText(item, int32(popup.X+16), int32(y+8), 16, color.RGBA{R: 230, G: 240, B: 255, A: 255})
 	}
 }
 
+// drawStateSamples renders the six state swatches.
 func (g *gallery) drawStateSamples() {
+	theme := g.facade.Theme()
 	names := []string{"normal", "focus", "hover", "press", "disabled", "selected"}
 	startX := g.rightPanel.Bounds.X + 20
 	y := g.rightPanel.Bounds.Y + g.rightPanel.Bounds.H - 66
 	for i, state := range []core.WidgetState{core.StateNormal, core.StateFocused, core.StateHovered, core.StatePressed, core.StateDisabled, core.StateSelected} {
 		bounds := core.Rect{X: startX + float32(i)*((g.rightPanel.Bounds.W-40)/6), Y: y, W: (g.rightPanel.Bounds.W - 52) / 6, H: 34}
-		if err := g.theme.DrawWidgetPart(core.WidgetButton, skin.PartBackground, bounds, state); err != nil {
+		if err := theme.DrawWidgetPart(core.WidgetButton, skin.PartBackground, bounds, state); err != nil {
 			log.Fatal(err)
 		}
-		rl.DrawText(names[i], int32(bounds.X+5), int32(bounds.Y+10), 11, color.RGBA{R: 228, G: 239, B: 255, A: 255})
+		g.drawText(names[i], int32(bounds.X+5), int32(bounds.Y+10), 11, color.RGBA{R: 228, G: 239, B: 255, A: 255})
 	}
 }
 

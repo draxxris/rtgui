@@ -1,6 +1,7 @@
 # Binaries — never commit compiled outputs
 /widget_gallery
 /examples/widget_gallery/widget_gallery
+dist/
 *.exe
 *.test
 *.out
@@ -40,3 +41,5 @@ vendor/
 .vscode/
 *.swp
 *~
+
+/plans/

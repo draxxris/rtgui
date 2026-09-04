@@ -14,6 +14,14 @@ run = "go vet ./..."
 description = "Run the widget gallery example"
 run = "go run ./examples/widget_gallery"
 
+[tasks.build-linux]
+description = "Build the widget gallery for Linux into dist/"
+run = "mkdir -p dist && go build -o dist/widget-gallery-linux ./examples/widget_gallery"
+
+[tasks.build-windows]
+description = "Cross-compile the widget gallery for Windows into dist/ (needs mingw-w64)"
+run = "mkdir -p dist && env GOOS=windows GOARCH=amd64 CGO_ENABLED=1 CC=x86_64-w64-mingw32-gcc go build -o dist/widget-gallery.exe ./examples/widget_gallery"
+
 [tasks.complexity]
 description = "Check for cyclomatic complexity"
 run = "gocyclo -over 15 `find . -name '*.go' -type f`"

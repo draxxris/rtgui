@@ -11,7 +11,7 @@ DISPLAY= WAYLAND_DISPLAY= go test ./...
 ```
 
 The tests in `core`, `widgets`, `input`, `text`, `transform`, `skin`,
-`render`, `layout`, `dragdrop`, and `sim` do not require a display. `render.Theme`
+`render`, `layout`, `dragdrop`, `sim`, and `ui` do not require a display. `render.Theme`
 records draw calls and skips raylib drawing when no window is ready.
 
 ### Coverage by package
@@ -29,6 +29,9 @@ records draw calls and skips raylib drawing when no window is ready.
   cancellation, and ghosts.
 - `sim/`: string-ID registry, center `Click`, and focus-first-append `Type`,
   including duplicate/empty-name, unknown-ID, disabled, and wrong-kind paths.
+- `ui/`: facade registry, `HandleMouse`/`HandleKey` dispatch with handled-bool
+  game pass-through, `OnClick`/`OnChange`/`OnText` firing, UTF-8 typing, focus
+  and capture lifecycle, and headless `Draw` logging.
 
 Optional benchmarks:
 
@@ -60,6 +63,36 @@ targets instead of failing loudly. `Register` returns an error on
 duplicate or empty names without clobbering the original entry. Pair the
 harness with `theme.DrawWidget(w.Info(), ...)` to prove the renderer path
 still works with string IDs.
+
+## Facade-driven interaction
+
+Use `rtgui/ui` in real applications instead of hand-rolling dispatch. Each
+`UI` owns its registry plus transform, capture, and theme, so tests stay
+parallel-safe with no package-global state. The UI gets first refusal on each
+polled frame; the game runs its own input only when handled is false:
+
+```go
+u := ui.New(800, 600)
+u.Add(widgets.NewButton("primaryButton", core.Rect{X: 40, Y: 40, W: 200, H: 42}, "Primary"))
+u.OnClick("primaryButton", func() { status = "clicked" })
+mouseHandled := u.HandleMouse(ui.MouseEvent{Pos: u.ToLogical(p), Pressed: ..., Down: ..., Released: ..., Wheel: ...})
+if !mouseHandled {
+    cameraZoom(wheel) // game keeps wheel/click when UI returned false
+}
+keyHandled := u.HandleKey(ui.KeyEvent{Chars: runes, Backspace: ..., Escape: ...})
+if !keyHandled {
+    playerMove(keys) // game keeps keys when no textbox consumed them
+}
+u.Draw()
+```
+
+Hover alone never consumes. Press/drag/release consume on hit-or-capture
+(release off-widget after a press consumes but fires no click), wheel consumes
+only over a scrolled widget, chars/backspace consume only via a focused
+textbox, and `Escape` consumes only when it blurred focus. `Add` overwrites
+duplicates without changing draw order; callbacks for unknown names are kept
+until the widget arrives; `nil` removes a callback. `sim.Click`/`sim.Type`
+bypass `ui` callbacks in v1.
 
 ## Gallery smoke
 

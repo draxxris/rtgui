@@ -89,7 +89,6 @@ func TestWidgetStringIDs(t *testing.T) {
 		t.Fatalf("Info() = %+v, want Name okButton ID %d", info, first.ID)
 	}
 	all := []*Widget{
-		NewRectangle("rectID", core.Rect{W: 10, H: 10}),
 		NewLabel("labelID", core.Rect{W: 10, H: 10}, "hi"),
 		NewCheckbox("checkID", core.Rect{W: 20, H: 20}, false),
 		NewTextbox("textID", core.Rect{W: 100, H: 30}, 64),

@@ -46,10 +46,6 @@ func NewButton(id string, bounds core.Rect, label string) *Widget {
 	return &Widget{Name: id, ID: hashName(id), Kind: core.WidgetButton, Bounds: bounds, State: core.StateNormal, Enabled: true, Text: label}
 }
 
-func NewRectangle(id string, bounds core.Rect) *Widget {
-	return &Widget{Name: id, ID: hashName(id), Kind: core.WidgetRectangle, Bounds: bounds, State: core.StateNormal, Enabled: true}
-}
-
 func NewLabel(id string, bounds core.Rect, label string) *Widget {
 	return &Widget{Name: id, ID: hashName(id), Kind: core.WidgetLabel, Bounds: bounds, Text: label, Enabled: true}
 }

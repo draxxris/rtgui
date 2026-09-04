@@ -35,3 +35,42 @@ func TestPixelSnapAndIntersection(t *testing.T) {
 		t.Fatalf("intersection=%v ok=%v", intersection, ok)
 	}
 }
+
+// TestViewportScaling verifies the fixed-logical model: the design resolution
+// stays put while the window rescales the mapping on each axis independently.
+func TestViewportScaling(t *testing.T) {
+	vp := core.Viewport{Viewport: core.Rect{W: 1600, H: 900}, LogicalSize: core.Vec2{X: 800, Y: 600}}
+	transform := New(vp)
+	sx, sy := transform.Scale()
+	if sx != 2 || !approxFloat(sy, 1.5) {
+		t.Fatalf("scale=%v,%v", sx, sy)
+	}
+	logical := transform.PhysicalToViewport(core.Vec2{X: 200, Y: 150})
+	if logical != (core.Vec2{X: 100, Y: 100}) {
+		t.Fatalf("scaled mapping=%v", logical)
+	}
+	if physical := transform.ViewportToPhysical(logical); physical != (core.Vec2{X: 200, Y: 150}) {
+		t.Fatalf("round trip=%v", physical)
+	}
+	bounds := core.Rect{X: 90, Y: 90, W: 20, H: 20}
+	if !transform.HitTestPhysical(core.Vec2{X: 200, Y: 150}, bounds) {
+		t.Fatal("scaled hit test must hit")
+	}
+	if transform.HitTestPhysical(core.Vec2{X: 10, Y: 10}, bounds) {
+		t.Fatal("scaled hit test must miss")
+	}
+	if err := transform.SetViewport(core.Viewport{Viewport: core.Rect{W: 100, H: 100}}); err == nil {
+		t.Fatal("empty logical size must be rejected")
+	}
+	if sx, sy := (Transform{}).Scale(); sx != 1 || sy != 1 {
+		t.Fatalf("zero transform must stay 1:1, got %v,%v", sx, sy)
+	}
+}
+
+func approxFloat(a, b float32) bool {
+	diff := a - b
+	if diff < 0 {
+		diff = -diff
+	}
+	return diff < 1e-4
+}
