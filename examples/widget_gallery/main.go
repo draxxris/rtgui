@@ -53,10 +53,8 @@ import (
 )
 
 const (
-	windowWidth    int32 = 1280
-	windowHeight   int32 = 780
-	auxAtlasWidth        = 512
-	auxAtlasHeight       = 144
+	windowWidth  int32 = 1280
+	windowHeight int32 = 780
 )
 
 var (
@@ -116,13 +114,10 @@ func main() {
 	rl.SetWindowMinSize(1100, 720)
 	rl.SetTargetFPS(60)
 
-	// Native raylib path: procedural textures are created directly by the gallery.
-	auxAtlas := makeAuxAtlas()
-	defer rl.UnloadTexture(auxAtlas)
 	facade := ui.New(int(windowWidth), int(windowHeight))
-	registerTheme(facade.Theme(), auxAtlas)
-	// File-driven LOOK layers on top of the programmatic aux base: every key
-	// gallery.css authors wins, everything else keeps its registered art.
+	// CSS-only skinning: every pixel requires a CSS->texture pathway.
+	// Unauthored keys stay invisible (text still draws); unauthored states
+	// inherit their base rule.
 	cssPath := findGalleryCSS()
 	if cssPath == "" {
 		log.Fatal("gallery css not found; expected testdata/skins/gallery.css (searched cwd and exe parents)")
@@ -374,149 +369,6 @@ func firstExistingFile(candidates []string) string {
 	return ""
 }
 
-// makeAuxAtlas builds and uploads the gallery's procedural borrowed atlas.
-func makeAuxAtlas() rl.Texture2D {
-	// Build a procedural atlas directly with raylib image helpers.
-	img := rl.GenImageColor(auxAtlasWidth, auxAtlasHeight, rl.Blank)
-	if img == nil {
-		log.Fatal("could not allocate the procedural skin atlas")
-	}
-
-	stateFills := []color.RGBA{
-		{R: 45, G: 58, B: 82, A: 255},
-		{R: 58, G: 78, B: 112, A: 255},
-		{R: 72, G: 102, B: 150, A: 255},
-		{R: 35, G: 48, B: 74, A: 255},
-		{R: 70, G: 72, B: 82, A: 220},
-		{R: 72, G: 112, B: 88, A: 255},
-	}
-	for state, fill := range stateFills {
-		paintPatch(img, int32(state*68), 0, 60, 36, fill, color.RGBA{R: 145, G: 184, B: 230, A: 255})
-	}
-
-	paintPatch(img, 0, 48, 96, 42, color.RGBA{R: 28, G: 36, B: 52, A: 255}, color.RGBA{R: 94, G: 122, B: 162, A: 255})
-	paintPatch(img, 104, 48, 96, 42, color.RGBA{R: 20, G: 28, B: 43, A: 255}, color.RGBA{R: 99, G: 151, B: 208, A: 255})
-	paintPatch(img, 208, 48, 96, 20, color.RGBA{R: 22, G: 30, B: 45, A: 255}, color.RGBA{R: 85, G: 110, B: 145, A: 255})
-	paintPatch(img, 0, 104, 160, 32, color.RGBA{R: 34, G: 43, B: 61, A: 255}, color.RGBA{R: 102, G: 133, B: 171, A: 255})
-	paintPatch(img, 168, 104, 96, 42, rl.Blank, color.RGBA{R: 116, G: 151, B: 194, A: 255})
-
-	// Thumb, checkbox, arrow, and progress-fill parts.
-	paintPatch(img, 312, 48, 28, 28, color.RGBA{R: 103, G: 171, B: 235, A: 255}, color.RGBA{R: 196, G: 228, B: 255, A: 255})
-	paintPatch(img, 344, 48, 28, 28, color.RGBA{R: 45, G: 117, B: 83, A: 255}, color.RGBA{R: 174, G: 238, B: 184, A: 255})
-	rl.ImageDrawLineEx(img, rl.Vector2{X: 350, Y: 61}, rl.Vector2{X: 357, Y: 68}, 3, color.RGBA{R: 235, G: 255, B: 235, A: 255})
-	rl.ImageDrawLineEx(img, rl.Vector2{X: 357, Y: 68}, rl.Vector2{X: 367, Y: 56}, 3, color.RGBA{R: 235, G: 255, B: 235, A: 255})
-	paintPatch(img, 376, 48, 28, 28, color.RGBA{R: 48, G: 64, B: 91, A: 255}, color.RGBA{R: 153, G: 194, B: 238, A: 255})
-	rl.ImageDrawTriangle(img, rl.Vector2{X: 383, Y: 59}, rl.Vector2{X: 397, Y: 59}, rl.Vector2{X: 390, Y: 67}, color.RGBA{R: 225, G: 240, B: 255, A: 255})
-	paintPatch(img, 408, 48, 96, 20, color.RGBA{R: 52, G: 145, B: 101, A: 255}, color.RGBA{R: 145, G: 238, B: 176, A: 255})
-
-	tex := rl.LoadTextureFromImage(img)
-	rl.UnloadImage(img)
-	if tex.ID == 0 {
-		log.Fatal("could not upload the procedural skin atlas")
-	}
-	rl.SetTextureFilter(tex, rl.FilterPoint)
-	return tex
-}
-
-func paintPatch(img *rl.Image, x, y, width, height int32, fill, border color.RGBA) {
-	rl.ImageDrawRectangle(img, x, y, width, height, fill)
-	if border.A != 0 {
-		rl.ImageDrawRectangleLines(img, rl.Rectangle{X: float32(x), Y: float32(y), Width: float32(width), Height: float32(height)}, 2, border)
-	}
-}
-
-func textureOf(tex rl.Texture2D) skin.Texture {
-	return skin.Texture{ID: tex.ID, Width: tex.Width, Height: tex.Height, Mipmaps: tex.Mipmaps, Format: int32(tex.Format)}
-}
-
-func patchDescriptor(tex skin.Texture, region core.Rect, tint core.Color, border int32, center bool) skin.SkinDescriptor {
-	return skin.SkinDescriptor{
-		Texture: tex, AtlasRegion: region,
-		NinePatch: skin.NinePatch{Left: border, Top: border, Right: border, Bottom: border},
-		Tint:      tint, HasTexture: true, HasNinePatch: border > 0, CenterFill: center,
-		PaddingLeft: float32(border), PaddingTop: float32(border), PaddingRight: float32(border), PaddingBottom: float32(border),
-	}
-}
-
-func iconDescriptor(tex skin.Texture, region core.Rect, tint core.Color) skin.SkinDescriptor {
-	return skin.SkinDescriptor{Texture: tex, AtlasRegion: region, Tint: tint, HasTexture: true}
-}
-
-// registerTheme skins every widget kind from the procedural atlas: state fills
-// for backgrounds plus tracks, progress fills, and borders. File-driven LOOK
-// from gallery.css layers on top afterwards (see main): every key the file
-// authors wins, aux art stays underneath the rest.
-func registerTheme(theme *render.Theme, auxAtlas rl.Texture2D) {
-	auxTex := textureOf(auxAtlas)
-	states := []core.WidgetState{core.StateNormal, core.StateFocused, core.StateHovered, core.StatePressed, core.StateDisabled, core.StateSelected}
-	stateTints := []core.Color{
-		{R: 255, G: 255, B: 255, A: 255}, {R: 225, G: 242, B: 255, A: 255},
-		{R: 255, G: 255, B: 255, A: 255}, {R: 235, G: 245, B: 255, A: 255},
-		{R: 185, G: 185, B: 195, A: 255}, {R: 245, G: 255, B: 245, A: 255},
-	}
-	backgroundKinds := []core.WidgetKind{
-		core.WidgetLabel,
-		core.WidgetCheckbox, core.WidgetTextbox, core.WidgetScrollPanel, core.WidgetDropdown,
-		core.WidgetFrame,
-	}
-	for _, kind := range backgroundKinds {
-		for i, state := range states {
-			registerBackground(theme, kind, state, stateTints[i], auxTex, i)
-		}
-	}
-
-	for i, state := range states {
-		registerStateParts(theme, state, stateTints[i], auxTex)
-	}
-}
-
-func registerBackground(theme *render.Theme, kind core.WidgetKind, state core.WidgetState, tint core.Color, auxTex skin.Texture, stateIndex int) {
-	backgroundTexture, backgroundRegion := backgroundSource(stateIndex, auxTex)
-	background := patchDescriptor(backgroundTexture, backgroundRegion, tint, 8, true)
-	theme.SetSkinPart(skin.SkinKey{Widget: kind, Part: skin.PartBackground, State: state}, background)
-	borderTexture, borderRegion := borderSource(auxTex)
-	border := patchDescriptor(borderTexture, borderRegion, tint, 8, false)
-	theme.SetSkinPart(skin.SkinKey{Widget: kind, Part: skin.PartBorder, State: state}, border)
-}
-
-func backgroundSource(stateIndex int, auxTex skin.Texture) (skin.Texture, core.Rect) {
-	return auxTex, core.Rect{X: float32(stateIndex * 68), W: 60, H: 36}
-}
-
-func borderSource(auxTex skin.Texture) (skin.Texture, core.Rect) {
-	return auxTex, core.Rect{X: 168, Y: 104, W: 96, H: 42}
-}
-
-// registerStateParts skins aux tracks, fills, and fallback icons per state.
-// File-driven icons (slider handle, dropdown arrow, checkbox art) arrive via
-// gallery.css afterwards; the aux versions below stay underneath unauthored keys.
-func registerStateParts(theme *render.Theme, state core.WidgetState, tint core.Color, atlas skin.Texture) {
-	thumb := iconDescriptor(atlas, core.Rect{X: 312, Y: 48, W: 28, H: 28}, tint)
-	arrow := iconDescriptor(atlas, core.Rect{X: 376, Y: 48, W: 28, H: 28}, tint)
-	cross := iconDescriptor(atlas, core.Rect{X: 344, Y: 48, W: 28, H: 28}, tint)
-	parts := []struct {
-		part       skin.SkinPart
-		descriptor skin.SkinDescriptor
-	}{
-		{skin.PartTrack, patchDescriptor(atlas, core.Rect{X: 208, Y: 48, W: 96, H: 20}, tint, 6, true)},
-		{skin.PartThumb, thumb},
-		{skin.PartTrack, patchDescriptor(atlas, core.Rect{X: 208, Y: 48, W: 96, H: 20}, tint, 6, true)},
-		{skin.PartOverlay, patchDescriptor(atlas, core.Rect{X: 408, Y: 48, W: 96, H: 20}, tint, 6, true)},
-		{skin.PartArrow, arrow},
-		{skin.PartCheckmark, cross},
-	}
-	kinds := []core.WidgetKind{
-		core.WidgetSlider, core.WidgetSlider, core.WidgetProgressBar,
-		core.WidgetProgressBar, core.WidgetDropdown, core.WidgetCheckbox,
-	}
-	for i, registration := range parts {
-		key := skin.SkinKey{Widget: kinds[i], Part: registration.part, State: state}
-		theme.SetSkinPart(key, registration.descriptor)
-	}
-	empty := iconDescriptor(atlas, core.Rect{X: 312, Y: 48, W: 28, H: 28}, tint)
-	theme.SetSkinPart(skin.SkinKey{Widget: core.WidgetCheckbox, Part: skin.PartIcon, State: state}, empty)
-}
-
 // newGallery builds the widget set, registers it with the facade in draw
 // order, and wires the gallery callbacks. All hover, press, focus, and
 // dropdown-popup state lives in the facade; the gallery keeps status and its
@@ -717,7 +569,7 @@ func (g *gallery) draw() {
 	rl.Scalef(sx, sy, 1)
 
 	g.drawText("RTG textured widget gallery", 28, 24, 26, color.RGBA{R: 226, G: 239, B: 255, A: 255})
-	g.drawItalic("Every v1 widget uses an atlas part, nine-patch, tint, alpha, or the documented fallback path. Press R to MoveFrame.", 30, 51, 14, color.RGBA{R: 153, G: 174, B: 202, A: 255})
+	g.drawItalic("Every pixel needs a CSS texture; missing skins stay invisible and states inherit their base rule. Press R to MoveFrame.", 30, 51, 14, color.RGBA{R: 153, G: 174, B: 202, A: 255})
 	g.panelTitle(g.layout.leftPanel, "Widgets")
 	g.panelTitle(g.layout.rightPanel, "Containers, clipping, and states")
 

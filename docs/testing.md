@@ -130,7 +130,7 @@ xvfb-run --auto-servernum --server-args="-screen 0 1280x800x24" \
 Inspect the resulting PNG manually. Confirm that widget states, CSS tint,
 nine-patch borders, layout movement, text, slider/progress, and dropdown popup
 remain visible. The gallery teardown must unload CSS-owned textures before the
-raylib window closes and unload borrowed auxiliary textures exactly once.
+raylib window closes. The gallery owns no borrowed textures.
 
 ## Visual references and known fixture limitation
 

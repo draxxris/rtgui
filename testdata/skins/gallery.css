@@ -1,7 +1,8 @@
 /* gallery.css — file-driven LOOK for the widget gallery. Asset paths resolve
-   against this file's directory. States a rule omits inherit the base rule;
-   programmatic aux-atlas fills stay underneath every key this file never
-   authors (text inputs keep their contrast-tested fills). */
+   against this file's directory. Every pixel requires a CSS->texture pathway;
+   unauthored keys stay invisible (text still draws) and unauthored states
+   inherit their base rule. Checkbox::box is PartIcon, ::checkmark is
+   PartCheckmark; plain Checkbox has no background by design. */
 
 Button {
     border-image-source: url("kenney/blue/button_rectangle_line.png");

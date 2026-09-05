@@ -234,8 +234,9 @@ func (t *Theme) uploadCSSImages(images map[string]cssImage, order []string) (map
 	return textures, owned, nil
 }
 
-// buildCSSRegistry materializes every CSS descriptor over the programmatic
-// layer as it exists at load time.
+// buildCSSRegistry materializes every CSS descriptor from CSS declarations
+// alone. Programmatic descriptors are never seeded here so every pixel
+// requires a CSS->texture pathway.
 func (t *Theme) buildCSSRegistry(merged map[skin.SkinKey]mergedRule, order []skin.SkinKey, base string, textures map[string]skin.Texture) (*skin.Registry, error) {
 	candidate := skin.NewRegistry()
 	for _, key := range order {
@@ -248,9 +249,9 @@ func (t *Theme) buildCSSRegistry(merged map[skin.SkinKey]mergedRule, order []ski
 	return candidate, nil
 }
 
-// buildCSSDescriptor applies one merged rule over the exact programmatic key.
+// buildCSSDescriptor applies one merged CSS rule starting from a zero descriptor.
 func (t *Theme) buildCSSDescriptor(key skin.SkinKey, entry mergedRule, base string, textures map[string]skin.Texture) (skin.SkinDescriptor, error) {
-	descriptor, _ := t.programmatic.Get(key)
+	descriptor := skin.SkinDescriptor{}
 	if entry.hasImage {
 		texture, ok := textures[filepath.Join(base, entry.image)]
 		if !ok {

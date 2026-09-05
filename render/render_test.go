@@ -403,6 +403,40 @@ func TestEightPatchGeometry(t *testing.T) {
 	}
 }
 
+// TestMissingSkinStaysInvisible verifies empty themes log fallback without art.
+// Text still records; textured parts must not report success.
+func TestMissingSkinStaysInvisible(t *testing.T) {
+	theme := NewTheme(transform.New(core.Viewport{}))
+	recorder := newTestRecorder(t, 32)
+	theme.SetDrawRecorder(recorder)
+	box := core.Rect{X: 10, Y: 10, W: 120, H: 40}
+	theme.BeginFrame()
+	theme.DrawWidget(core.WidgetInfo{Name: "b", Bounds: box, Kind: core.WidgetButton, State: core.StateNormal}, "OK", 0, false)
+	theme.DrawWidget(core.WidgetInfo{Name: "c", Bounds: box, Kind: core.WidgetCheckbox, State: core.StateNormal}, "", 0, false)
+	theme.DrawWidget(core.WidgetInfo{Name: "s", Bounds: box, Kind: core.WidgetSlider, State: core.StateNormal}, "", 0.5, false)
+	for _, call := range recorder.Calls() {
+		if call.Part == skin.PartText {
+			if call.Fallback {
+				t.Fatalf("text must still draw: %+v", call)
+			}
+			continue
+		}
+		if !call.Fallback {
+			t.Fatalf("missing skin must fall back: %+v", call)
+		}
+		if call.Part == skin.PartIcon {
+			t.Fatalf("unchecked box must emit no icon: %+v", call)
+		}
+	}
+	theme.BeginFrame()
+	theme.DrawWidget(core.WidgetInfo{Name: "c", Bounds: box, Kind: core.WidgetCheckbox, State: core.StateNormal}, "", 0, true)
+	for _, call := range recorder.Calls() {
+		if call.Part == skin.PartCheckmark && !call.Fallback {
+			t.Fatalf("untextured checkmark must not succeed: %+v", call)
+		}
+	}
+}
+
 // TestDrawWidgetPartWithoutRecorderAllocatesNothing protects the hot draw path.
 func TestDrawWidgetPartWithoutRecorderAllocatesNothing(t *testing.T) {
 	theme := NewTheme(transform.New(core.Viewport{}))

@@ -276,6 +276,8 @@ func TestUnloadAndClearSkinNeverUnloadBorrowedTextures(t *testing.T) {
 }
 
 // TestThemeLookupOrderAcrossCSSAndProgrammaticLayers checks exact/fallback order.
+// CSS normal wins over a programmatic exact match so unauthored states inherit
+// their base rule instead of borrowed art.
 func TestThemeLookupOrderAcrossCSSAndProgrammaticLayers(t *testing.T) {
 	theme := NewTheme(transform.New(core.Viewport{}))
 	key := func(state core.WidgetState) skin.SkinKey {
@@ -287,12 +289,67 @@ func TestThemeLookupOrderAcrossCSSAndProgrammaticLayers(t *testing.T) {
 	theme.css.Set(key(core.StateNormal), descriptor(3))
 	theme.css.Set(key(core.StatePressed), descriptor(4))
 	for state, want := range map[core.WidgetState]uint8{
-		core.StateNormal: 3, core.StateHovered: 2, core.StatePressed: 4, core.StateFocused: 3,
+		core.StateNormal: 3, core.StateHovered: 3, core.StatePressed: 4, core.StateFocused: 3,
 	} {
 		got, ok := theme.Lookup(core.WidgetButton, skin.PartBackground, state)
 		if !ok || got.Tint.R != want {
 			t.Fatalf("Lookup(%v) = %+v/%v, want red %d", state, got, ok, want)
 		}
+	}
+}
+
+// TestCheckboxHoverInheritsBaseCSS verifies unauthored checkbox states resolve
+// to the base kenney texture and draw without fallback.
+func TestCheckboxHoverInheritsBaseCSS(t *testing.T) {
+	directory := t.TempDir()
+	writeTestPNG(t, directory, "box.png", color.RGBA{R: 10, A: 255})
+	writeTestPNG(t, directory, "check.png", color.RGBA{R: 20, A: 255})
+	cssPath := writeCSS(t, directory, `
+Checkbox::box { background-image: url(box.png); }
+Checkbox::checkmark { background-image: url(check.png); }
+Checkbox::box:disabled { background-image-tint: #b9b9c3; }
+Checkbox::checkmark:disabled { background-image-tint: #b9b9c3; }
+`)
+	backend := &fakeTextureBackend{isReady: true}
+	theme := newFakeTheme(backend)
+	mustLoadCSS(t, theme, cssPath)
+	boxNormal, err := theme.GetSkinPart(skin.SkinKey{Widget: core.WidgetCheckbox, Part: skin.PartIcon, State: core.StateNormal})
+	if err != nil {
+		t.Fatal(err)
+	}
+	boxHover, ok := theme.Lookup(core.WidgetCheckbox, skin.PartIcon, core.StateHovered)
+	if !ok || boxHover.Texture.ID != boxNormal.Texture.ID {
+		t.Fatalf("box hover=%+v/%v normal=%+v", boxHover, ok, boxNormal)
+	}
+	checkNormal, err := theme.GetSkinPart(skin.SkinKey{Widget: core.WidgetCheckbox, Part: skin.PartCheckmark, State: core.StateNormal})
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkHover, ok := theme.Lookup(core.WidgetCheckbox, skin.PartCheckmark, core.StateHovered)
+	if !ok || checkHover.Texture.ID != checkNormal.Texture.ID {
+		t.Fatalf("check hover=%+v/%v normal=%+v", checkHover, ok, checkNormal)
+	}
+	boxDisabled, ok := theme.Lookup(core.WidgetCheckbox, skin.PartIcon, core.StateDisabled)
+	if !ok || boxDisabled.Texture.ID != boxNormal.Texture.ID || boxDisabled.Tint != (core.Color{R: 0xb9, G: 0xb9, B: 0xc3, A: 255}) {
+		t.Fatalf("box disabled=%+v/%v", boxDisabled, ok)
+	}
+	recorder, _ := NewDrawRecorder(8)
+	theme.SetDrawRecorder(recorder)
+	theme.BeginFrame()
+	box := core.Rect{X: 10, Y: 10, W: 120, H: 40}
+	checked := core.WidgetInfo{Name: "agreeBox", Bounds: box, Kind: core.WidgetCheckbox, State: core.StateHovered}
+	theme.DrawWidget(checked, "", 0, true)
+	found := false
+	for _, call := range recorder.Calls() {
+		if call.Part == skin.PartCheckmark && call.State == core.StateHovered {
+			found = true
+			if call.Fallback {
+				t.Fatalf("hover checkmark must not fall back: %+v", call)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("hover checkmark not drawn: %+v", recorder.Calls())
 	}
 }
 

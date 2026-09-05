@@ -84,8 +84,10 @@ func (t *Theme) GetSkinPart(key skin.SkinKey) (skin.SkinDescriptor, error) {
 	return skin.SkinDescriptor{}, core.StatusMissingSkin
 }
 
-// Lookup resolves exact CSS, exact programmatic, normal CSS, then normal
-// programmatic descriptors in that order.
+// Lookup resolves exact CSS, normal CSS, exact programmatic, then normal
+// programmatic descriptors in that order. CSS normal wins over a programmatic
+// exact match so unauthored states inherit their base rule instead of
+// falling back to borrowed art.
 func (t *Theme) Lookup(kind core.WidgetKind, part skin.SkinPart, state core.WidgetState) (skin.SkinDescriptor, bool) {
 	if t == nil {
 		return skin.SkinDescriptor{}, false
@@ -94,14 +96,17 @@ func (t *Theme) Lookup(kind core.WidgetKind, part skin.SkinPart, state core.Widg
 	if descriptor, ok := t.css.Get(key); ok {
 		return descriptor, true
 	}
+	if state != core.StateNormal {
+		normal := skin.SkinKey{Widget: kind, Part: part, State: core.StateNormal}
+		if descriptor, ok := t.css.Get(normal); ok {
+			return descriptor, true
+		}
+	}
 	if descriptor, ok := t.programmatic.Get(key); ok {
 		return descriptor, true
 	}
 	if state != core.StateNormal {
 		key.State = core.StateNormal
-		if descriptor, ok := t.css.Get(key); ok {
-			return descriptor, true
-		}
 		if descriptor, ok := t.programmatic.Get(key); ok {
 			return descriptor, true
 		}

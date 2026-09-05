@@ -47,10 +47,11 @@ func (t *Theme) logDrawCall(kind core.WidgetKind, part skin.SkinPart, state core
 	})
 }
 
-// drawTexturedPart selects simple, nine-patch, or fallback drawing for descriptor.
+// drawTexturedPart selects simple or nine-patch drawing for descriptor.
+// Descriptors without a texture draw nothing; missing skins stay invisible
+// (text still draws via drawTextInContent) and are reported via Fallback logs.
 func drawTexturedPart(descriptor skin.SkinDescriptor, dest core.Rect, tint color.RGBA) {
 	if !descriptor.HasTexture || descriptor.Texture.ID == 0 {
-		drawFallbackPart(dest, tint)
 		return
 	}
 	texture := toRaylibTexture(descriptor.Texture)
@@ -162,15 +163,22 @@ func (t *Theme) DrawWidgetPart(kind core.WidgetKind, part skin.SkinPart, bounds 
 }
 
 // DrawWidget renders a widget using the theme's registry and transform.
+// Checkbox has no background by design (::box is PartIcon, ::checkmark is
+// PartCheckmark); its content is the full bounds so missing art stays invisible.
 func (t *Theme) DrawWidget(info core.WidgetInfo, value string, amount float32, checked bool) {
 	if t == nil {
 		return
 	}
-	background, _ := t.drawPart(info.Kind, skin.PartBackground, info.Bounds, info.State)
+	var content core.Rect
+	if info.Kind == core.WidgetCheckbox {
+		content = t.snap(info.Bounds)
+	} else {
+		background, _ := t.drawPart(info.Kind, skin.PartBackground, info.Bounds, info.State)
+		content = t.snap(ContentRect(info.Bounds, background))
+	}
 	if t.recorder != nil {
 		t.recorder.setLastWidgetInfo(info)
 	}
-	content := t.snap(ContentRect(info.Bounds, background))
 
 	switch info.Kind {
 	case core.WidgetCheckbox:
@@ -295,20 +303,13 @@ func checkmarkSize(descriptor skin.SkinDescriptor, content core.Rect) (float32, 
 	return width, height
 }
 
-// drawGeometryCheckmark renders the fallback checkmark and records its color.
+// drawGeometryCheckmark records a missing checkmark without drawing pixels.
+// Untextured checkmarks stay invisible by design; callers log Fallback=true.
 func (t *Theme) drawGeometryCheckmark(info core.WidgetInfo, missingSkin bool) {
 	destination := t.snap(info.Bounds)
 	checkColor := color.RGBA{R: 20, G: 120, B: 60, A: 255}
 	if missingSkin {
 		checkColor = color.RGBA{A: 255}
-	}
-	if rl.IsWindowReady() {
-		x, y, width, height := destination.X, destination.Y, destination.W, destination.H
-		p1 := rl.NewVector2(x+width*0.25, y+height*0.55)
-		p2 := rl.NewVector2(x+width*0.40, y+height*0.70)
-		p3 := rl.NewVector2(x+width*0.75, y+height*0.30)
-		rl.DrawLineEx(p1, p2, 2.5, checkColor)
-		rl.DrawLineEx(p2, p3, 2.5, checkColor)
 	}
 	t.logDrawCall(info.Kind, skin.PartCheckmark, info.State, destination, destination, skin.SkinDescriptor{}, checkColor, true)
 }
