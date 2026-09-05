@@ -10,10 +10,13 @@ import "image/color"
 type Status int32
 
 const (
+	// StatusInvalidArg reports an invalid input value.
 	StatusInvalidArg Status = iota + 1
+	// StatusMissingSkin reports that no descriptor exists for a skin lookup.
 	StatusMissingSkin
 )
 
+// Error returns the stable diagnostic text for a status.
 func (s Status) Error() string {
 	switch s {
 	case StatusInvalidArg:
@@ -27,6 +30,7 @@ func (s Status) Error() string {
 
 // Rect is an axis-aligned rectangle in logical UI coordinates.
 type Rect struct {
+	// X and Y are the rectangle's logical origin; W and H are its size.
 	X, Y, W, H float32
 }
 
@@ -35,55 +39,82 @@ func (r Rect) Contains(p Vec2) bool {
 	return p.X >= r.X && p.X <= r.X+r.W && p.Y >= r.Y && p.Y <= r.Y+r.H
 }
 
+// Vec2 is a two-dimensional point or size in logical UI coordinates.
 type Vec2 struct {
+	// X and Y are the horizontal and vertical components.
 	X, Y float32
 }
 
+// Color is an exact 8-bit RGBA color. A zero Color is transparent black.
 type Color struct {
+	// R, G, B, and A are the red, green, blue, and alpha channels.
 	R, G, B, A uint8
 }
 
+// ToColor converts a standard-library RGBA value without changing channels.
 func ToColor(c color.RGBA) Color { return Color{R: c.R, G: c.G, B: c.B, A: c.A} }
+
+// RGBA converts c to the standard-library RGBA representation.
 func (c Color) RGBA() color.RGBA { return color.RGBA{R: c.R, G: c.G, B: c.B, A: c.A} }
 
+// WidgetKind identifies the behavior and rendering contract of a widget.
 type WidgetKind int32
 
 const (
+	// WidgetButton is an activatable push button.
 	WidgetButton WidgetKind = iota
+	// WidgetLabel displays non-interactive text.
 	WidgetLabel
+	// WidgetCheckbox toggles a boolean value when activated.
 	WidgetCheckbox
+	// WidgetTextbox accepts bounded UTF-8 text edits.
 	WidgetTextbox
+	// WidgetScrollPanel owns a scroll offset for application content.
 	WidgetScrollPanel
+	// WidgetDropdown displays and selects one item.
 	WidgetDropdown
+	// WidgetSlider edits a value in the inclusive range [0, 1].
 	WidgetSlider
+	// WidgetProgressBar displays a value in the inclusive range [0, 1].
 	WidgetProgressBar
+	// WidgetFrame is a non-interactive layout and decoration frame.
 	WidgetFrame
 )
 
+// WidgetState is the visual state selected by UI interaction ownership.
 type WidgetState int32
 
 const (
+	// StateNormal is the default visual state.
 	StateNormal WidgetState = iota
+	// StateFocused marks the focused widget.
 	StateFocused
+	// StateHovered marks the topmost widget under the pointer.
 	StateHovered
+	// StatePressed marks the widget owning the active press.
 	StatePressed
+	// StateDisabled marks a widget that does not accept interaction.
 	StateDisabled
+	// StateSelected is available for explicit application or skin state.
 	StateSelected
 )
 
 // WidgetInfo is the renderer-facing snapshot of a widget.
 type WidgetInfo struct {
-	ID         uint32
-	Name       string
-	Bounds     Rect
-	Kind       WidgetKind
-	State      WidgetState
-	HasCapture bool
-	IsClipped  bool
-	ClipRect   Rect
+	// Name is the widget's external registry identity.
+	Name string
+	// Bounds are the widget's resolved logical bounds.
+	Bounds Rect
+	// Kind identifies the widget behavior.
+	Kind WidgetKind
+	// State is the visual state computed by the UI owner.
+	State WidgetState
 }
 
+// Viewport describes the physical viewport and fixed logical design size.
 type Viewport struct {
-	Viewport    Rect
+	// Viewport is the physical window rectangle.
+	Viewport Rect
+	// LogicalSize is the coordinate space used by layout and input.
 	LogicalSize Vec2
 }

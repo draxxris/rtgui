@@ -3,9 +3,10 @@ package transform
 import (
 	"testing"
 
-	"rtgui/core"
+	"github.com/draxxris/rtgui/core"
 )
 
+// BenchmarkMapping measures the steady-state coordinate conversion path.
 func BenchmarkMapping(b *testing.B) {
 	t := New(core.Viewport{Viewport: core.Rect{X: 10, Y: 20, W: 800, H: 600}})
 	b.ResetTimer()

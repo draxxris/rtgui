@@ -1,201 +1,356 @@
-// Package widgets provides stateful, renderer-independent UI widgets.
+// Package widgets provides stateful widget data without owning UI interaction state.
 package widgets
 
 import (
-	"unicode/utf8"
-
-	"rtgui/core"
-	"rtgui/input"
-	"rtgui/text"
+	"github.com/draxxris/rtgui/core"
+	"github.com/draxxris/rtgui/layout"
+	"github.com/draxxris/rtgui/text"
 )
 
+// Widget is a compact tagged widget whose identity and kind are fixed at construction.
+// UI-owned hover, press, and focus state is deliberately not stored here.
 type Widget struct {
-	Name          string
-	ID            uint32
-	Kind          core.WidgetKind
-	Bounds        core.Rect
-	State         core.WidgetState
-	Enabled       bool
-	Text          string
-	Value         float32
-	Checked       bool
-	Scroll        core.Vec2
-	DropdownIndex int
-	DropdownItems []string
-	Focused       bool
-	TextBuf       *text.Buffer
+	name          string
+	kind          core.WidgetKind
+	frame         *layout.Node
+	enabled       bool
+	text          string
+	value         float32
+	checked       bool
+	scroll        core.Vec2
+	dropdownIndex int
+	dropdownItems []string
+	textBuf       *text.Buffer
 }
 
-// hashName derives the internal numeric ID from the external string name.
-// It mirrors layout.hashID (FNV-1a with offset 2166136261 and prime 16777619,
-// with 0 remapped to 1 since Capture zero means no capture). Duplicated here
-// intentionally: widgets must not import layout just for the hash.
-func hashName(s string) uint32 {
-	h := uint32(2166136261)
-	for i := 0; i < len(s); i++ {
-		h ^= uint32(s[i])
-		h *= 16777619
-	}
-	if h == 0 {
-		h = 1
-	}
-	return h
+// NewButton returns an enabled button with immutable name and kind.
+func NewButton(name string, bounds core.Rect, label string) *Widget {
+	return &Widget{name: name, kind: core.WidgetButton, frame: layout.New(name, bounds), enabled: true, text: label}
 }
 
-func NewButton(id string, bounds core.Rect, label string) *Widget {
-	return &Widget{Name: id, ID: hashName(id), Kind: core.WidgetButton, Bounds: bounds, State: core.StateNormal, Enabled: true, Text: label}
+// NewLabel returns an enabled label with immutable name and kind.
+func NewLabel(name string, bounds core.Rect, label string) *Widget {
+	return &Widget{name: name, kind: core.WidgetLabel, frame: layout.New(name, bounds), enabled: true, text: label}
 }
 
-func NewLabel(id string, bounds core.Rect, label string) *Widget {
-	return &Widget{Name: id, ID: hashName(id), Kind: core.WidgetLabel, Bounds: bounds, Text: label, Enabled: true}
+// NewCheckbox returns an enabled checkbox with immutable name and kind.
+func NewCheckbox(name string, bounds core.Rect, checked bool) *Widget {
+	return &Widget{name: name, kind: core.WidgetCheckbox, frame: layout.New(name, bounds), enabled: true, checked: checked}
 }
 
-func NewCheckbox(id string, bounds core.Rect, checked bool) *Widget {
-	return &Widget{Name: id, ID: hashName(id), Kind: core.WidgetCheckbox, Bounds: bounds, Checked: checked, Enabled: true, State: core.StateNormal}
+// NewTextbox returns an enabled textbox with bounded private UTF-8 storage.
+func NewTextbox(name string, bounds core.Rect, capacity int) *Widget {
+	return &Widget{name: name, kind: core.WidgetTextbox, frame: layout.New(name, bounds), enabled: true, textBuf: text.NewBuffer(capacity, "")}
 }
 
-func NewTextbox(id string, bounds core.Rect, capacity int) *Widget {
-	return &Widget{Name: id, ID: hashName(id), Kind: core.WidgetTextbox, Bounds: bounds, TextBuf: text.NewBuffer(capacity, ""), Enabled: true, State: core.StateNormal}
+// NewSlider returns an enabled slider with a clamped initial value.
+func NewSlider(name string, bounds core.Rect, value float32) *Widget {
+	widget := &Widget{name: name, kind: core.WidgetSlider, frame: layout.New(name, bounds), enabled: true}
+	widget.SetValue(value)
+	return widget
 }
 
-func NewSlider(id string, bounds core.Rect, value float32) *Widget {
-	return &Widget{Name: id, ID: hashName(id), Kind: core.WidgetSlider, Bounds: bounds, Value: value, Enabled: true, State: core.StateNormal}
+// NewProgressBar returns an enabled progress bar with a clamped initial value.
+func NewProgressBar(name string, bounds core.Rect, value float32) *Widget {
+	widget := &Widget{name: name, kind: core.WidgetProgressBar, frame: layout.New(name, bounds), enabled: true}
+	widget.SetValue(value)
+	return widget
 }
 
-func NewProgressBar(id string, bounds core.Rect, value float32) *Widget {
-	return &Widget{Name: id, ID: hashName(id), Kind: core.WidgetProgressBar, Bounds: bounds, Value: value, Enabled: true, State: core.StateNormal}
+// NewScrollPanel returns an enabled scroll panel with zero scroll offset.
+func NewScrollPanel(name string, bounds core.Rect) *Widget {
+	return &Widget{name: name, kind: core.WidgetScrollPanel, frame: layout.New(name, bounds), enabled: true}
 }
 
-func NewScrollPanel(id string, bounds core.Rect) *Widget {
-	return &Widget{Name: id, ID: hashName(id), Kind: core.WidgetScrollPanel, Bounds: bounds, Enabled: true, State: core.StateNormal}
+// NewDropdown returns an enabled dropdown and copies items so caller mutation
+// cannot change widget configuration. An invalid selection becomes -1.
+func NewDropdown(name string, bounds core.Rect, items []string, index int) *Widget {
+	widget := &Widget{name: name, kind: core.WidgetDropdown, frame: layout.New(name, bounds), enabled: true, dropdownIndex: -1}
+	widget.SetDropdownItems(items)
+	widget.SetDropdownIndex(index)
+	return widget
 }
 
-func NewDropdown(id string, bounds core.Rect, items []string, index int) *Widget {
-	return &Widget{Name: id, ID: hashName(id), Kind: core.WidgetDropdown, Bounds: bounds, DropdownItems: items, DropdownIndex: index, Enabled: true, State: core.StateNormal}
+// NewFrame returns an enabled visual frame with immutable name and kind.
+func NewFrame(name string, bounds core.Rect) *Widget {
+	return &Widget{name: name, kind: core.WidgetFrame, frame: layout.New(name, bounds), enabled: true}
 }
 
-func NewFrame(id string, bounds core.Rect) *Widget {
-	return &Widget{Name: id, ID: hashName(id), Kind: core.WidgetFrame, Bounds: bounds, Enabled: true, State: core.StateNormal}
-}
-
-// HitTest expects a point in logical coordinates. Window-to-logical mapping is
-// the responsibility of transform.Transform.
-func (w *Widget) HitTest(pos core.Vec2) bool { return w != nil && w.Bounds.Contains(pos) }
-
-func (w *Widget) UpdateHover(pos core.Vec2) {
+// Name returns the widget's immutable external registry identity.
+func (w *Widget) Name() string {
 	if w == nil {
-		return
+		return ""
 	}
-	if !w.Enabled {
-		w.State = core.StateDisabled
-		return
+	return w.name
+}
+
+// Kind returns the widget's immutable tagged kind.
+func (w *Widget) Kind() core.WidgetKind {
+	if w == nil {
+		return core.WidgetKind(-1)
 	}
-	if w.HitTest(pos) {
-		w.State = core.StateHovered
-	} else {
-		w.State = core.StateNormal
+	return w.kind
+}
+
+// Bounds returns resolved frame bounds after arrangement and constructor or
+// authored bounds for widgets that are not managed by a layout tree.
+func (w *Widget) Bounds() core.Rect {
+	if w == nil || w.frame == nil {
+		return core.Rect{}
+	}
+	return w.frame.Bounds()
+}
+
+// SetBounds replaces the widget frame's authored bounds.
+func (w *Widget) SetBounds(bounds core.Rect) {
+	if w != nil && w.frame != nil {
+		w.frame.SetBounds(bounds)
 	}
 }
 
-func (w *Widget) Press(pos core.Vec2, capture *input.Capture) bool {
-	if w == nil || !w.Enabled || !w.HitTest(pos) {
+// Frame returns the widget's layout node for ownership-tree construction.
+func (w *Widget) Frame() *layout.Node {
+	if w == nil {
+		return nil
+	}
+	return w.frame
+}
+
+// SetPoint adds or replaces one typed relation on the widget frame.
+func (w *Widget) SetPoint(source layout.Anchor, target *layout.Node, targetPoint layout.Anchor, offset core.Vec2) error {
+	if w == nil || w.frame == nil {
+		return layout.ErrNilNode
+	}
+	return w.frame.SetPoint(source, target, targetPoint, offset)
+}
+
+// Enabled reports whether the widget accepts interaction.
+func (w *Widget) Enabled() bool { return w != nil && w.enabled }
+
+// SetEnabled changes whether the widget accepts interaction and reports a change.
+func (w *Widget) SetEnabled(enabled bool) bool {
+	if w == nil || w.enabled == enabled {
 		return false
 	}
-	w.State = core.StatePressed
-	if capture != nil {
-		_ = capture.Set(w.ID)
-	}
+	w.enabled = enabled
 	return true
 }
 
-func (w *Widget) Release(pos core.Vec2, capture *input.Capture) bool {
+// Text returns the widget text without exposing textbox storage.
+func (w *Widget) Text() string {
+	if w == nil {
+		return ""
+	}
+	if w.kind == core.WidgetTextbox && w.textBuf != nil {
+		return w.textBuf.String()
+	}
+	return w.text
+}
+
+// SetText replaces plain widget text or textbox content and reports a change.
+func (w *Widget) SetText(value string) bool {
 	if w == nil {
 		return false
 	}
-	if capture != nil {
-		capture.Release()
+	if w.kind == core.WidgetTextbox && w.textBuf != nil {
+		return w.textBuf.Set(value)
 	}
-	if w.State == core.StatePressed && w.HitTest(pos) {
-		w.State = core.StateHovered
-		if w.Kind == core.WidgetCheckbox {
-			w.Checked = !w.Checked
-		}
-		return true
+	if w.text == value {
+		return false
 	}
-	if w.HitTest(pos) {
-		w.State = core.StateHovered
-	} else {
-		w.State = core.StateNormal
-	}
-	return false
+	w.text = value
+	return true
 }
 
-func (w *Widget) Focus() {
+// Checked reports the checkbox value.
+func (w *Widget) Checked() bool { return w != nil && w.checked }
+
+// SetChecked changes a checkbox value and reports a real mutation.
+func (w *Widget) SetChecked(checked bool) bool {
+	if w == nil || w.kind != core.WidgetCheckbox || w.checked == checked {
+		return false
+	}
+	w.checked = checked
+	return true
+}
+
+// Value returns a slider or progress-bar value.
+func (w *Widget) Value() float32 {
 	if w == nil {
-		return
+		return 0
 	}
-	w.Focused = true
-	w.State = core.StateFocused
+	return w.value
 }
 
-func (w *Widget) Blur() {
-	if w == nil {
-		return
-	}
-	w.Focused = false
-	if w.State == core.StateFocused {
-		w.State = core.StateNormal
-	}
-}
-
-func (w *Widget) TypeChar(ch rune) {
-	if w == nil || w.Kind != core.WidgetTextbox || w.TextBuf == nil {
-		return
-	}
-	w.TextBuf.Set(w.TextBuf.String() + string(ch))
-}
-
-func (w *Widget) Backspace() {
-	if w == nil || w.Kind != core.WidgetTextbox || w.TextBuf == nil {
-		return
-	}
-	s := w.TextBuf.String()
-	if s == "" {
-		return
-	}
-	_, size := utf8.DecodeLastRuneInString(s)
-	if size <= 0 || size > len(s) {
-		s = ""
-	} else {
-		s = s[:len(s)-size]
-	}
-	w.TextBuf.Set(s)
-}
-
-func (w *Widget) ScrollBy(dx, dy float32) {
-	if w == nil || w.Kind != core.WidgetScrollPanel {
-		return
-	}
-	w.Scroll.X += dx
-	w.Scroll.Y += dy
-}
-
-func (w *Widget) SetSlider(value float32) {
-	if w == nil || w.Kind != core.WidgetSlider {
-		return
+// SetValue clamps and stores a slider or progress-bar value and reports a change.
+func (w *Widget) SetValue(value float32) bool {
+	if w == nil || (w.kind != core.WidgetSlider && w.kind != core.WidgetProgressBar) {
+		return false
 	}
 	if value < 0 {
 		value = 0
-	}
-	if value > 1 {
+	} else if value > 1 {
 		value = 1
 	}
-	w.Value = value
+	if w.value == value {
+		return false
+	}
+	w.value = value
+	return true
 }
 
-func (w *Widget) Info() core.WidgetInfo {
+// Scroll returns the scroll-panel offset by value.
+func (w *Widget) Scroll() core.Vec2 {
+	if w == nil {
+		return core.Vec2{}
+	}
+	return w.scroll
+}
+
+// SetScroll replaces a scroll-panel offset and reports a change.
+func (w *Widget) SetScroll(offset core.Vec2) bool {
+	if w == nil || w.kind != core.WidgetScrollPanel || w.scroll == offset {
+		return false
+	}
+	w.scroll = offset
+	return true
+}
+
+// ScrollBy changes a scroll-panel offset and reports a change.
+func (w *Widget) ScrollBy(dx, dy float32) bool {
+	if w == nil || w.kind != core.WidgetScrollPanel || (dx == 0 && dy == 0) {
+		return false
+	}
+	w.scroll.X += dx
+	w.scroll.Y += dy
+	return true
+}
+
+// DropdownIndex returns the selected dropdown item index, or -1 when unset.
+func (w *Widget) DropdownIndex() int {
+	if w == nil || w.kind != core.WidgetDropdown {
+		return -1
+	}
+	return w.dropdownIndex
+}
+
+// SetDropdownIndex selects a valid dropdown item and reports a real mutation.
+func (w *Widget) SetDropdownIndex(index int) bool {
+	if w == nil || w.kind != core.WidgetDropdown || index < 0 || index >= len(w.dropdownItems) || w.dropdownIndex == index {
+		return false
+	}
+	w.dropdownIndex = index
+	return true
+}
+
+// DropdownSelection returns the selected item without exposing item storage.
+func (w *Widget) DropdownSelection() (string, bool) {
+	if w == nil || w.kind != core.WidgetDropdown || w.dropdownIndex < 0 || w.dropdownIndex >= len(w.dropdownItems) {
+		return "", false
+	}
+	return w.dropdownItems[w.dropdownIndex], true
+}
+
+// DropdownItems returns a snapshot that callers may mutate freely.
+func (w *Widget) DropdownItems() []string {
+	if w == nil || w.kind != core.WidgetDropdown {
+		return nil
+	}
+	return append([]string(nil), w.dropdownItems...)
+}
+
+// SetDropdownItems copies dropdown items and keeps the current selection only
+// when it remains valid. It reports whether item data or selection changed.
+func (w *Widget) SetDropdownItems(items []string) bool {
+	if w == nil || w.kind != core.WidgetDropdown {
+		return false
+	}
+	changed := !equalStrings(w.dropdownItems, items)
+	if changed {
+		w.dropdownItems = append(w.dropdownItems[:0], items...)
+	}
+	if w.dropdownIndex >= len(w.dropdownItems) {
+		w.dropdownIndex = -1
+		changed = true
+	}
+	return changed
+}
+
+// HitTest reports whether a logical point lies in the widget's effective bounds.
+func (w *Widget) HitTest(pos core.Vec2) bool { return w != nil && w.Bounds().Contains(pos) }
+
+// DropdownPopupBounds returns the dropdown list bounds below its control.
+func (w *Widget) DropdownPopupBounds() core.Rect {
+	if w == nil || w.kind != core.WidgetDropdown {
+		return core.Rect{}
+	}
+	bounds := w.Bounds()
+	return core.Rect{
+		X: bounds.X,
+		Y: bounds.Y + bounds.H + 4,
+		W: bounds.W,
+		H: float32(len(w.dropdownItems) * 36),
+	}
+}
+
+// DropdownRowBounds returns the bounds for one dropdown item.
+func (w *Widget) DropdownRowBounds(index int) (core.Rect, bool) {
+	if w == nil || w.kind != core.WidgetDropdown || index < 0 || index >= len(w.dropdownItems) {
+		return core.Rect{}, false
+	}
+	popup := w.DropdownPopupBounds()
+	return core.Rect{X: popup.X, Y: popup.Y + float32(index*36), W: popup.W, H: 36}, true
+}
+
+// DropdownIndexAt returns the item under pos, or -1 outside the popup.
+func (w *Widget) DropdownIndexAt(pos core.Vec2) int {
+	if w == nil || w.kind != core.WidgetDropdown {
+		return -1
+	}
+	popup := w.DropdownPopupBounds()
+	if !popup.Contains(pos) {
+		return -1
+	}
+	index := int((pos.Y - popup.Y) / 36)
+	if index < 0 || index >= len(w.dropdownItems) {
+		return -1
+	}
+	return index
+}
+
+// TypeChar appends ch to a textbox and reports whether its text changed.
+func (w *Widget) TypeChar(ch rune) bool {
+	if w == nil || w.kind != core.WidgetTextbox || w.textBuf == nil {
+		return false
+	}
+	return w.textBuf.AppendRune(ch)
+}
+
+// Backspace removes the final textbox rune and reports whether its text changed.
+func (w *Widget) Backspace() bool {
+	if w == nil || w.kind != core.WidgetTextbox || w.textBuf == nil {
+		return false
+	}
+	return w.textBuf.Backspace()
+}
+
+// Snapshot returns the one renderer-facing value, using UI-computed visual state.
+func (w *Widget) Snapshot(state core.WidgetState) core.WidgetInfo {
 	if w == nil {
 		return core.WidgetInfo{}
 	}
-	return core.WidgetInfo{ID: w.ID, Name: w.Name, Bounds: w.Bounds, Kind: w.Kind, State: w.State}
+	return core.WidgetInfo{Name: w.name, Bounds: w.Bounds(), Kind: w.kind, State: state}
+}
+
+// equalStrings compares dropdown item snapshots without allocating.
+func equalStrings(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for i := range left {
+		if left[i] != right[i] {
+			return false
+		}
+	}
+	return true
 }

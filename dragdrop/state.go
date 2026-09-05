@@ -1,24 +1,28 @@
 package dragdrop
 
-import (
-	"rtgui/core"
-	"rtgui/input"
-)
+import "github.com/draxxris/rtgui/core"
 
-// Drag phases: idle, pressed, threshold-pending, dragging, over-target, dropped, canceled
-
+// Phase describes one drag session's current progress.
 type Phase int
 
 const (
+	// PhaseIdle means that no drag session is active.
 	PhaseIdle Phase = iota
+	// PhasePressed means a press began below the drag threshold.
 	PhasePressed
+	// PhaseThresholdPending means motion has not crossed the threshold.
 	PhaseThresholdPending
+	// PhaseDragging means the pointer crossed the configured threshold.
 	PhaseDragging
+	// PhaseOverTarget means a dragging pointer is over a registered target.
 	PhaseOverTarget
+	// PhaseDropped means a target accepted the payload.
 	PhaseDropped
+	// PhaseCanceled means the session ended without an accepted drop.
 	PhaseCanceled
 )
 
+// String returns a stable diagnostic name for p.
 func (p Phase) String() string {
 	switch p {
 	case PhaseIdle:
@@ -40,115 +44,148 @@ func (p Phase) String() string {
 	}
 }
 
-// hashSourceID derives the internal numeric capture ID from the external
-// string source name. It mirrors widgets.hashName and layout.hashID (FNV-1a
-// with offset 2166136261 and prime 16777619, with 0 remapped to 1 since
-// Capture zero means no capture). Duplicated here intentionally: dragdrop
-// must not import widgets or layout just for the hash.
-func hashSourceID(s string) uint32 {
-	h := uint32(2166136261)
-	for i := 0; i < len(s); i++ {
-		h ^= uint32(s[i])
-		h *= 16777619
+// Controller owns one drag session and its ordered drop-target registry.
+// Call its methods from one owning goroutine.
+type Controller struct {
+	targets     map[string]*DropTarget
+	targetOrder []string
+
+	threshold float32
+	phase     Phase
+	payload   Payload
+	pressPos  core.Vec2
+	pointer   core.Vec2
+	target    *DropTarget
+}
+
+// NewController returns a controller with threshold as its drag distance.
+// Negative thresholds are treated as zero.
+func NewController(threshold float32) *Controller {
+	if threshold < 0 {
+		threshold = 0
 	}
-	if h == 0 {
-		h = 1
+	return &Controller{threshold: threshold}
+}
+
+// Begin starts a drag session with payload at pressPosition.
+func (c *Controller) Begin(payload Payload, pressPosition core.Vec2) {
+	if c == nil {
+		return
 	}
-	return h
+	c.phase = PhasePressed
+	c.payload = payload
+	c.pressPos = pressPosition
+	c.pointer = pressPosition
+	c.target = nil
 }
 
-type DragState struct {
-	Phase      Phase
-	SourceID   string
-	Payload    Payload
-	PressPos   core.Vec2
-	CurrentPos core.Vec2
-	Threshold  float32
-	LongPress  bool
-	Captured   bool
-	GhostPos   core.Vec2
-	Capture    *input.Capture
-}
-
-func NewDragState(threshold float32, capture *input.Capture) *DragState {
-	if capture == nil {
-		capture = input.NewCapture()
+// Move advances the active session to pointerPosition and refreshes its target.
+func (c *Controller) Move(pointerPosition core.Vec2) {
+	if c == nil {
+		return
 	}
-	return &DragState{Phase: PhaseIdle, Threshold: threshold, Capture: capture}
-}
-
-// OnPress starts a drag press from the named source, recording positions
-// and payload and capturing pointer input under the hashed source ID.
-// Starting a new press always resets a previous terminal/hover state.
-func (d *DragState) OnPress(sourceID string, pos core.Vec2, payload Payload) {
-	d.Phase = PhasePressed
-	d.SourceID = sourceID
-	d.PressPos = pos
-	d.CurrentPos = pos
-	d.Payload = payload
-	d.GhostPos = pos
-	d.Captured = d.capture().Set(hashSourceID(sourceID)) == nil
-}
-
-func (d *DragState) OnMove(pos core.Vec2) {
-	d.CurrentPos = pos
-	d.GhostPos = pos
-	if d.Phase == PhasePressed || d.Phase == PhaseThresholdPending {
-		dx := pos.X - d.PressPos.X
-		dy := pos.Y - d.PressPos.Y
-		dist := dx*dx + dy*dy
-		if dist >= d.Threshold*d.Threshold {
-			d.Phase = PhaseDragging
+	c.pointer = pointerPosition
+	if c.phase == PhasePressed || c.phase == PhaseThresholdPending {
+		dx := pointerPosition.X - c.pressPos.X
+		dy := pointerPosition.Y - c.pressPos.Y
+		if dx*dx+dy*dy >= c.threshold*c.threshold {
+			c.phase = PhaseDragging
 		} else {
-			d.Phase = PhaseThresholdPending
+			c.phase = PhaseThresholdPending
 		}
 	}
-	// Recompute hover on every drag motion. In particular, moving out of a
-	// target returns to dragging, and moving between targets updates the
-	// highlighted target rather than leaving a stale OverTarget phase.
-	if d.Phase == PhaseDragging || d.Phase == PhaseOverTarget {
-		if HitTarget(pos) != nil {
-			d.Phase = PhaseOverTarget
-		} else {
-			d.Phase = PhaseDragging
-		}
+	if c.IsDragging() {
+		c.refreshTarget()
 	}
 }
 
-func (d *DragState) OnRelease(pos core.Vec2) Phase {
-	d.CurrentPos = pos
-	defer func() {
-		d.capture().Release()
-		d.Captured = false
-	}()
-	if d.Phase == PhaseDragging || d.Phase == PhaseOverTarget {
-		if target := HitTarget(pos); target != nil {
-			accepts := target.Accepts == nil || target.Accepts(d.Payload)
-			if accepts {
-				if target.OnDrop != nil {
-					target.OnDrop(d.Payload)
-				}
-				d.Phase = PhaseDropped
-				return d.Phase
-			}
+// Drop completes the active drag at pointerPosition. It reports PhaseDropped
+// only when the first matching target accepts the payload.
+func (c *Controller) Drop(pointerPosition core.Vec2) Phase {
+	if c == nil {
+		return PhaseCanceled
+	}
+	c.pointer = pointerPosition
+	if !c.IsDragging() {
+		c.phase = PhaseCanceled
+		c.target = nil
+		return c.phase
+	}
+	c.target = c.targetAt(pointerPosition)
+	if c.target != nil && (c.target.Accepts == nil || c.target.Accepts(c.payload)) {
+		if c.target.OnDrop != nil {
+			c.target.OnDrop(c.payload)
 		}
+		c.phase = PhaseDropped
+		c.target = nil
+		return c.phase
 	}
-	// Invalid drops preserve the source payload/state and cancel.
-	d.Phase = PhaseCanceled
-	return d.Phase
+	c.phase = PhaseCanceled
+	c.target = nil
+	return c.phase
 }
 
-func (d *DragState) Cancel(reason string) {
-	_ = reason
-	d.Phase = PhaseCanceled
-	d.capture().Release()
-	d.Captured = false
-}
-func (d *DragState) IsDragging() bool { return d.Phase == PhaseDragging || d.Phase == PhaseOverTarget }
-
-func (d *DragState) capture() *input.Capture {
-	if d.Capture == nil {
-		d.Capture = input.NewCapture()
+// Cancel ends the current session without invoking a target callback.
+func (c *Controller) Cancel() {
+	if c == nil {
+		return
 	}
-	return d.Capture
+	c.phase = PhaseCanceled
+	c.target = nil
+}
+
+// Phase reports the controller's current drag phase.
+func (c *Controller) Phase() Phase {
+	if c == nil {
+		return PhaseIdle
+	}
+	return c.phase
+}
+
+// IsDragging reports whether c has crossed its drag threshold.
+func (c *Controller) IsDragging() bool {
+	return c != nil && (c.phase == PhaseDragging || c.phase == PhaseOverTarget)
+}
+
+// Payload reports the current session payload.
+func (c *Controller) Payload() Payload {
+	if c == nil {
+		return Payload{}
+	}
+	return c.payload
+}
+
+// PointerPosition reports the latest pointer position supplied to c.
+func (c *Controller) PointerPosition() core.Vec2 {
+	if c == nil {
+		return core.Vec2{}
+	}
+	return c.pointer
+}
+
+// CurrentTarget reports the target currently under an active drag pointer.
+func (c *Controller) CurrentTarget() *DropTarget {
+	if c == nil {
+		return nil
+	}
+	return c.target
+}
+
+// Ghost returns the current session payload at the current pointer position.
+func (c *Controller) Ghost() Ghost {
+	if c == nil {
+		return Ghost{}
+	}
+	return NewGhost(c.payload, c.pointer)
+}
+
+// refreshTarget updates the target and phase after a drag motion or registry
+// change. Its caller has already confirmed that the session is dragging.
+func (c *Controller) refreshTarget() {
+	c.target = c.targetAt(c.pointer)
+	if c.target == nil {
+		c.phase = PhaseDragging
+		return
+	}
+	c.phase = PhaseOverTarget
 }

@@ -4,18 +4,27 @@ import (
 	"math"
 	"testing"
 
-	"rtgui/core"
-	"rtgui/skin"
-	"rtgui/transform"
+	"github.com/draxxris/rtgui/core"
+	"github.com/draxxris/rtgui/skin"
+	"github.com/draxxris/rtgui/transform"
 )
 
 func approxEqual(a, b float32) bool {
 	return a == b || math.Abs(float64(a-b)) < 1e-4
 }
 
+func newTestRecorder(t *testing.T, maxCalls int) *DrawRecorder {
+	t.Helper()
+	recorder, err := NewDrawRecorder(maxCalls)
+	if err != nil {
+		t.Fatalf("NewDrawRecorder(%d): %v", maxCalls, err)
+	}
+	return recorder
+}
+
+// TestNinePatchGeometry preserves the deterministic destination geometry.
 func TestNinePatchGeometry(t *testing.T) {
-	source := core.Rect{W: 64, H: 32}
-	config := NinePatchConfig{Source: source, Left: 8, Top: 8, Right: 8, Bottom: 8}
+	config := NinePatchConfig{Left: 8, Top: 8, Right: 8, Bottom: 8}
 	for _, destination := range []core.Rect{
 		{W: 10, H: 10},
 		{W: 16, H: 16},
@@ -23,7 +32,7 @@ func TestNinePatchGeometry(t *testing.T) {
 		{X: 10, Y: 20, W: 200, H: 100},
 		{W: -10, H: -5},
 	} {
-		rects := NinePatchRects(source, config, destination)
+		rects := NinePatchRects(config, destination)
 		expectedWidth, expectedHeight := destination.W, destination.H
 		if expectedWidth < 0 {
 			expectedWidth = 0
@@ -42,16 +51,18 @@ func TestNinePatchGeometry(t *testing.T) {
 			}
 		}
 	}
-	if rects := NinePatchRects(source, config, core.Rect{W: 10, H: 10}); !approxEqual(rects[0].W, 5) || !approxEqual(rects[0].H, 5) {
+	if rects := NinePatchRects(config, core.Rect{W: 10, H: 10}); !approxEqual(rects[0].W, 5) || !approxEqual(rects[0].H, 5) {
 		t.Fatalf("tiny destination did not scale borders: %v", rects[0])
 	}
 
+	source := core.Rect{W: 64, H: 32}
 	sourceRects := NinePatchSourceRects(source, skin.NinePatch{Left: 8, Top: 8, Right: 8, Bottom: 8})
 	if !approxEqual(sourceRects[4].W, 48) || !approxEqual(sourceRects[4].H, 16) {
 		t.Fatalf("source center=%v", sourceRects[4])
 	}
 }
 
+// TestContentRect covers border and padding content insets.
 func TestContentRect(t *testing.T) {
 	bounds := core.Rect{X: 10, Y: 20, W: 100, H: 60}
 	descriptor := skin.SkinDescriptor{
@@ -72,69 +83,183 @@ func TestContentRect(t *testing.T) {
 	}
 }
 
+// TestThemeDoesNotRecordWithoutRecorder verifies diagnostics are opt-in.
+func TestThemeDoesNotRecordWithoutRecorder(t *testing.T) {
+	theme := NewTheme(transform.New(core.Viewport{}))
+	theme.DrawWidgetPart(core.WidgetButton, skin.PartBackground, core.Rect{W: 100, H: 40}, core.StateNormal)
+	if theme.recorder != nil {
+		t.Fatal("theme without SetDrawRecorder retained a recorder")
+	}
+	recorder := newTestRecorder(t, 4)
+	theme.SetDrawRecorder(recorder)
+	if calls := recorder.Calls(); len(calls) != 0 {
+		t.Fatalf("attaching a recorder retained old calls: %v", calls)
+	}
+}
+
+// TestNewDrawRecorderRejectsNonpositiveLimits validates recorder construction.
+func TestNewDrawRecorderRejectsNonpositiveLimits(t *testing.T) {
+	for _, limit := range []int{0, -1} {
+		recorder, err := NewDrawRecorder(limit)
+		if recorder != nil || err == nil {
+			t.Fatalf("NewDrawRecorder(%d) = %v, %v", limit, recorder, err)
+		}
+	}
+}
+
+// TestDrawRecorderBounds verifies fixed capacity and truncation reporting.
+func TestDrawRecorderBounds(t *testing.T) {
+	theme := NewTheme(transform.New(core.Viewport{}))
+	recorder := newTestRecorder(t, 2)
+	theme.SetDrawRecorder(recorder)
+	theme.BeginFrame()
+	for i := 0; i < 3; i++ {
+		theme.DrawWidgetPart(core.WidgetButton, skin.PartBackground, core.Rect{X: float32(i), W: 10, H: 10}, core.StateNormal)
+	}
+	calls := recorder.Calls()
+	if len(calls) != 2 || cap(recorder.calls) != 2 || !recorder.Truncated() {
+		t.Fatalf("bounded calls=%v cap=%d truncated=%v", calls, cap(recorder.calls), recorder.Truncated())
+	}
+}
+
+// TestDrawRecorderSnapshotsAndFrames verifies copy-on-read and frame reset.
+func TestDrawRecorderSnapshotsAndFrames(t *testing.T) {
+	theme := NewTheme(transform.New(core.Viewport{}))
+	recorder := newTestRecorder(t, 2)
+	theme.SetDrawRecorder(recorder)
+	theme.BeginFrame()
+	theme.DrawWidgetPart(core.WidgetButton, skin.PartBackground, core.Rect{W: 10, H: 10}, core.StateNormal)
+	calls := recorder.Calls()
+	calls[0].Bounds = core.Rect{}
+	if got := recorder.Calls()[0].Bounds; got == (core.Rect{}) {
+		t.Fatal("Calls returned a mutable recorder slice")
+	}
+
+	info := core.WidgetInfo{Name: "latest", Bounds: core.Rect{W: 10, H: 10}, Kind: core.WidgetButton}
+	theme.DrawWidget(info, "", 0, false)
+	if got := recorder.LastWidgetInfo(); got != info {
+		t.Fatalf("last widget = %+v, want %+v", got, info)
+	}
+	theme.BeginFrame()
+	if calls := recorder.Calls(); len(calls) != 0 {
+		t.Fatalf("BeginFrame did not reset calls: %v", calls)
+	}
+	if recorder.Truncated() {
+		t.Fatal("BeginFrame did not reset truncation")
+	}
+	if got := recorder.LastWidgetInfo(); got != (core.WidgetInfo{}) {
+		t.Fatalf("BeginFrame did not reset last widget: %+v", got)
+	}
+}
+
+// TestDrawRecorderDisables verifies nil recorder attachment stops diagnostics.
+func TestDrawRecorderDisables(t *testing.T) {
+	theme := NewTheme(transform.New(core.Viewport{}))
+	recorder := newTestRecorder(t, 2)
+	theme.SetDrawRecorder(recorder)
+	theme.BeginFrame()
+	theme.DrawWidgetPart(core.WidgetButton, skin.PartBackground, core.Rect{W: 10, H: 10}, core.StateNormal)
+	theme.SetDrawRecorder(nil)
+	theme.DrawWidgetPart(core.WidgetButton, skin.PartBackground, core.Rect{W: 20, H: 20}, core.StateNormal)
+	if got := len(recorder.Calls()); got != 1 {
+		t.Fatalf("recorder received calls after disable: got %d want 1", got)
+	}
+}
+
+// TestDescriptorTintIsExact preserves transparent black descriptor tint.
+func TestDescriptorTintIsExact(t *testing.T) {
+	theme := NewTheme(transform.New(core.Viewport{}))
+	recorder := newTestRecorder(t, 4)
+	theme.SetDrawRecorder(recorder)
+	theme.SetSkinPart(skin.SkinKey{Widget: core.WidgetButton, Part: skin.PartBackground, State: core.StateNormal}, skin.SkinDescriptor{
+		AtlasRegion: core.Rect{W: 64, H: 32},
+		Tint:        core.Color{},
+		HasTexture:  true,
+	})
+	theme.BeginFrame()
+	theme.DrawWidgetPart(core.WidgetButton, skin.PartBackground, core.Rect{W: 20, H: 20}, core.StateNormal)
+	calls := recorder.Calls()
+	if len(calls) != 1 || calls[0].Fallback || calls[0].Tint != (core.Color{}) {
+		t.Fatalf("transparent-black descriptor call = %+v", calls)
+	}
+}
+
+// TestCSSDefaultTintIsExplicitWhite checks the loader's no-tint default.
+func TestCSSDefaultTintIsExplicitWhite(t *testing.T) {
+	white := core.Color{R: 255, G: 255, B: 255, A: 255}
+	if got := cssTint(mergedRule{}); got != white {
+		t.Fatalf("untinted CSS descriptor = %+v, want %+v", got, white)
+	}
+	if got := cssTint(mergedRule{hasTint: true, tint: core.Color{}}); got != (core.Color{}) {
+		t.Fatalf("transparent-black CSS tint changed to %+v", got)
+	}
+}
+
+// TestThemeHeadlessAndIsolation covers fallback recording and theme isolation.
 func TestThemeHeadlessAndIsolation(t *testing.T) {
 	viewport := core.Viewport{Viewport: core.Rect{W: 800, H: 600}, LogicalSize: core.Vec2{X: 800, Y: 600}}
 	theme := NewTheme(transform.New(viewport))
-	theme.ClearDrawLog()
+	recorder := newTestRecorder(t, 8)
+	theme.SetDrawRecorder(recorder)
 	bounds := core.Rect{X: 10, Y: 10, W: 100, H: 40}
-	if err := theme.DrawWidgetPart(core.WidgetButton, skin.PartBackground, bounds, core.StateNormal); err != nil {
-		t.Fatal(err)
-	}
-	calls := theme.DrawLog()
+	theme.BeginFrame()
+	theme.DrawWidgetPart(core.WidgetButton, skin.PartBackground, bounds, core.StateNormal)
+	calls := recorder.Calls()
 	if len(calls) != 1 || !calls[0].Fallback || calls[0].Dest != bounds {
 		t.Fatalf("fallback calls=%v", calls)
 	}
 
-	if err := theme.SetSkinPart(skin.SkinKey{Widget: core.WidgetButton, Part: skin.PartBackground, State: core.StateNormal}, skin.SkinDescriptor{
-		AtlasRegion: core.Rect{W: 64, H: 32}, Tint: core.Color{R: 255, A: 255}, Alpha: 1, HasTexture: true,
-	}); err != nil {
-		t.Fatal(err)
-	}
+	theme.SetSkinPart(skin.SkinKey{Widget: core.WidgetButton, Part: skin.PartBackground, State: core.StateNormal}, skin.SkinDescriptor{
+		AtlasRegion: core.Rect{W: 64, H: 32}, Tint: core.Color{R: 255, A: 255}, HasTexture: true,
+	})
 	theme.SetPixelSnap(true)
-	theme.ClearDrawLog()
-	_ = theme.DrawWidgetPart(core.WidgetButton, skin.PartBackground, core.Rect{X: 10.2, Y: 10.7, W: 20.4, H: 20.4}, core.StateHovered)
-	calls = theme.DrawLog()
+	theme.BeginFrame()
+	theme.DrawWidgetPart(core.WidgetButton, skin.PartBackground, core.Rect{X: 10.2, Y: 10.7, W: 20.4, H: 20.4}, core.StateHovered)
+	calls = recorder.Calls()
 	if len(calls) != 1 || calls[0].Fallback || calls[0].Dest != (core.Rect{X: 10, Y: 11, W: 20, H: 20}) {
 		t.Fatalf("fallback or snapping calls=%v", calls)
 	}
 
 	other := NewTheme(transform.New(viewport))
-	other.ClearDrawLog()
-	_ = other.DrawWidgetPart(core.WidgetButton, skin.PartBackground, bounds, core.StateNormal)
-	if calls := other.DrawLog(); len(calls) != 1 || !calls[0].Fallback {
+	otherRecorder := newTestRecorder(t, 2)
+	other.SetDrawRecorder(otherRecorder)
+	other.BeginFrame()
+	other.DrawWidgetPart(core.WidgetButton, skin.PartBackground, bounds, core.StateNormal)
+	if calls := otherRecorder.Calls(); len(calls) != 1 || !calls[0].Fallback {
 		t.Fatalf("themes share skin state: %v", calls)
 	}
 }
 
+// TestThemeWidgetVariants covers the whole-widget draw part sequences.
 func TestThemeWidgetVariants(t *testing.T) {
 	theme := NewTheme(transform.New(core.Viewport{Viewport: core.Rect{W: 800, H: 600}}))
-	theme.ClearDrawLog()
-	button := core.WidgetInfo{ID: 1, Name: "okButton", Bounds: core.Rect{W: 100, H: 30}, Kind: core.WidgetButton, State: core.StateNormal}
-	if err := theme.DrawWidget(button, "OK", 0, false); err != nil {
-		t.Fatal(err)
-	}
-	if len(theme.DrawLog()) < 2 {
-		t.Fatalf("button draw log=%v", theme.DrawLog())
+	recorder := newTestRecorder(t, 8)
+	theme.SetDrawRecorder(recorder)
+	button := core.WidgetInfo{Name: "okButton", Bounds: core.Rect{W: 100, H: 30}, Kind: core.WidgetButton, State: core.StateNormal}
+	theme.BeginFrame()
+	theme.DrawWidget(button, "OK", 0, false)
+	if len(recorder.Calls()) < 2 {
+		t.Fatalf("button draw calls=%v", recorder.Calls())
 	}
 
-	theme.ClearDrawLog()
+	theme.BeginFrame()
 	slider := core.WidgetInfo{Name: "volumeSlider", Bounds: core.Rect{W: 100, H: 20}, Kind: core.WidgetSlider, State: core.StateNormal}
-	_ = theme.DrawWidget(slider, "", 0.5, false)
-	if calls := theme.DrawLog(); len(calls) != 3 || calls[1].Part != skin.PartTrack || calls[2].Part != skin.PartThumb {
-		t.Fatalf("slider draw log=%v", calls)
+	theme.DrawWidget(slider, "", 0.5, false)
+	if calls := recorder.Calls(); len(calls) != 3 || calls[1].Part != skin.PartTrack || calls[2].Part != skin.PartThumb {
+		t.Fatalf("slider draw calls=%v", calls)
 	}
 
-	theme.ClearDrawLog()
+	theme.BeginFrame()
 	progress := core.WidgetInfo{Name: "loadProgress", Bounds: core.Rect{W: 100, H: 20}, Kind: core.WidgetProgressBar, State: core.StateNormal}
-	_ = theme.DrawWidget(progress, "", 0.3, false)
-	if calls := theme.DrawLog(); len(calls) != 3 || calls[2].Part != skin.PartOverlay {
-		t.Fatalf("progress draw log=%v", calls)
+	theme.DrawWidget(progress, "", 0.3, false)
+	if calls := recorder.Calls(); len(calls) != 3 || calls[2].Part != skin.PartOverlay {
+		t.Fatalf("progress draw calls=%v", calls)
 	}
 }
 
 // TestThemeFontsHeadless verifies font state without a window: recording a
 // present file succeeds with no GL, missing files and nil receivers fail,
-// size-matched lookups fall back to the default font, and unload is safe.
+// size-matched lookups fall back to the default font, and unload is idempotent.
 func TestThemeFontsHeadless(t *testing.T) {
 	theme := NewTheme(transform.New(core.Viewport{}))
 	if theme.HasFont() || theme.HasItalicFont() {
@@ -155,12 +280,12 @@ func TestThemeFontsHeadless(t *testing.T) {
 	if err := theme.LoadItalicFont("testdata/fonts/does-not-exist.ttf"); err == nil {
 		t.Fatal("LoadItalicFont of a missing file must fail")
 	}
-	// No window is ready in tests, so rasterization falls back to default.
 	_ = theme.FontForSize(16)
 	_ = theme.ItalicForSize(14)
 	_ = theme.Font()
 	_ = theme.ItalicFont()
-	theme.UnloadFonts() // must not panic with nothing rasterized
+	theme.UnloadFonts()
+	theme.UnloadFonts()
 	if theme.HasFont() || theme.HasItalicFont() {
 		t.Fatal("UnloadFonts must forget recorded paths")
 	}
@@ -168,44 +293,41 @@ func TestThemeFontsHeadless(t *testing.T) {
 	if nilTheme.HasFont() || nilTheme.HasItalicFont() {
 		t.Fatal("nil theme must report no fonts")
 	}
-	nilTheme.UnloadFonts() // must not panic
+	nilTheme.UnloadFonts()
 	if err := nilTheme.LoadFont("x.ttf"); err == nil {
 		t.Fatal("nil theme LoadFont must fail")
 	}
 	_ = nilTheme.FontForSize(16)
 }
 
-// TestCheckboxIconParts verifies the Kenney-style checkbox art: a textured
-// PartIcon renders the empty box when unchecked, a textured PartCheckmark the
-// cross when checked, and missing skins keep the old behavior (nothing when
-// unchecked, geometry check when checked).
+// TestCheckboxIconParts verifies textured checkbox icons and no-skin fallback
+// behavior through the recorder without requiring a graphics context.
 func TestCheckboxIconParts(t *testing.T) {
 	box := core.Rect{X: 10, Y: 10, W: 120, H: 40}
 	theme := NewTheme(transform.New(core.Viewport{}))
+	recorder := newTestRecorder(t, 16)
+	theme.SetDrawRecorder(recorder)
 
 	unchecked := core.WidgetInfo{Name: "agreeBox", Bounds: box, Kind: core.WidgetCheckbox, State: core.StateNormal}
-	_ = theme.DrawWidget(unchecked, "", 0, false)
-	for _, call := range theme.DrawLog() {
+	theme.BeginFrame()
+	theme.DrawWidget(unchecked, "", 0, false)
+	for _, call := range recorder.Calls() {
 		if call.Part == skin.PartIcon || call.Part == skin.PartCheckmark {
 			t.Fatalf("no-skin unchecked box must draw no icon, got %v", call.Part)
 		}
 	}
 
-	icon := skin.SkinDescriptor{Texture: skin.Texture{ID: 7, Width: 32, Height: 32}, AtlasRegion: core.Rect{W: 32, H: 32}, Tint: core.Color{A: 255}, Alpha: 1, HasTexture: true}
-	cross := skin.SkinDescriptor{Texture: skin.Texture{ID: 8, Width: 32, Height: 32}, AtlasRegion: core.Rect{W: 32, H: 32}, Tint: core.Color{A: 255}, Alpha: 1, HasTexture: true}
+	icon := skin.SkinDescriptor{Texture: skin.Texture{ID: 7, Width: 32, Height: 32}, AtlasRegion: core.Rect{W: 32, H: 32}, Tint: core.Color{A: 255}, HasTexture: true}
+	cross := skin.SkinDescriptor{Texture: skin.Texture{ID: 8, Width: 32, Height: 32}, AtlasRegion: core.Rect{W: 32, H: 32}, Tint: core.Color{A: 255}, HasTexture: true}
 	key := skin.SkinKey{Widget: core.WidgetCheckbox, Part: skin.PartIcon, State: core.StateNormal}
-	if err := theme.SetSkinPart(key, icon); err != nil {
-		t.Fatal(err)
-	}
+	theme.SetSkinPart(key, icon)
 	key = skin.SkinKey{Widget: core.WidgetCheckbox, Part: skin.PartCheckmark, State: core.StateNormal}
-	if err := theme.SetSkinPart(key, cross); err != nil {
-		t.Fatal(err)
-	}
+	theme.SetSkinPart(key, cross)
 
-	theme.ClearDrawLog()
-	_ = theme.DrawWidget(unchecked, "", 0, false)
+	theme.BeginFrame()
+	theme.DrawWidget(unchecked, "", 0, false)
 	foundIcon := false
-	for _, call := range theme.DrawLog() {
+	for _, call := range recorder.Calls() {
 		if call.Part == skin.PartIcon {
 			foundIcon = true
 		}
@@ -217,11 +339,11 @@ func TestCheckboxIconParts(t *testing.T) {
 		t.Fatal("unchecked box must draw the empty-box icon")
 	}
 
-	theme.ClearDrawLog()
+	theme.BeginFrame()
 	checked := core.WidgetInfo{Name: "agreeBox", Bounds: box, Kind: core.WidgetCheckbox, State: core.StateNormal}
-	_ = theme.DrawWidget(checked, "", 0, true)
+	theme.DrawWidget(checked, "", 0, true)
 	foundCheck := false
-	for _, call := range theme.DrawLog() {
+	for _, call := range recorder.Calls() {
 		if call.Part == skin.PartCheckmark {
 			foundCheck = true
 		}
@@ -234,10 +356,8 @@ func TestCheckboxIconParts(t *testing.T) {
 	}
 }
 
-// TestEightPatchGeometry verifies border-only textures (opaque edges, empty
-// center, e.g. the Kenney 64x64 grey panel ring with 8px edges): the edge
-// rects keep full border thickness, stretch along their axis, and index 4 is
-// the only patch skipped when CenterFill is false.
+// TestEightPatchGeometry verifies border-only textures keep their geometry and
+// skip only the center when the descriptor disables center filling.
 func TestEightPatchGeometry(t *testing.T) {
 	patch := skin.NinePatch{Left: 8, Top: 8, Right: 8, Bottom: 8}
 	src := core.Rect{W: 64, H: 64}
@@ -252,7 +372,7 @@ func TestEightPatchGeometry(t *testing.T) {
 		t.Fatalf("bottom-right source=%v", source[8])
 	}
 
-	dest := NinePatchRects(src, NinePatchConfig{Source: src, Left: 8, Top: 8, Right: 8, Bottom: 8}, core.Rect{X: 10, Y: 20, W: 200, H: 94})
+	dest := NinePatchRects(NinePatchConfig{Left: 8, Top: 8, Right: 8, Bottom: 8}, core.Rect{X: 10, Y: 20, W: 200, H: 94})
 	if dest[0] != (core.Rect{X: 10, Y: 20, W: 8, H: 8}) {
 		t.Fatalf("top-left dest=%v", dest[0])
 	}
@@ -280,5 +400,20 @@ func TestEightPatchGeometry(t *testing.T) {
 	}
 	if skipped != 1 {
 		t.Fatalf("8-patch must skip exactly one patch, skipped %d", skipped)
+	}
+}
+
+// TestDrawWidgetPartWithoutRecorderAllocatesNothing protects the hot draw path.
+func TestDrawWidgetPartWithoutRecorderAllocatesNothing(t *testing.T) {
+	theme := NewTheme(transform.New(core.Viewport{}))
+	theme.SetDrawRecorder(nil)
+	theme.SetSkinPart(skin.SkinKey{Widget: core.WidgetButton, Part: skin.PartBackground, State: core.StateNormal}, skin.SkinDescriptor{
+		AtlasRegion: core.Rect{W: 64, H: 32}, Tint: core.Color{R: 255, G: 255, B: 255, A: 255}, HasTexture: true,
+	})
+	allocations := testing.AllocsPerRun(100, func() {
+		theme.DrawWidgetPart(core.WidgetButton, skin.PartBackground, core.Rect{W: 100, H: 30}, core.StateNormal)
+	})
+	if allocations != 0 {
+		t.Fatalf("DrawWidgetPart allocations = %v, want 0", allocations)
 	}
 }

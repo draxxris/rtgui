@@ -1,15 +1,103 @@
 package render
 
 import (
+	"errors"
+	"image"
+	"image/color"
+	"image/png"
+	"os"
+	"path/filepath"
 	"testing"
 
-	"rtgui/core"
-	"rtgui/skin"
-	"rtgui/transform"
+	"github.com/draxxris/rtgui/core"
+	"github.com/draxxris/rtgui/skin"
+	"github.com/draxxris/rtgui/transform"
 )
 
-// TestMergeSkinRules verifies later-wins-per-field and state-over-normal
-// inheritance, including first-appearance key order.
+type fakeTextureBackend struct {
+	isReady     bool
+	nextID      uint32
+	uploadCalls int
+	failUpload  int
+	filterCalls int
+	failFilter  int
+	unloaded    []uint32
+	uploaded    [][]byte
+}
+
+func (f *fakeTextureBackend) ready() bool { return f.isReady }
+
+// upload records original bytes and can inject a deterministic failure.
+func (f *fakeTextureBackend) upload(_ string, data []byte) (skin.Texture, error) {
+	f.uploadCalls++
+	if f.uploadCalls == f.failUpload {
+		return skin.Texture{}, errors.New("injected upload failure")
+	}
+	f.nextID++
+	f.uploaded = append(f.uploaded, append([]byte(nil), data...))
+	return skin.Texture{ID: f.nextID, Width: 2, Height: 2, Mipmaps: 1, Format: 7}, nil
+}
+
+func (f *fakeTextureBackend) setFilter(skin.Texture) error {
+	f.filterCalls++
+	if f.filterCalls == f.failFilter {
+		return errors.New("injected filter failure")
+	}
+	return nil
+}
+
+func (f *fakeTextureBackend) unload(texture skin.Texture) {
+	f.unloaded = append(f.unloaded, texture.ID)
+}
+
+func newFakeTheme(backend *fakeTextureBackend) *Theme {
+	theme := NewTheme(transform.New(core.Viewport{}))
+	theme.textureBackend = backend
+	return theme
+}
+
+// writeTestPNG creates a small tracked-independent CSS source image.
+func writeTestPNG(t *testing.T, directory, name string, fill color.RGBA) string {
+	t.Helper()
+	path := filepath.Join(directory, name)
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	img := image.NewRGBA(image.Rect(0, 0, 2, 2))
+	for y := 0; y < 2; y++ {
+		for x := 0; x < 2; x++ {
+			img.SetRGBA(x, y, fill)
+		}
+	}
+	if err := png.Encode(file, img); err != nil {
+		_ = file.Close()
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+// writeCSS writes one temporary candidate stylesheet.
+func writeCSS(t *testing.T, directory, text string) string {
+	t.Helper()
+	path := filepath.Join(directory, "theme.css")
+	if err := os.WriteFile(path, []byte(text), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func mustLoadCSS(t *testing.T, theme *Theme, path string) {
+	t.Helper()
+	if err := theme.LoadCSSFile(path, ""); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestMergeSkinRules checks field merging and normal-state inheritance.
 func TestMergeSkinRules(t *testing.T) {
 	rules := []skin.SkinRule{
 		{Kind: core.WidgetButton, Part: skin.PartBorder, State: core.StateNormal,
@@ -26,64 +114,199 @@ func TestMergeSkinRules(t *testing.T) {
 	}
 	hover := merged[skin.SkinKey{Widget: core.WidgetButton, Part: skin.PartBorder, State: core.StateHovered}]
 	if hover.image != "hover.png" || !hover.hasSlice || hover.slice != 8 || !hover.hasPadding {
-		t.Fatalf("hover must inherit slice+padding: %+v", hover)
+		t.Fatalf("hover inheritance = %+v", hover)
 	}
 	disabled := merged[skin.SkinKey{Widget: core.WidgetButton, Part: skin.PartBorder, State: core.StateDisabled}]
 	if !disabled.hasImage || disabled.image != "line.png" || !disabled.hasTint {
-		t.Fatalf("disabled must inherit image and keep tint: %+v", disabled)
+		t.Fatalf("disabled inheritance = %+v", disabled)
 	}
 }
 
-// TestLoadCSSFileHeadless verifies the loud early error without a window.
-func TestLoadCSSFileHeadless(t *testing.T) {
-	theme := NewTheme(transform.New(core.Viewport{}))
-	if err := theme.LoadCSSFile("nonexistent.css", ""); err == nil {
-		t.Fatal("headless LoadCSSFile must fail without a window")
+// TestLoadRuleImagesValidatesGeneratedAssetsBeforeUpload checks decode staging.
+func TestLoadRuleImagesValidatesGeneratedAssetsBeforeUpload(t *testing.T) {
+	directory := t.TempDir()
+	writeTestPNG(t, directory, "pixel.png", color.RGBA{R: 255, A: 255})
+	key := skin.SkinKey{Widget: core.WidgetButton, Part: skin.PartBackground, State: core.StateNormal}
+	images, order, err := loadRuleImages(directory, map[skin.SkinKey]mergedRule{key: {image: "pixel.png", hasImage: true}}, []skin.SkinKey{key})
+	if err != nil || len(images) != 1 || len(order) != 1 || len(images[order[0]].data) == 0 {
+		t.Fatalf("generated image validation = %d/%v", len(images), err)
 	}
-	var nilTheme *Theme
-	if err := nilTheme.LoadCSSFile("x.css", ""); err == nil {
-		t.Fatal("nil theme must fail")
-	}
-}
-
-// TestLoadRuleImages verifies missing files, tint-without-image, and real
-// PNG decode using checked-in Kenney art (decode only, no GL upload).
-func TestLoadRuleImages(t *testing.T) {
-	base := "../testdata/skins"
-	missing := map[skin.SkinKey]mergedRule{
-		{Widget: core.WidgetButton, Part: skin.PartBorder, State: core.StateNormal}: {
-			image: "does-not-exist.png", hasImage: true,
-		},
-	}
-	if _, err := loadRuleImages(base, missing, []skin.SkinKey{{Widget: core.WidgetButton, Part: skin.PartBorder, State: core.StateNormal}}); err == nil {
+	if _, _, err := loadRuleImages(directory, map[skin.SkinKey]mergedRule{key: {image: "missing.png", hasImage: true}}, []skin.SkinKey{key}); err == nil {
 		t.Fatal("missing image must fail")
 	}
-	bare := map[skin.SkinKey]mergedRule{
-		{Widget: core.WidgetButton, Part: skin.PartBorder, State: core.StateNormal}: {
-			tint: core.Color{A: 255}, hasTint: true,
-		},
-	}
-	if _, err := loadRuleImages(base, bare, []skin.SkinKey{{Widget: core.WidgetButton, Part: skin.PartBorder, State: core.StateNormal}}); err == nil {
+	if _, _, err := loadRuleImages(directory, map[skin.SkinKey]mergedRule{key: {hasTint: true}}, []skin.SkinKey{key}); err == nil {
 		t.Fatal("tint without image must fail")
 	}
-	real := map[skin.SkinKey]mergedRule{
-		{Widget: core.WidgetButton, Part: skin.PartBorder, State: core.StateNormal}: {
-			image: "kenney/blue/button_rectangle_line.png", hasImage: true,
-		},
-		{Widget: core.WidgetButton, Part: skin.PartBorder, State: core.StateHovered}: {
-			image: "kenney/blue/check_square_grey.png", hasImage: true,
-			tint: core.Color{R: 255, G: 255, B: 255, A: 255}, hasTint: true,
-		},
+}
+
+// TestCSSUploadsUniqueSourceOnceAndPreservesDrawTint checks sharing and tinting.
+func TestCSSUploadsUniqueSourceOnceAndPreservesDrawTint(t *testing.T) {
+	directory := t.TempDir()
+	originalPath := writeTestPNG(t, directory, "pixel.png", color.RGBA{R: 200, G: 100, A: 255})
+	cssPath := writeCSS(t, directory, `
+Button { background-image: url(pixel.png); background-image-tint: #11223344; }
+Button:hover { background-image-tint: #aabbccdd; }
+`)
+	backend := &fakeTextureBackend{isReady: true}
+	theme := newFakeTheme(backend)
+	mustLoadCSS(t, theme, cssPath)
+	if backend.uploadCalls != 1 || backend.filterCalls != 1 || len(theme.ownedSkinTextures) != 1 {
+		t.Fatalf("uploads=%d filters=%d owned=%d", backend.uploadCalls, backend.filterCalls, len(theme.ownedSkinTextures))
 	}
-	keys := []skin.SkinKey{
-		{Widget: core.WidgetButton, Part: skin.PartBorder, State: core.StateNormal},
-		{Widget: core.WidgetButton, Part: skin.PartBorder, State: core.StateHovered},
+	original, _ := os.ReadFile(originalPath)
+	if len(backend.uploaded) != 1 || string(backend.uploaded[0]) != string(original) {
+		t.Fatal("backend did not receive original encoded bytes")
 	}
-	images, err := loadRuleImages(base, real, keys)
+	normalKey := skin.SkinKey{Widget: core.WidgetButton, Part: skin.PartBackground, State: core.StateNormal}
+	hoverKey := skin.SkinKey{Widget: core.WidgetButton, Part: skin.PartBackground, State: core.StateHovered}
+	normal, err := theme.GetSkinPart(normalKey)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(images) != 2 {
-		t.Fatalf("expected 2 decoded images, got %d", len(images))
+	hover, err := theme.GetSkinPart(hoverKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if normal.Texture.ID != hover.Texture.ID || normal.Tint != (core.Color{R: 0x11, G: 0x22, B: 0x33, A: 0x44}) || hover.Tint != (core.Color{R: 0xaa, G: 0xbb, B: 0xcc, A: 0xdd}) {
+		t.Fatalf("normal=%+v hover=%+v", normal, hover)
+	}
+	recorder, _ := NewDrawRecorder(4)
+	theme.SetDrawRecorder(recorder)
+	theme.BeginFrame()
+	theme.DrawWidgetPart(core.WidgetButton, skin.PartBackground, core.Rect{W: 10, H: 10}, core.StateHovered)
+	calls := recorder.Calls()
+	if len(calls) != 1 || calls[0].Tint != hover.Tint {
+		t.Fatalf("draw-time tint calls = %+v", calls)
+	}
+}
+
+// TestCSSUploadFailureRollsBackCandidateAndPreservesOldLayer checks atomic failure.
+func TestCSSUploadFailureRollsBackCandidateAndPreservesOldLayer(t *testing.T) {
+	directory := t.TempDir()
+	writeTestPNG(t, directory, "old.png", color.RGBA{R: 1, A: 255})
+	writeTestPNG(t, directory, "first.png", color.RGBA{R: 2, A: 255})
+	writeTestPNG(t, directory, "second.png", color.RGBA{R: 3, A: 255})
+	backend := &fakeTextureBackend{isReady: true}
+	theme := newFakeTheme(backend)
+	oldCSS := writeCSS(t, directory, `Button { background-image: url(old.png); }`)
+	mustLoadCSS(t, theme, oldCSS)
+	key := skin.SkinKey{Widget: core.WidgetButton, Part: skin.PartBackground, State: core.StateNormal}
+	old, _ := theme.GetSkinPart(key)
+	backend.failUpload = 3
+	candidateCSS := writeCSS(t, directory, `
+Button { background-image: url(first.png); }
+Checkbox { background-image: url(second.png); }
+`)
+	if err := theme.LoadCSSFile(candidateCSS, ""); err == nil {
+		t.Fatal("injected second candidate upload must fail")
+	}
+	current, _ := theme.GetSkinPart(key)
+	if current != old || len(theme.ownedSkinTextures) != 1 || theme.ownedSkinTextures[0].ID != old.Texture.ID {
+		t.Fatalf("old layer changed: old=%+v current=%+v owned=%v", old, current, theme.ownedSkinTextures)
+	}
+	if len(backend.unloaded) != 1 || backend.unloaded[0] == old.Texture.ID {
+		t.Fatalf("candidate rollback unloads = %v", backend.unloaded)
+	}
+}
+
+// TestSuccessfulCSSReloadUnloadsEachPriorTexture checks repeated ownership swaps.
+func TestSuccessfulCSSReloadUnloadsEachPriorTexture(t *testing.T) {
+	directory := t.TempDir()
+	writeTestPNG(t, directory, "pixel.png", color.RGBA{R: 1, A: 255})
+	cssPath := writeCSS(t, directory, `Button { background-image: url(pixel.png); }`)
+	backend := &fakeTextureBackend{isReady: true}
+	theme := newFakeTheme(backend)
+	for reload := 0; reload < 3; reload++ {
+		mustLoadCSS(t, theme, cssPath)
+	}
+	if backend.uploadCalls != 3 || len(backend.unloaded) != 2 || backend.unloaded[0] != 1 || backend.unloaded[1] != 2 {
+		t.Fatalf("uploads=%d unloads=%v", backend.uploadCalls, backend.unloaded)
+	}
+	if len(theme.ownedSkinTextures) != 1 || theme.ownedSkinTextures[0].ID != 3 {
+		t.Fatalf("retained handles = %v", theme.ownedSkinTextures)
+	}
+}
+
+// TestUnloadAndClearSkinNeverUnloadBorrowedTextures checks cleanup contracts.
+func TestUnloadAndClearSkinNeverUnloadBorrowedTextures(t *testing.T) {
+	directory := t.TempDir()
+	writeTestPNG(t, directory, "pixel.png", color.RGBA{R: 1, A: 255})
+	cssPath := writeCSS(t, directory, `Button { background-image: url(pixel.png); }`)
+	backend := &fakeTextureBackend{isReady: true}
+	theme := newFakeTheme(backend)
+	key := skin.SkinKey{Widget: core.WidgetButton, Part: skin.PartBackground, State: core.StateNormal}
+	borrowed := skin.SkinDescriptor{Texture: skin.Texture{ID: 999}, HasTexture: true, Tint: core.Color{A: 255}}
+	theme.SetSkinPart(key, borrowed)
+	mustLoadCSS(t, theme, cssPath)
+	laterBorrowed := borrowed
+	laterBorrowed.Texture.ID = 1000
+	theme.SetSkinPart(key, laterBorrowed)
+	if got, _ := theme.GetSkinPart(key); got.Texture.ID == laterBorrowed.Texture.ID {
+		t.Fatal("later programmatic write was not hidden by materialized CSS")
+	}
+	if err := theme.UnloadSkin(); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := theme.GetSkinPart(key); got != laterBorrowed {
+		t.Fatalf("programmatic layer after unload = %+v", got)
+	}
+	if err := theme.UnloadSkin(); err != nil || len(backend.unloaded) != 1 {
+		t.Fatalf("repeated UnloadSkin = %v unloads=%v", err, backend.unloaded)
+	}
+	mustLoadCSS(t, theme, cssPath)
+	backend.isReady = false
+	if err := theme.UnloadSkin(); err == nil || len(theme.ownedSkinTextures) != 1 {
+		t.Fatal("headless cleanup must fail and retain owned handles")
+	}
+	backend.isReady = true
+	if err := theme.ClearSkin(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := theme.GetSkinPart(key); err == nil {
+		t.Fatal("ClearSkin retained a descriptor")
+	}
+	if err := theme.ClearSkin(); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range backend.unloaded {
+		if id == 999 || id == 1000 {
+			t.Fatalf("borrowed texture %d was unloaded", id)
+		}
+	}
+}
+
+// TestThemeLookupOrderAcrossCSSAndProgrammaticLayers checks exact/fallback order.
+func TestThemeLookupOrderAcrossCSSAndProgrammaticLayers(t *testing.T) {
+	theme := NewTheme(transform.New(core.Viewport{}))
+	key := func(state core.WidgetState) skin.SkinKey {
+		return skin.SkinKey{Widget: core.WidgetButton, Part: skin.PartBackground, State: state}
+	}
+	descriptor := func(red uint8) skin.SkinDescriptor { return skin.SkinDescriptor{Tint: core.Color{R: red, A: 255}} }
+	theme.SetSkinPart(key(core.StateNormal), descriptor(1))
+	theme.SetSkinPart(key(core.StateHovered), descriptor(2))
+	theme.css.Set(key(core.StateNormal), descriptor(3))
+	theme.css.Set(key(core.StatePressed), descriptor(4))
+	for state, want := range map[core.WidgetState]uint8{
+		core.StateNormal: 3, core.StateHovered: 2, core.StatePressed: 4, core.StateFocused: 3,
+	} {
+		got, ok := theme.Lookup(core.WidgetButton, skin.PartBackground, state)
+		if !ok || got.Tint.R != want {
+			t.Fatalf("Lookup(%v) = %+v/%v, want red %d", state, got, ok, want)
+		}
+	}
+}
+
+// TestLoadCSSFileRequiresReadyBackendOnlyForUpload checks context validation.
+func TestLoadCSSFileRequiresReadyBackendOnlyForUpload(t *testing.T) {
+	directory := t.TempDir()
+	writeTestPNG(t, directory, "pixel.png", color.RGBA{A: 255})
+	cssPath := writeCSS(t, directory, `Button { background-image: url(pixel.png); }`)
+	theme := newFakeTheme(&fakeTextureBackend{isReady: false})
+	if err := theme.LoadCSSFile(cssPath, ""); err == nil {
+		t.Fatal("unready backend must reject upload")
+	}
+	var nilTheme *Theme
+	if err := nilTheme.LoadCSSFile(cssPath, ""); err == nil {
+		t.Fatal("nil theme must fail")
 	}
 }

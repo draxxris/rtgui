@@ -1,62 +1,84 @@
 package dragdrop
 
-import "rtgui/core"
+import (
+	"errors"
 
-type DropTarget struct {
-	ID      string
-	Bounds  core.Rect
-	Accepts func(Payload) bool
-	OnDrop  func(Payload)
-}
-
-var (
-	targets     = map[string]*DropTarget{}
-	targetOrder []string
+	"github.com/draxxris/rtgui/core"
 )
 
-// RegisterTarget replaces an existing ID without changing registration order.
-// Ordered lookup makes overlapping targets deterministic. Clobbering is kept
-// intentionally: unlike sim.Stage.Register (which errors on duplicates),
-// drag targets are transient overlay registrations where re-registering the
-// same string ID updates bounds/handlers in place.
-func RegisterTarget(t *DropTarget) {
-	if t == nil {
-		return
-	}
-	if _, exists := targets[t.ID]; !exists {
-		targetOrder = append(targetOrder, t.ID)
-	}
-	targets[t.ID] = t
+var (
+	errNilController = errors.New("dragdrop: nil controller")
+	errNilTarget     = errors.New("dragdrop: nil target")
+	errEmptyTarget   = errors.New("dragdrop: empty target name")
+)
+
+// DropTarget receives compatible payloads dropped inside Bounds. Name is the
+// controller-local registry key.
+type DropTarget struct {
+	// Name is the controller-local target identity.
+	Name string
+	// Bounds is the logical area that accepts a pointer.
+	Bounds core.Rect
+	// Accepts optionally rejects payloads before OnDrop is called.
+	Accepts func(Payload) bool
+	// OnDrop receives an accepted payload synchronously.
+	OnDrop func(Payload)
 }
 
-// UnregisterTarget removes the named target from the registry and order.
-func UnregisterTarget(id string) {
-	delete(targets, id)
-	for i, targetID := range targetOrder {
-		if targetID == id {
-			targetOrder = append(targetOrder[:i], targetOrder[i+1:]...)
+// RegisterTarget adds target to c. Registering an existing name replaces its
+// target without changing its first-registration precedence.
+func (c *Controller) RegisterTarget(target *DropTarget) error {
+	if c == nil {
+		return errNilController
+	}
+	if target == nil {
+		return errNilTarget
+	}
+	if target.Name == "" {
+		return errEmptyTarget
+	}
+	if c.targets == nil {
+		c.targets = make(map[string]*DropTarget)
+	}
+	if _, exists := c.targets[target.Name]; !exists {
+		c.targetOrder = append(c.targetOrder, target.Name)
+	}
+	c.targets[target.Name] = target
+	if c.IsDragging() {
+		c.refreshTarget()
+	}
+	return nil
+}
+
+// RemoveTarget removes name from c and reports whether it was registered.
+func (c *Controller) RemoveTarget(name string) bool {
+	if c == nil || c.targets == nil {
+		return false
+	}
+	if _, exists := c.targets[name]; !exists {
+		return false
+	}
+	delete(c.targets, name)
+	for i, targetName := range c.targetOrder {
+		if targetName == name {
+			copy(c.targetOrder[i:], c.targetOrder[i+1:])
+			c.targetOrder[len(c.targetOrder)-1] = ""
+			c.targetOrder = c.targetOrder[:len(c.targetOrder)-1]
 			break
 		}
 	}
+	if c.IsDragging() {
+		c.refreshTarget()
+	}
+	return true
 }
 
-func ClearTargets() {
-	targets = map[string]*DropTarget{}
-	targetOrder = nil
-}
-
-// HitTarget returns the first registered geometric target under pos. Acceptance
-// is deliberately checked at release, so a rejected target can still receive
-// deterministic hover feedback.
-func HitTarget(pos core.Vec2) *DropTarget {
-	for _, id := range targetOrder {
-		t := targets[id]
-		if t == nil {
-			continue
-		}
-		if pos.X >= t.Bounds.X && pos.X <= t.Bounds.X+t.Bounds.W &&
-			pos.Y >= t.Bounds.Y && pos.Y <= t.Bounds.Y+t.Bounds.H {
-			return t
+// targetAt returns the first registered target containing pointerPosition.
+func (c *Controller) targetAt(pointerPosition core.Vec2) *DropTarget {
+	for _, name := range c.targetOrder {
+		target := c.targets[name]
+		if target != nil && target.Bounds.Contains(pointerPosition) {
+			return target
 		}
 	}
 	return nil

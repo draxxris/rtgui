@@ -2,133 +2,155 @@
 
 ## Headless gate
 
-Run the library checks from the module root:
+Run checks from the module root:
 
 ```sh
-gofmt -l .
-go vet ./...
-DISPLAY= WAYLAND_DISPLAY= go test ./...
+gofmt -l $(find . -name '*.go' -type f)
+git diff --check
+go mod tidy -diff
+go list ./...
+DISPLAY= WAYLAND_DISPLAY= mise run test
+mise run vet
+mise run complexity
 ```
 
-The tests in `core`, `widgets`, `input`, `text`, `transform`, `skin`,
-`render`, `layout`, `dragdrop`, `sim`, and `ui` do not require a display. `render.Theme`
-records draw calls and skips raylib drawing when no window is ready.
+The package tests are designed to run without a display. `render.Theme` skips
+raylib draw calls until a window is ready; attach a bounded
+`render.DrawRecorder` when a test needs draw diagnostics. The `render` and `ui`
+packages still have a direct raylib/native-toolchain requirement even though
+most tests are headless.
 
-### Coverage by package
+## Coverage by package
 
-- `widgets/`: hover, press/release, focus, checkbox and slider behavior,
-  scrolling, and UTF-8 editing.
-- `text/`: NUL-terminated buffer capacity and UTF-8-safe truncation.
-- `input/`: explicit pointer-capture lifecycle.
+- `core/`: shared geometry, colors, widget kinds, states, and snapshots.
+- `widgets/`: widget accessors, layout frames, hit testing, dropdown snapshots,
+  checkbox and slider behavior, scrolling, and UTF-8 editing.
+- `text/`: private bounded storage, valid and invalid UTF-8, rune-boundary
+  truncation, in-place append/backspace, and allocation reuse.
 - `transform/`: viewport mapping, physical hit testing, snapping, and clipping.
-- `skin/`: exact and normal-state-fallback registry lookup.
-- `render/`: nine-patch geometry, content insets, fallback drawing, theme
-  isolation, draw logging, sliders, and progress bars.
-- `layout/`: anchors, measurement, viewport arrangement, and `MoveFrame`.
-- `dragdrop/`: threshold transitions, target ordering, accepted/rejected drops,
-  cancellation, and ghosts.
-- `sim/`: string-ID registry, center `Click`, and focus-first-append `Type`,
-  including duplicate/empty-name, unknown-ID, disabled, and wrong-kind paths.
 - `skin/`: CSS selector/property parsing, cascade order, strict errors, and
-  headless tint math (`skin/css.go`).
-- `render/`: CSS merge/inheritance, headless loader errors, and real-PNG decode
-  (`render/css.go`, decode only — upload needs a window).
-- `ui/`: facade registry, `HandleMouse`/`HandleKey` dispatch with handled-bool
-  game pass-through, `OnClick`/`OnChange`/`OnText` firing, UTF-8 typing, focus
-  and capture lifecycle, and headless `Draw` logging.
+  exact/normal-state registry lookup.
+- `render/`: nine-patch geometry, exact RGBA tinting, fallback drawing, optional
+  bounded recording, font-cache cleanup, CSS merge/inheritance, transactional
+  texture ownership, and headless loader errors.
+- `layout/`: `SetPoint` equations, size limits, ownership and dependency cycles,
+  deterministic arrangement, viewport application, movement, and warm-tree
+  allocation behavior.
+- `dragdrop/`: threshold transitions, accepted/rejected drops, cancellation,
+  target replacement/removal, registration order, hover reset, and controller
+  isolation.
+- `sim/`: semantic activation, focus, UTF-8 text edits, shared callbacks, and
+  nil/disabled/unknown target behavior.
+- `ui/`: atomic registry operations, UI-owned hover/press/focus state, handled
+  input dispatch, callbacks after real mutations, dropdown ownership, resolved
+  layout bounds, and recorder frame boundaries.
 
-Optional benchmarks:
-
-```sh
-go test -bench . ./...
-```
+CSS fake-backend tests use generated temporary images and do not depend on the
+ignored Kenney fixtures. The successful gallery CSS path does require the local
+ignored files and a graphics context.
 
 ## Harness-driven interaction
 
-Use `rtgui/sim` to drive widgets headlessly without a display or raylib.
-Each `Stage` owns its registry plus capture, so tests stay parallel-safe
-with no package-global state:
-
-```go
-stage := sim.NewStage()
-button := widgets.NewButton("okButton", core.Rect{W: 120, H: 40}, "OK")
-field := widgets.NewTextbox("myTextField", core.Rect{W: 200, H: 30}, 64)
-_ = stage.Register(button)
-_ = stage.Register(field)
-stage.Click("okButton")
-stage.Type("myTextField", "hello world") // focus-first append
-```
-
-Semantics: `Click` presses and releases at the widget center and always
-leaves capture released; `Type` focuses the textbox first (blurring the
-previous one) and appends each rune via `TypeChar`, keeping multi-byte
-UTF-8 safe. Both return `false` on unknown, disabled, or wrong-kind
-targets instead of failing loudly. `Register` returns an error on
-duplicate or empty names without clobbering the original entry. Pair the
-harness with `theme.DrawWidget(w.Info(), ...)` to prove the renderer path
-still works with string IDs.
-
-## Facade-driven interaction
-
-Use `rtgui/ui` in real applications instead of hand-rolling dispatch. Each
-`UI` owns its registry plus transform, capture, and theme, so tests stay
-parallel-safe with no package-global state. The UI gets first refusal on each
-polled frame; the game runs its own input only when handled is false:
+`sim.Stage` adapts an existing `ui.UI`; it does not duplicate a widget registry
+or interaction state. Register widgets and callbacks with the UI first:
 
 ```go
 u := ui.New(800, 600)
-u.Add(widgets.NewButton("primaryButton", core.Rect{X: 40, Y: 40, W: 200, H: 42}, "Primary"))
-u.OnClick("primaryButton", func() { status = "clicked" })
-mouseHandled := u.HandleMouse(ui.MouseEvent{Pos: u.ToLogical(p), Pressed: ..., Down: ..., Released: ..., Wheel: ...})
-if !mouseHandled {
-    cameraZoom(wheel) // game keeps wheel/click when UI returned false
+button := widgets.NewButton("okButton", core.Rect{W: 120, H: 40}, "OK")
+field := widgets.NewTextbox("myTextField", core.Rect{W: 200, H: 30}, 64)
+_ = u.Add(button, field)
+
+stage, err := sim.NewStage(u)
+if err != nil {
+    panic(err)
 }
-keyHandled := u.HandleKey(ui.KeyEvent{Chars: runes, Backspace: ..., Escape: ...})
+stage.Click("okButton")
+stage.Type("myTextField", "hello world")
+```
+
+`Click`, `Type`, and `Focus` use the same UI semantic transitions and
+synchronous callbacks as physical input. `Type` focuses the textbox first and
+fires a text callback only if at least one rune changes the value. Empty,
+invalid, disabled, unknown, wrong-kind, full-buffer, and empty-backspace paths
+do not report a mutation.
+
+## Facade-driven interaction
+
+The UI gets first refusal on each polled frame. The application can continue
+processing input when the returned handled value is false:
+
+```go
+u := ui.New(800, 600)
+_ = u.Add(widgets.NewButton("primaryButton", core.Rect{X: 40, Y: 40, W: 200, H: 42}, "Primary"))
+u.OnClick("primaryButton", func() { status = "clicked" })
+mouseHandled := u.HandleMouse(ui.MouseEvent{Pos: u.ToLogical(p), Pressed: pressed, Down: down, Released: released, Wheel: wheel})
+if !mouseHandled {
+    cameraZoom(wheel)
+}
+keyHandled := u.HandleKey(ui.KeyEvent{Chars: runes, Backspace: backspace, Escape: escape})
 if !keyHandled {
-    playerMove(keys) // game keeps keys when no textbox consumed them
+    playerMove(keys)
 }
 u.Draw()
 ```
 
-Hover alone never consumes. Press/drag/release consume on hit-or-capture
-(release off-widget after a press consumes but fires no click), wheel consumes
-only over a scrolled widget, chars/backspace consume only via a focused
-textbox, and `Escape` consumes only when it blurred focus. `Add` overwrites
-duplicates without changing draw order; callbacks for unknown names are kept
-until the widget arrives; `nil` removes a callback. `sim.Click`/`sim.Type`
-bypass `ui` callbacks in v1.
+Hover alone and empty-space misses pass through. A press, drag, or release on a
+hit widget consumes the gesture; an active press remains owned until release.
+Wheel input is consumed only over a scroll panel. Character and backspace input
+is consumed only by a focused textbox. `Escape` is consumed only when it clears
+focus. Duplicate `Add` requests are rejected; use `Remove` before registering a
+replacement. Callback registrations remain available after widget removal.
+
+## Performance and race checks
+
+The complete validation matrix includes:
+
+```sh
+mise exec -- go test -race ./...
+mise exec -- go test -shuffle=on -count=20 ./...
+mise exec -- staticcheck ./...
+mise exec -- go build ./...
+mise exec -- govulncheck ./...
+mise exec -- go test -run '^$' -bench . -benchmem ./render ./layout ./transform
+```
+
+The focused layout benchmark should report zero steady-state allocations after
+its dependency cache is warm. The normal draw benchmark disables recording and
+should also report zero allocations for its hot operation.
 
 ## Gallery smoke
 
-With a display:
-
-```sh
-go run ./examples/widget_gallery -frames 3 -screenshot out.png
-```
-
-On headless Linux:
+For a real framebuffer screenshot:
 
 ```sh
 xvfb-run --auto-servernum --server-args="-screen 0 1280x800x24" \
-  go run ./examples/widget_gallery -frames 3 -screenshot out.png
+  mise exec -- go run ./examples/widget_gallery -frames 3 -screenshot /tmp/rtgui-test.png
 ```
 
-The gallery uses raylib only after a window is ready. Without a display it
-runs its headless smoke path and writes a standard-library placeholder PNG.
+Inspect the resulting PNG manually. Confirm that widget states, CSS tint,
+nine-patch borders, layout movement, text, slider/progress, and dropdown popup
+remain visible. The gallery teardown must unload CSS-owned textures before the
+raylib window closes and unload borrowed auxiliary textures exactly once.
 
-## Visual references
+## Visual references and known fixture limitation
 
-`testdata/golden/` contains reference images for manual inspection. There is
-no automated pixel-difference gate because output can vary across drivers and
-raylib versions. Explain any intentional visual change before replacing a
-reference image.
+`testdata/golden/` contains references for manual inspection; there is no
+pixel-difference gate because drivers and raylib versions vary.
+
+The Kenney PNGs under `testdata/skins/kenney/` are ignored local fixtures. They
+are intentionally not changed or added to `.gitignore`; a clean archive lacks
+them and therefore cannot run the file-dependent CSS test or gallery skin.
+That accepted limitation is not a release gate.
 
 ## Pre-push checklist
 
 ```sh
-gofmt -l .
-go vet ./...
-DISPLAY= WAYLAND_DISPLAY= go test ./...
-xvfb-run --auto-servernum go run ./examples/widget_gallery \
-  -frames 3 -screenshot /tmp/rtgui_check.png
+gofmt -l $(find . -name '*.go' -type f)
+git diff --check
+DISPLAY= WAYLAND_DISPLAY= mise run test
+mise run vet
+mise run build-linux
+mise run build-windows
+xvfb-run --auto-servernum --server-args="-screen 0 1280x800x24" \
+  mise exec -- go run ./examples/widget_gallery -frames 3 -screenshot /tmp/rtgui-check.png
 ```

@@ -11,13 +11,11 @@ package skin
 
 import (
 	"fmt"
-	"image"
-	"image/color"
 	"strconv"
 	"strings"
 
+	"github.com/draxxris/rtgui/core"
 	"github.com/vanng822/css"
-	"rtgui/core"
 )
 
 // SkinRule is one parsed CSS rule block broken down per touched part: at most
@@ -25,20 +23,31 @@ import (
 // for the same key win at apply time; states inherit missing siblings from
 // the same kind+part normal rule at merge time (see render).
 type SkinRule struct {
-	Kind  core.WidgetKind
-	Part  SkinPart
+	// Kind is the widget kind selected by the CSS selector.
+	Kind core.WidgetKind
+	// Part is the visual component selected by the CSS selector.
+	Part SkinPart
+	// State is the pseudo-class state selected by the CSS selector.
 	State core.WidgetState
 
-	Image    string // url() path as authored, unresolved; "" when absent
+	// Image is the authored url() path, unresolved; empty when absent.
+	Image string
+	// HasImage reports whether Image was declared.
 	HasImage bool
 
-	Slice    int32 // border-image-slice in px; valid when HasSlice
+	// Slice is border-image-slice in pixels when HasSlice is true.
+	Slice int32
+	// HasSlice reports whether Slice was declared.
 	HasSlice bool
 
-	Tint    core.Color // *-tint color; valid when HasTint
+	// Tint is the authored *-tint color when HasTint is true.
+	Tint core.Color
+	// HasTint reports whether Tint was declared.
 	HasTint bool
 
-	Padding    [4]float32 // top, right, bottom, left; valid when HasPadding
+	// Padding contains top, right, bottom, and left values when declared.
+	Padding [4]float32
+	// HasPadding reports whether Padding was declared.
 	HasPadding bool
 }
 
@@ -337,25 +346,4 @@ func parseTint(selector, property, value string) (core.Color, error) {
 		tint.A = bytes[3]
 	}
 	return tint, nil
-}
-
-// TintImage multiplies image pixels by tint per channel including alpha in
-// straight-alpha space and returns a fresh NRGBA image ready for upload. A
-// white tint is identity. Pure stdlib: safe headless and unit-testable.
-func TintImage(src image.Image, tint core.Color) *image.NRGBA {
-	bounds := src.Bounds()
-	out := image.NewNRGBA(bounds)
-	tr, tg, tb, ta := uint32(tint.R), uint32(tint.G), uint32(tint.B), uint32(tint.A)
-	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
-		for x := bounds.Min.X; x < bounds.Max.X; x++ {
-			straight := color.NRGBAModel.Convert(src.At(x, y)).(color.NRGBA)
-			out.SetNRGBA(x, y, color.NRGBA{
-				R: uint8(uint32(straight.R) * tr / 255),
-				G: uint8(uint32(straight.G) * tg / 255),
-				B: uint8(uint32(straight.B) * tb / 255),
-				A: uint8(uint32(straight.A) * ta / 255),
-			})
-		}
-	}
-	return out
 }

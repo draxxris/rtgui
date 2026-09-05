@@ -1,401 +1,465 @@
 package ui
 
 import (
+	"errors"
 	"testing"
 
-	"rtgui/core"
-	"rtgui/widgets"
+	"github.com/draxxris/rtgui/core"
+	"github.com/draxxris/rtgui/layout"
+	"github.com/draxxris/rtgui/render"
+	"github.com/draxxris/rtgui/skin"
+	"github.com/draxxris/rtgui/widgets"
 )
 
-// newSampleUI builds the Target Sample widget set for integration tests.
-func newSampleUI() (*UI, *widgets.Widget, *widgets.Widget, *widgets.Widget, *widgets.Widget, *widgets.Widget) {
+func mustAdd(t *testing.T, u *UI, list ...*widgets.Widget) {
+	t.Helper()
+	if err := u.Add(list...); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+}
+
+func centerOf(widget *widgets.Widget) core.Vec2 {
+	bounds := widget.Bounds()
+	return core.Vec2{X: bounds.X + bounds.W/2, Y: bounds.Y + bounds.H/2}
+}
+
+func clickAt(u *UI, pos core.Vec2) (bool, bool) {
+	return u.HandleMouse(MouseEvent{Pos: pos, Pressed: true}), u.HandleMouse(MouseEvent{Pos: pos, Released: true})
+}
+
+// attachDrawRecorder adds bounded diagnostics to a test UI.
+func attachDrawRecorder(t *testing.T, u *UI) *render.DrawRecorder {
+	t.Helper()
+	recorder, err := render.NewDrawRecorder(128)
+	if err != nil {
+		t.Fatalf("NewDrawRecorder: %v", err)
+	}
+	u.Theme().SetDrawRecorder(recorder)
+	return recorder
+}
+
+// TestAddValidatesAtomicallyAndRejectsDuplicates checks the registry contract.
+func TestAddValidatesAtomicallyAndRejectsDuplicates(t *testing.T) {
 	u := New(800, 600)
-	button := widgets.NewButton("primaryButton", core.Rect{X: 40, Y: 40, W: 200, H: 42}, "Primary")
-	checkbox := widgets.NewCheckbox("enableBox", core.Rect{X: 40, Y: 100, W: 200, H: 38}, true)
-	textbox := widgets.NewTextbox("inputBox", core.Rect{X: 40, Y: 160, W: 300, H: 42}, 128)
-	slider := widgets.NewSlider("valueSlider", core.Rect{X: 40, Y: 220, W: 300, H: 42}, 0.35)
-	progress := widgets.NewProgressBar("valueProgress", core.Rect{X: 40, Y: 280, W: 300, H: 24}, 0.35)
-	u.Add(button, checkbox, textbox, slider, progress)
-	return u, button, checkbox, textbox, slider, progress
-}
-
-// centerOf returns the center point of a widget's bounds in logical coords.
-func centerOf(w *widgets.Widget) core.Vec2 {
-	return core.Vec2{X: w.Bounds.X + w.Bounds.W/2, Y: w.Bounds.Y + w.Bounds.H/2}
-}
-
-// clickAt drives a full press/release cycle at pos and reports handling.
-func clickAt(u *UI, pos core.Vec2) (pressed, released bool) {
-	pressed = u.HandleMouse(MouseEvent{Pos: pos, Pressed: true})
-	released = u.HandleMouse(MouseEvent{Pos: pos, Released: true})
-	return pressed, released
-}
-
-// TestAddPolicy verifies nil/empty are ignored and duplicates overwrite order.
-func TestAddPolicy(t *testing.T) {
-	u := New(800, 600)
-	a := widgets.NewButton("a", core.Rect{X: 0, Y: 0, W: 50, H: 20}, "A")
-	b := widgets.NewButton("b", core.Rect{X: 60, Y: 0, W: 50, H: 20}, "B")
-	u.Add(nil, widgets.NewButton("", core.Rect{W: 10, H: 10}, "empty"), a, b)
-	if len(u.order) != 2 {
-		t.Fatalf("expected 2 widgets, got %d", len(u.order))
+	first := widgets.NewButton("first", core.Rect{W: 20, H: 20}, "first")
+	if err := u.Add(first); err != nil {
+		t.Fatal(err)
 	}
-	shadow := widgets.NewButton("a", core.Rect{X: 5, Y: 5, W: 10, H: 10}, "shadow")
-	u.Add(shadow)
-	if len(u.order) != 2 || u.order[0] != "a" {
-		t.Fatalf("duplicate must overwrite without changing order: %v", u.order)
+	if err := u.Add(widgets.NewButton("first", core.Rect{}, "duplicate")); !errors.Is(err, ErrDuplicateWidget) {
+		t.Fatalf("duplicate Add = %v", err)
 	}
-	if u.Lookup("a") != shadow {
-		t.Fatal("duplicate Add must replace the entry")
+	valid := widgets.NewButton("valid", core.Rect{}, "valid")
+	if err := u.Add(valid, nil); !errors.Is(err, ErrNilWidget) {
+		t.Fatalf("invalid variadic Add = %v", err)
+	}
+	if u.Lookup("valid") != nil || len(u.order) != 1 {
+		t.Fatal("invalid variadic Add partially mutated the registry")
+	}
+	if err := u.Add(widgets.NewButton("", core.Rect{}, "empty")); !errors.Is(err, ErrEmptyWidgetName) {
+		t.Fatalf("empty-name Add = %v", err)
+	}
+	if err := u.Add(widgets.NewButton("same", core.Rect{}, "a"), widgets.NewButton("same", core.Rect{}, "b")); !errors.Is(err, ErrDuplicateWidget) {
+		t.Fatalf("same-request duplicate Add = %v", err)
+	}
+	var nilUI *UI
+	if err := nilUI.Add(first); !errors.Is(err, ErrNilUI) {
+		t.Fatalf("nil UI Add = %v", err)
 	}
 }
 
-// TestHoverAloneNeverConsumes verifies mouse movement only updates state.
-func TestHoverAloneNeverConsumes(t *testing.T) {
-	u, button, _, _, _, _ := newSampleUI()
-	if u.HandleMouse(MouseEvent{Pos: centerOf(button)}) {
-		t.Fatal("hover-only must return false for game pass-through")
+// TestRemoveAndAddMovesWidgetToTop checks explicit replacement ordering.
+func TestRemoveAndAddMovesWidgetToTop(t *testing.T) {
+	u := New(100, 100)
+	first := widgets.NewButton("first", core.Rect{W: 50, H: 50}, "first")
+	second := widgets.NewButton("second", core.Rect{W: 50, H: 50}, "second")
+	mustAdd(t, u, first, second)
+	if !u.Remove("first") || u.Remove("missing") {
+		t.Fatal("Remove result mismatch")
 	}
-	if button.State != core.StateHovered {
-		t.Fatalf("hover should set Hovered, got %d", button.State)
+	replacement := widgets.NewButton("first", core.Rect{W: 50, H: 50}, "replacement")
+	mustAdd(t, u, replacement)
+	if len(u.order) != 2 || u.order[0] != "second" || u.order[1] != "first" {
+		t.Fatalf("remove-and-add order = %v", u.order)
 	}
 }
 
-// TestClickFiresOnClick verifies press/release consumes and fires once.
-func TestClickFiresOnClick(t *testing.T) {
-	u, button, _, _, _, _ := newSampleUI()
+// TestTopmostOnlyHoverAndActivation checks overlap ownership.
+func TestTopmostOnlyHoverAndActivation(t *testing.T) {
+	u := New(100, 100)
+	bottom := widgets.NewButton("bottom", core.Rect{W: 50, H: 50}, "bottom")
+	top := widgets.NewButton("top", core.Rect{W: 50, H: 50}, "top")
+	mustAdd(t, u, bottom, top)
+	bottomCalls, topCalls := 0, 0
+	u.OnClick("bottom", func() { bottomCalls++ })
+	u.OnClick("top", func() { topCalls++ })
+	if u.HandleMouse(MouseEvent{Pos: core.Vec2{X: 10, Y: 10}}) {
+		t.Fatal("hover alone must not consume input")
+	}
+	if u.Hovered() != top || u.visualState(top) != core.StateHovered || u.visualState(bottom) != core.StateNormal {
+		t.Fatal("only the topmost eligible widget may hover")
+	}
+	pressed, released := clickAt(u, core.Vec2{X: 10, Y: 10})
+	if !pressed || !released || topCalls != 1 || bottomCalls != 0 {
+		t.Fatalf("topmost click = %v/%v calls=%d/%d", pressed, released, topCalls, bottomCalls)
+	}
+}
+
+// TestFocusedDisableAndReenableUsesFreshState checks disabled reconciliation.
+func TestFocusedDisableAndReenableUsesFreshState(t *testing.T) {
+	u := New(100, 100)
+	field := widgets.NewTextbox("field", core.Rect{W: 50, H: 20}, 16)
+	mustAdd(t, u, field)
+	if !u.Focus("field") || u.Focused() != field || u.visualState(field) != core.StateFocused {
+		t.Fatal("semantic focus failed")
+	}
+	field.SetEnabled(false)
+	u.Draw()
+	if u.Focused() != nil || u.visualState(field) != core.StateDisabled {
+		t.Fatal("draw did not reconcile disabled focus")
+	}
+	field.SetEnabled(true)
+	u.Draw()
+	if u.visualState(field) != core.StateNormal {
+		t.Fatalf("re-enabled state = %v", u.visualState(field))
+	}
+}
+
+// TestPressedDisableCancelsBeforeRelease checks press persistence and cancellation.
+func TestPressedDisableCancelsBeforeRelease(t *testing.T) {
+	u := New(100, 100)
+	button := widgets.NewButton("button", core.Rect{W: 50, H: 20}, "button")
+	other := widgets.NewButton("other", core.Rect{X: 60, W: 30, H: 20}, "other")
+	mustAdd(t, u, button, other)
 	calls := 0
-	u.OnClick("primaryButton", func() { calls++ })
-	pressed, released := clickAt(u, centerOf(button))
-	if !pressed || !released {
-		t.Fatalf("click must be handled: pressed=%v released=%v", pressed, released)
+	u.OnClick("button", func() { calls++ })
+	if !u.HandleMouse(MouseEvent{Pos: centerOf(button), Pressed: true}) || u.Pressed() != button {
+		t.Fatal("press did not establish owner")
 	}
+	if !u.HandleMouse(MouseEvent{Pos: centerOf(other), Pressed: true}) || u.Pressed() != button {
+		t.Fatal("a second press replaced the active owner before release")
+	}
+	button.SetEnabled(false)
+	if u.HandleMouse(MouseEvent{Pos: centerOf(button), Released: true}) {
+		t.Fatal("release after disable must not consume a cancelled press")
+	}
+	if u.Pressed() != nil || calls != 0 {
+		t.Fatal("disabled pressed widget remained active or fired")
+	}
+}
+
+// TestVisualStatePriority checks disabled, pressed, focused, and hovered order.
+func TestVisualStatePriority(t *testing.T) {
+	u := New(100, 100)
+	widget := widgets.NewTextbox("field", core.Rect{W: 20, H: 20}, 8)
+	mustAdd(t, u, widget)
+	u.hovered, u.focused, u.pressed = widget, widget, widget
+	if state := u.visualState(widget); state != core.StatePressed {
+		t.Fatalf("pressed priority = %v", state)
+	}
+	u.pressed = nil
+	if state := u.visualState(widget); state != core.StateFocused {
+		t.Fatalf("focused priority = %v", state)
+	}
+	u.focused = nil
+	if state := u.visualState(widget); state != core.StateHovered {
+		t.Fatalf("hovered priority = %v", state)
+	}
+	widget.SetEnabled(false)
+	if state := u.visualState(widget); state != core.StateDisabled {
+		t.Fatalf("disabled priority = %v", state)
+	}
+}
+
+// TestRemovalClearsOwnersAndRetainsCallbacks checks independent lifetimes.
+func TestRemovalClearsOwnersAndRetainsCallbacks(t *testing.T) {
+	u := New(100, 100)
+	button := widgets.NewButton("button", core.Rect{W: 50, H: 20}, "button")
+	mustAdd(t, u, button)
+	calls := 0
+	u.OnClick("button", func() { calls++ })
+	u.HandleMouse(MouseEvent{Pos: centerOf(button), Pressed: true})
+	if u.Hovered() != button || u.Pressed() != button {
+		t.Fatal("test did not establish hover and press")
+	}
+	if !u.Remove("button") || u.Hovered() != nil || u.Pressed() != nil || u.Focused() != nil {
+		t.Fatal("Remove retained an active widget")
+	}
+	replacement := widgets.NewButton("button", core.Rect{W: 50, H: 20}, "replacement")
+	mustAdd(t, u, replacement)
+	clickAt(u, centerOf(replacement))
 	if calls != 1 {
-		t.Fatalf("expected 1 OnClick, got %d", calls)
+		t.Fatal("callback did not survive widget removal")
 	}
-	if u.Capture().IsCaptured() {
-		t.Fatal("capture must be released after click")
-	}
-}
-
-// TestCheckboxToggleVisible verifies the callback sees post-toggle state.
-func TestCheckboxToggleVisible(t *testing.T) {
-	u, _, checkbox, _, _, _ := newSampleUI()
-	if !checkbox.Checked {
-		t.Fatal("sample checkbox must start checked")
-	}
-	var seen bool
-	seenSet := false
-	u.OnClick("enableBox", func() { seen, seenSet = checkbox.Checked, true })
-	clickAt(u, centerOf(checkbox))
-	if !seenSet {
-		t.Fatal("OnClick must fire")
-	}
-	if seen {
-		t.Fatal("checkbox must toggle before OnClick fires (started checked, must read false)")
-	}
-	if checkbox.Checked {
-		t.Fatal("checkbox must be unchecked after click")
+	u.ClearWidgets()
+	if u.Lookup("button") != nil || len(u.order) != 0 || u.Hovered() != nil || u.Pressed() != nil || u.Focused() != nil {
+		t.Fatal("ClearWidgets retained widgets or owners")
 	}
 }
 
-// TestEmptySpaceBlursAndPassesThrough verifies misses blur but return false.
-func TestEmptySpaceBlursAndPassesThrough(t *testing.T) {
-	u, _, _, textbox, _, _ := newSampleUI()
-	clickAt(u, centerOf(textbox))
-	if u.Focused() != textbox {
-		t.Fatal("textbox press must focus")
-	}
-	if u.HandleMouse(MouseEvent{Pos: core.Vec2{X: 790, Y: 590}, Pressed: true}) {
-		t.Fatal("empty-space press must return false so the game gets the click")
-	}
-	if u.Focused() != nil {
-		t.Fatal("empty-space press must blur focus")
-	}
-}
-
-// TestDisabledPassesThrough verifies disabled widgets never consume or fire.
-func TestDisabledPassesThrough(t *testing.T) {
-	u, button, _, _, _, _ := newSampleUI()
-	button.Enabled = false
-	fired := false
-	u.OnClick("primaryButton", func() { fired = true })
-	pressed, released := clickAt(u, centerOf(button))
-	if pressed || released {
-		t.Fatal("disabled widget must not consume press/release")
-	}
-	if fired {
-		t.Fatal("disabled widget must not fire OnClick")
-	}
-}
-
-// TestSliderDragFiresOnChange verifies press/drag/release value flow.
-func TestSliderDragFiresOnChange(t *testing.T) {
-	u, _, _, _, slider, _ := newSampleUI()
-	var got []float32
-	u.OnChange("valueSlider", func(v float32) { got = append(got, v) })
-	left := core.Vec2{X: slider.Bounds.X + 1, Y: slider.Bounds.Y + slider.Bounds.H/2}
-	if !u.HandleMouse(MouseEvent{Pos: left, Pressed: true}) {
-		t.Fatal("slider press must be handled")
-	}
-	mid := core.Vec2{X: slider.Bounds.X + slider.Bounds.W/2, Y: left.Y}
-	if !u.HandleMouse(MouseEvent{Pos: mid, Down: true}) {
-		t.Fatal("slider drag must be handled")
-	}
-	if slider.Value < 0.49 || slider.Value > 0.51 {
-		t.Fatalf("mid drag should give ~0.5, got %v", slider.Value)
-	}
-	if len(got) == 0 {
-		t.Fatal("OnChange must fire on drag")
-	}
-	if !u.HandleMouse(MouseEvent{Pos: mid, Released: true}) {
-		t.Fatal("slider release must be handled (capture ownership)")
-	}
-}
-
-// TestReleaseOffWidgetConsumesButNoClick verifies drag-off consumes silently.
-func TestReleaseOffWidgetConsumesButNoClick(t *testing.T) {
-	u, button, _, _, _, _ := newSampleUI()
-	fired := false
-	u.OnClick("primaryButton", func() { fired = true })
+// TestReleaseOutsideConsumesWithoutActivation checks gesture completion.
+func TestReleaseOutsideConsumesWithoutActivation(t *testing.T) {
+	u := New(100, 100)
+	button := widgets.NewButton("button", core.Rect{W: 20, H: 20}, "button")
+	mustAdd(t, u, button)
+	calls := 0
+	u.OnClick("button", func() { calls++ })
 	if !u.HandleMouse(MouseEvent{Pos: centerOf(button), Pressed: true}) {
 		t.Fatal("press must be handled")
 	}
-	if !u.HandleMouse(MouseEvent{Pos: core.Vec2{X: 790, Y: 590}, Released: true}) {
-		t.Fatal("release after press must consume even off-widget")
-	}
-	if fired {
-		t.Fatal("off-widget release must not fire OnClick")
+	if !u.HandleMouse(MouseEvent{Pos: core.Vec2{X: 90, Y: 90}, Released: true}) || calls != 0 {
+		t.Fatal("outside release must consume without activation")
 	}
 }
 
-// TestWheelRouting verifies wheel is handled only over a scroll panel.
-func TestWheelRouting(t *testing.T) {
-	u := New(800, 600)
-	scroll := widgets.NewScrollPanel("scroll", core.Rect{X: 100, Y: 100, W: 200, H: 200})
-	u.Add(scroll)
-	over := MouseEvent{Pos: core.Vec2{X: 150, Y: 150}, Wheel: 1}
-	if !u.HandleMouse(over) {
-		t.Fatal("wheel over scroll panel must be handled")
+// TestCheckboxMutatesBeforeSharedCallback checks callback ordering on both paths.
+func TestCheckboxMutatesBeforeSharedCallback(t *testing.T) {
+	u := New(100, 100)
+	checkbox := widgets.NewCheckbox("check", core.Rect{W: 20, H: 20}, false)
+	mustAdd(t, u, checkbox)
+	seen := false
+	u.OnClick("check", func() { seen = checkbox.Checked() })
+	if !u.Activate("check") || !seen || !checkbox.Checked() {
+		t.Fatal("semantic checkbox callback did not observe post-toggle value")
 	}
-	if scroll.Scroll.Y == 0 {
-		t.Fatal("wheel must move ScrollBy")
-	}
-	off := MouseEvent{Pos: core.Vec2{X: 10, Y: 10}, Wheel: 1}
-	if u.HandleMouse(off) {
-		t.Fatal("wheel off-widget must return false for camera zoom")
-	}
-}
-
-// TestOnTextUTF8 verifies focus-first typing with multi-byte runes.
-func TestOnTextUTF8(t *testing.T) {
-	u, _, _, textbox, _, _ := newSampleUI()
-	var got string
-	u.OnText("inputBox", func(s string) { got = s })
-	clickAt(u, centerOf(textbox))
-	if !u.HandleKey(KeyEvent{Chars: []rune("aé😀中")}) {
-		t.Fatal("typing into focused textbox must be handled")
-	}
-	if textbox.TextBuf.String() != "aé😀中" {
-		t.Fatalf("UTF-8 buffer mismatch: %q", textbox.TextBuf.String())
-	}
-	if got != "aé😀中" {
-		t.Fatalf("OnText must receive full string, got %q", got)
-	}
-	if !u.HandleKey(KeyEvent{Backspace: true}) {
-		t.Fatal("backspace must be handled")
-	}
-	if textbox.TextBuf.String() != "aé😀" {
-		t.Fatalf("backspace must drop one rune, got %q", textbox.TextBuf.String())
-	}
-}
-
-// TestUnfocusedKeysPassThrough verifies game hotkeys survive without focus.
-func TestUnfocusedKeysPassThrough(t *testing.T) {
-	u, _, _, _, _, _ := newSampleUI()
-	if u.HandleKey(KeyEvent{Chars: []rune("wasd")}) {
-		t.Fatal("keys with no focus must return false for game hotkeys")
-	}
-}
-
-// TestEscapeBlursOnlyWhenEffective verifies Escape consumption rules.
-func TestEscapeBlursOnlyWhenEffective(t *testing.T) {
-	u, _, _, textbox, _, _ := newSampleUI()
-	if u.HandleKey(KeyEvent{Escape: true}) {
-		t.Fatal("Escape with no focus must pass through")
-	}
-	clickAt(u, centerOf(textbox))
-	if !u.HandleKey(KeyEvent{Escape: true}) {
-		t.Fatal("Escape that blurs must be handled")
-	}
-	if u.Focused() != nil {
-		t.Fatal("Escape must clear focus")
-	}
-}
-
-// TestUnknownAndNilCallbacks verifies storage and removal semantics.
-func TestUnknownAndNilCallbacks(t *testing.T) {
-	u, button, _, _, _, _ := newSampleUI()
-	fired := false
-	u.OnClick("future", func() { fired = true })
-	clickAt(u, centerOf(button))
-	if fired {
-		t.Fatal("unknown-name callback must not fire spuriously")
-	}
-	u.OnClick("primaryButton", func() { fired = true })
-	u.OnClick("primaryButton", nil)
-	clickAt(u, centerOf(button))
-	if fired {
-		t.Fatal("nil must remove the registration")
-	}
-	late := widgets.NewButton("future", core.Rect{X: 400, Y: 400, W: 100, H: 30}, "F")
-	u.Add(late)
-	clickAt(u, centerOf(late))
-	if !fired {
-		t.Fatal("callback stored before Add must fire once the widget arrives")
-	}
-}
-
-// TestDrawLogsNames verifies headless Draw output carries string identity.
-func TestDrawLogsNames(t *testing.T) {
-	u, _, _, _, _, _ := newSampleUI()
-	u.Draw()
-	log := u.Theme().DrawLog()
-	if len(log) == 0 {
-		t.Fatal("Draw must log calls headlessly")
-	}
-	last := u.Theme().LastWidgetInfo()
-	if last.Name == "" {
-		t.Fatal("LastWidgetInfo must carry the string name")
-	}
-}
-
-// TestIntegrationSample replicates the Target Sample callback wiring.
-func TestIntegrationSample(t *testing.T) {
-	u, button, checkbox, textbox, slider, progress := newSampleUI()
-	status := "click something"
-	u.OnClick("primaryButton", func() { status = "Primary clicked" })
-	u.OnClick("enableBox", func() {
-		button.Enabled = checkbox.Checked
-		if button.Enabled {
-			status = "button enabled=true"
-		} else {
-			status = "button enabled=false"
-		}
-	})
-	u.OnText("inputBox", func(s string) { status = "typed: " + s })
-	u.OnChange("valueSlider", func(v float32) {
-		progress.Value = v
-		status = "slider moved"
-	})
-	clickAt(u, centerOf(button))
-	if status != "Primary clicked" {
-		t.Fatalf("button click status: %q", status)
-	}
+	seen = true
 	clickAt(u, centerOf(checkbox))
-	if button.Enabled {
-		t.Fatal("unchecking must disable the button")
+	if seen || checkbox.Checked() {
+		t.Fatal("physical checkbox callback did not share post-toggle semantics")
 	}
-	clickAt(u, centerOf(textbox))
-	if !u.HandleKey(KeyEvent{Chars: []rune("hi")}) {
-		t.Fatal("typing must be handled")
+}
+
+// TestSliderCallbacksOnlyAfterValueChanges checks change filtering.
+func TestSliderCallbacksOnlyAfterValueChanges(t *testing.T) {
+	u := New(100, 100)
+	slider := widgets.NewSlider("slider", core.Rect{W: 100, H: 20}, 0.5)
+	mustAdd(t, u, slider)
+	var values []float32
+	u.OnChange("slider", func(value float32) { values = append(values, value) })
+	middle := core.Vec2{X: 50, Y: 10}
+	u.HandleMouse(MouseEvent{Pos: middle, Pressed: true})
+	u.HandleMouse(MouseEvent{Pos: middle, Down: true})
+	if len(values) != 0 {
+		t.Fatalf("unchanged slider fired %v", values)
 	}
-	if status != "typed: hi" {
-		t.Fatalf("text status: %q", status)
+	u.HandleMouse(MouseEvent{Pos: core.Vec2{X: 75, Y: 10}, Down: true})
+	u.HandleMouse(MouseEvent{Pos: core.Vec2{X: 75, Y: 10}, Down: true})
+	if len(values) != 1 || values[0] != 0.75 || slider.Value() != 0.75 {
+		t.Fatalf("changed slider callbacks=%v value=%v", values, slider.Value())
 	}
-	mid := core.Vec2{X: slider.Bounds.X + slider.Bounds.W, Y: slider.Bounds.Y + 5}
-	u.HandleMouse(MouseEvent{Pos: mid, Pressed: true})
-	u.HandleMouse(MouseEvent{Pos: mid, Released: true})
-	if progress.Value < 0.99 {
-		t.Fatalf("progress must sync via OnChange, got %v", progress.Value)
+}
+
+// TestTextCallbacksStaySilentForRejectedEdits checks full and empty edits.
+func TestTextCallbacksStaySilentForRejectedEdits(t *testing.T) {
+	u := New(100, 100)
+	field := widgets.NewTextbox("field", core.Rect{W: 50, H: 20}, 1)
+	mustAdd(t, u, field)
+	calls := 0
+	u.OnText("field", func(string) { calls++ })
+	if !u.TypeText("field", "a") || calls != 1 {
+		t.Fatal("semantic fitting edit failed")
+	}
+	if !u.TypeText("field", "b") || calls != 1 || field.Text() != "a" {
+		t.Fatal("full semantic edit must be handled without callback")
+	}
+	if !u.HandleKey(KeyEvent{Backspace: true}) || calls != 2 {
+		t.Fatal("non-empty physical backspace failed")
+	}
+	if u.HandleKey(KeyEvent{Backspace: true}) || calls != 2 {
+		t.Fatal("empty backspace fired callback or consumed")
+	}
+	if !u.TypeText("field", "") || calls != 2 || u.Focused() != field {
+		t.Fatal("empty semantic typing must focus without callback")
+	}
+}
+
+// TestSemanticOperationsRejectInvalidTargetsWithoutMutation checks validation.
+func TestSemanticOperationsRejectInvalidTargetsWithoutMutation(t *testing.T) {
+	u := New(100, 100)
+	button := widgets.NewButton("button", core.Rect{}, "button")
+	field := widgets.NewTextbox("field", core.Rect{}, 8)
+	disabled := widgets.NewTextbox("disabled", core.Rect{}, 8)
+	disabled.SetEnabled(false)
+	mustAdd(t, u, button, field, disabled)
+	if u.TypeText("button", "x") || u.TypeText("missing", "x") || u.TypeText("disabled", "x") || u.TypeText("field", string([]byte{0xff})) {
+		t.Fatal("TypeText accepted a wrong, unknown, disabled, or invalid UTF-8 target/value")
+	}
+	if u.Focus("button") || u.Focus("missing") || u.Focus("disabled") {
+		t.Fatal("Focus accepted a wrong, unknown, or disabled target")
+	}
+	if u.Activate("missing") || u.Activate("disabled") {
+		t.Fatal("Activate accepted an unknown or disabled target")
+	}
+	if field.Text() != "" || u.Focused() != nil {
+		t.Fatal("invalid semantics mutated UI")
+	}
+}
+
+// TestSemanticActivationLeavesHoverUnchanged checks pointer-free control.
+func TestSemanticActivationLeavesHoverUnchanged(t *testing.T) {
+	u := New(100, 100)
+	hovered := widgets.NewButton("hovered", core.Rect{W: 20, H: 20}, "hovered")
+	activated := widgets.NewButton("activated", core.Rect{X: 40, W: 20, H: 20}, "activated")
+	mustAdd(t, u, hovered, activated)
+	u.HandleMouse(MouseEvent{Pos: centerOf(hovered)})
+	if !u.Activate("activated") || u.Hovered() != hovered {
+		t.Fatal("semantic activation changed hover ownership")
+	}
+}
+
+// TestTwoUIsHaveNoSharedInteractionOrCallbacks checks instance isolation.
+func TestTwoUIsHaveNoSharedInteractionOrCallbacks(t *testing.T) {
+	firstUI, secondUI := New(100, 100), New(100, 100)
+	first := widgets.NewCheckbox("same", core.Rect{W: 20, H: 20}, false)
+	second := widgets.NewCheckbox("same", core.Rect{W: 20, H: 20}, false)
+	mustAdd(t, firstUI, first)
+	mustAdd(t, secondUI, second)
+	calls := 0
+	firstUI.OnClick("same", func() { calls++ })
+	firstUI.HandleMouse(MouseEvent{Pos: centerOf(first)})
+	if !firstUI.Activate("same") || !first.Checked() || second.Checked() || calls != 1 {
+		t.Fatal("UI instances shared domain data or callbacks")
+	}
+	if secondUI.Hovered() != nil || firstUI.Hovered() != first {
+		t.Fatal("UI instances shared hover ownership")
+	}
+}
+
+// TestDropdownPopupSelectionAndRenderingRemainLibraryOwned protects the popup path.
+func TestDropdownPopupSelectionAndRenderingRemainLibraryOwned(t *testing.T) {
+	u := New(200, 200)
+	dropdown := widgets.NewDropdown("class", core.Rect{X: 10, Y: 10, W: 100, H: 30}, []string{"A", "B"}, 0)
+	mustAdd(t, u, dropdown)
+	clickAt(u, centerOf(dropdown))
+	if u.Focused() != dropdown {
+		t.Fatal("dropdown click did not open popup")
+	}
+	row, _ := dropdown.DropdownRowBounds(1)
+	point := core.Vec2{X: row.X + row.W/2, Y: row.Y + row.H/2}
+	if u.HandleMouse(MouseEvent{Pos: point}) {
+		t.Fatal("popup hover alone must not consume")
+	}
+	recorder := attachDrawRecorder(t, u)
+	u.Draw()
+	if !hasDrawCall(recorder.Calls(), skin.PartOverlay, row, core.StateHovered) {
+		t.Fatal("UI did not render hovered dropdown row")
+	}
+	selected := -1
+	u.OnClick("class", func() { selected = dropdown.DropdownIndex() })
+	if !u.HandleMouse(MouseEvent{Pos: point, Pressed: true}) || !u.HandleMouse(MouseEvent{Pos: point, Released: true}) {
+		t.Fatal("popup row gesture was not consumed")
+	}
+	if selected != 1 || dropdown.DropdownIndex() != 1 || u.Focused() != nil {
+		t.Fatalf("dropdown selection=%d/%d focused=%v", selected, dropdown.DropdownIndex(), u.Focused())
+	}
+}
+
+// TestDrawUsesComputedStateAndResetsRecorderFrame checks snapshot drawing.
+func TestDrawUsesComputedStateAndResetsRecorderFrame(t *testing.T) {
+	u := New(100, 100)
+	button := widgets.NewButton("button", core.Rect{W: 20, H: 20}, "button")
+	mustAdd(t, u, button)
+	u.HandleMouse(MouseEvent{Pos: centerOf(button)})
+	recorder := attachDrawRecorder(t, u)
+	u.Draw()
+	if info := recorder.LastWidgetInfo(); info.Name != "button" || info.State != core.StateHovered {
+		t.Fatalf("draw snapshot = %+v", info)
+	}
+	count := len(recorder.Calls())
+	u.Theme().DrawWidgetPart(core.WidgetButton, skin.PartBackground, core.Rect{W: 1, H: 1}, core.StateNormal)
+	if len(recorder.Calls()) != count+1 {
+		t.Fatal("direct draw was not recorded")
 	}
 	u.Draw()
-	if len(u.Theme().DrawLog()) == 0 {
-		t.Fatal("integration must produce draw calls")
+	if len(recorder.Calls()) != count {
+		t.Fatal("UI.Draw did not begin a fresh recorder frame")
 	}
 }
 
-// TestResizeAndToLogical verifies the design resolution stays fixed while the
-// physical window rescales the mapping: a maximized window scales components
-// instead of reflowing them.
-func TestResizeAndToLogical(t *testing.T) {
-	u := New(800, 600)
-	u.Add(widgets.NewButton("b", core.Rect{X: 10, Y: 10, W: 100, H: 30}, "B"))
-	u.Resize(1600, 1200)
-	sx, sy := u.Scale()
-	if sx != 2 || sy != 2 {
-		t.Fatalf("2x window must give 2x scale, got %v,%v", sx, sy)
+// TestResolvedBoundsDriveInputAndDrawing verifies hit tests, slider mapping,
+// snapshots, and border parts read directly from arranged widget frames.
+func TestResolvedBoundsDriveInputAndDrawing(t *testing.T) {
+	u := New(400, 300)
+	root := layout.New("root", core.Rect{W: 400, H: 300})
+	button := widgets.NewButton("button", core.Rect{W: 80, H: 30}, "button")
+	slider := widgets.NewSlider("slider", core.Rect{W: 200, H: 20}, 0)
+	mustAdd(t, u, button, slider)
+	arrangeInputWidgets(t, root, button, slider)
+	if u.HandleMouse(MouseEvent{Pos: core.Vec2{X: 5, Y: 5}}) || u.Hovered() != nil {
+		t.Fatal("input used stale constructor position")
 	}
-	got := u.ToLogical(core.Vec2{X: 100, Y: 50})
-	if got.X != 50 || got.Y != 25 {
-		t.Fatalf("physical must map into fixed logical: %+v", got)
+	if !u.HandleMouse(MouseEvent{Pos: core.Vec2{X: 150, Y: 125}, Pressed: true}) || slider.Value() != 0.25 {
+		t.Fatalf("slider mapping used wrong bounds: %v", slider.Value())
 	}
-	// Widget bounds follow the design resolution, never the window.
-	if b := u.Lookup("b"); b == nil || b.Bounds.W != 100 {
-		t.Fatal("Resize must not reflow widget bounds")
-	}
-	before := len(u.Theme().DrawLog())
-	u.Resize(-1, 0)
+	u.HandleMouse(MouseEvent{Pos: core.Vec2{X: 150, Y: 125}, Released: true})
+	u.HandleMouse(MouseEvent{Pos: centerOf(button)})
+	recorder := attachDrawRecorder(t, u)
 	u.Draw()
-	if len(u.Theme().DrawLog()) == before {
-		t.Fatal("invalid resize must not break subsequent Draw")
+	want := core.Rect{X: 40, Y: 50, W: 80, H: 30}
+	if info := recorder.LastWidgetInfo(); info.Name != "slider" || info.Bounds != (core.Rect{X: 100, Y: 120, W: 200, H: 20}) {
+		t.Fatalf("last snapshot = %+v", info)
+	}
+	if !hasDrawCall(recorder.Calls(), skin.PartBorder, want, core.StateHovered) {
+		t.Fatal("button border did not use resolved bounds")
 	}
 }
 
-// TestNilSafety verifies nil receivers never panic and never consume.
-func TestNilSafety(t *testing.T) {
-	var u *UI
-	u.Add(widgets.NewButton("x", core.Rect{W: 10, H: 10}, "X"))
-	u.Resize(100, 100)
-	if u.HandleMouse(MouseEvent{Pressed: true}) {
-		t.Fatal("nil UI must not consume mouse")
+// arrangeInputWidgets resolves the controls used by the layout integration test.
+func arrangeInputWidgets(t *testing.T, root *layout.Node, button, slider *widgets.Widget) {
+	t.Helper()
+	if err := root.AddChild(button.Frame()); err != nil {
+		t.Fatal(err)
 	}
-	if u.HandleKey(KeyEvent{Chars: []rune("a")}) {
-		t.Fatal("nil UI must not consume keys")
+	if err := root.AddChild(slider.Frame()); err != nil {
+		t.Fatal(err)
 	}
-	u.OnClick("x", func() {})
-	u.OnChange("x", func(float32) {})
-	u.OnText("x", func(string) {})
-	u.Draw()
-	if u.Theme() != nil || u.Capture() != nil || u.Focused() != nil || u.Lookup("x") != nil {
-		t.Fatal("nil accessors must return nil")
+	if err := button.SetPoint(layout.AnchorTopLeft, nil, layout.AnchorTopLeft, core.Vec2{X: 40, Y: 50}); err != nil {
+		t.Fatal(err)
 	}
-}
-
-// TestDropdownPressFiresOnClick verifies dropdown presses are consumed and fire.
-func TestDropdownPressFiresOnClick(t *testing.T) {
-	u := New(800, 600)
-	d := widgets.NewDropdown("dd", core.Rect{X: 10, Y: 10, W: 200, H: 42}, []string{"A", "B"}, 0)
-	u.Add(d)
-	fired := false
-	u.OnClick("dd", func() { fired = true })
-	pressed, released := clickAt(u, centerOf(d))
-	if !pressed || !released {
-		t.Fatalf("dropdown click must be handled: pressed=%v released=%v", pressed, released)
+	if err := slider.SetPoint(layout.AnchorTopLeft, nil, layout.AnchorTopLeft, core.Vec2{X: 100, Y: 120}); err != nil {
+		t.Fatal(err)
 	}
-	if !fired {
-		t.Fatal("dropdown OnClick must fire to open the popup")
+	if err := layout.ArrangeRoot(root, root.AuthoredBounds()); err != nil {
+		t.Fatal(err)
 	}
 }
 
-// TestPassiveWidgetsIgnoreHover verifies panels, labels, frames, and the
-// rectangle primitive never highlight or consume pointer input.
-func TestPassiveWidgetsIgnoreHover(t *testing.T) {
-	u := New(800, 600)
-	rect := widgets.NewFrame("demoPanel", core.Rect{X: 40, Y: 40, W: 200, H: 94})
-	label := widgets.NewLabel("demoLabel", core.Rect{X: 40, Y: 150, W: 200, H: 32}, "Hi")
-	u.Add(rect, label)
-	if u.HandleMouse(MouseEvent{Pos: centerOf(rect)}) {
-		t.Fatal("hover over passive widgets must not consume")
+// TestResizeWheelCallbacksAndNilSafety covers adjacent facade contracts.
+func TestResizeWheelCallbacksAndNilSafety(t *testing.T) {
+	u := New(100, 100)
+	scroll := widgets.NewScrollPanel("scroll", core.Rect{W: 50, H: 50})
+	mustAdd(t, u, scroll)
+	if !u.HandleMouse(MouseEvent{Pos: centerOf(scroll), Wheel: 1}) || scroll.Scroll().Y == 0 {
+		t.Fatal("wheel over scroll panel was not handled")
 	}
-	if rect.State != core.StateNormal || label.State != core.StateNormal {
-		t.Fatalf("passive widgets must stay Normal, got %v/%v", rect.State, label.State)
+	u.Resize(200, 200)
+	if sx, sy := u.Scale(); sx != 2 || sy != 2 {
+		t.Fatalf("Scale = %v/%v", sx, sy)
 	}
-	pressed, released := clickAt(u, centerOf(rect))
-	if pressed || released {
-		t.Fatal("clicks on passive widgets must pass through to the game")
+	if point := u.ToLogical(core.Vec2{X: 100, Y: 50}); point != (core.Vec2{X: 50, Y: 25}) {
+		t.Fatalf("ToLogical = %+v", point)
 	}
-	if rect.State != core.StateNormal {
-		t.Fatalf("passive widgets must stay Normal after click, got %v", rect.State)
+	u.OnClick("future", func() {})
+	u.OnClick("future", nil)
+	if len(u.callbacks) != 0 {
+		t.Fatal("empty callback record was retained")
 	}
+	var nilUI *UI
+	if nilUI.HandleMouse(MouseEvent{}) || nilUI.HandleKey(KeyEvent{}) || nilUI.Activate("x") || nilUI.TypeText("x", "x") || nilUI.Focus("x") {
+		t.Fatal("nil UI consumed input")
+	}
+	nilUI.ClearWidgets()
+	nilUI.Draw()
+	if nilUI.Theme() != nil || nilUI.Transform() != nil || nilUI.Lookup("x") != nil {
+		t.Fatal("nil UI accessor returned data")
+	}
+}
+
+// hasDrawCall searches a bounded recorder snapshot for one operation.
+func hasDrawCall(calls []render.DrawCall, part skin.SkinPart, bounds core.Rect, state core.WidgetState) bool {
+	for _, call := range calls {
+		if call.Part == part && call.Bounds == bounds && call.State == state {
+			return true
+		}
+	}
+	return false
 }

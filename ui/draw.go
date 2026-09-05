@@ -1,67 +1,93 @@
 package ui
 
 import (
-	"rtgui/core"
-	"rtgui/skin"
-	"rtgui/widgets"
+	"github.com/draxxris/rtgui/core"
+	"github.com/draxxris/rtgui/skin"
+	"github.com/draxxris/rtgui/widgets"
 )
 
-// Draw renders every registered widget in insertion order through the owned
-// theme. It stays headless-safe: with no window ready the theme still appends
-// to its draw log and skips GL. Scissor clipping stays app-side, matching the
-// gallery and render contracts. Draw errors are ignored to keep the frame loop
-// alive; use Theme().DrawLog() in tests to assert output.
+// Draw reconciles disabled owners, starts one optional recorder frame, and
+// renders registered widgets plus the library-owned dropdown popup.
 func (u *UI) Draw() {
 	if u == nil || u.theme == nil {
 		return
 	}
+	u.reconcileInteraction()
+	u.theme.BeginFrame()
 	for _, name := range u.order {
 		u.drawOne(u.widgets[name])
 	}
+	if dropdown := u.openDropdown(); dropdown != nil {
+		u.drawDropdownPopup(dropdown)
+	}
 }
 
-// drawOne renders a single widget: background/text/value plus border and
-// dropdown-arrow parts where the gallery reference draws them.
-func (u *UI) drawOne(w *widgets.Widget) {
-	if w == nil {
+// drawOne creates the sole renderer-facing widget snapshot with UI state.
+func (u *UI) drawOne(widget *widgets.Widget) {
+	if widget == nil {
 		return
 	}
-	if !w.Enabled {
-		w.State = core.StateDisabled
+	state := u.visualState(widget)
+	info := widget.Snapshot(state)
+	u.theme.DrawWidget(info, widgetText(widget), widget.Value(), widget.Checked())
+	if needsBorder(widget.Kind()) {
+		u.theme.DrawWidgetPart(widget.Kind(), skin.PartBorder, widget.Bounds(), state)
 	}
-	info := w.Info()
-	info.HasCapture = u.capture.IsCaptured() && u.capture.ID() == w.ID
-	_ = u.theme.DrawWidget(info, widgetText(w), w.Value, w.Checked)
-	if needsBorder(w.Kind) {
-		_ = u.theme.DrawWidgetPart(w.Kind, skin.PartBorder, w.Bounds, w.State)
-	}
-	if w.Kind == core.WidgetDropdown {
-		u.drawDropdownArrow(w)
+	if widget.Kind() == core.WidgetDropdown {
+		u.drawDropdownArrow(widget, state)
 	}
 }
 
-// drawDropdownArrow renders the popup arrow at the right edge of a dropdown.
-func (u *UI) drawDropdownArrow(w *widgets.Widget) {
-	arrow := core.Rect{X: w.Bounds.X + w.Bounds.W - 34, Y: w.Bounds.Y + 7, W: 28, H: 28}
-	_ = u.theme.DrawWidgetPart(w.Kind, skin.PartArrow, arrow, w.State)
+// visualState derives one state from widget availability and UI owner priority.
+func (u *UI) visualState(widget *widgets.Widget) core.WidgetState {
+	if widget == nil || !widget.Enabled() {
+		return core.StateDisabled
+	}
+	if u.pressed == widget {
+		return core.StatePressed
+	}
+	if u.focused == widget {
+		return core.StateFocused
+	}
+	if u.hovered == widget {
+		return core.StateHovered
+	}
+	return core.StateNormal
 }
 
-// widgetText resolves the display string: textbox buffer, dropdown selection,
-// or plain text. Nil-safe for tests driving bare widgets.
-func widgetText(w *widgets.Widget) string {
-	if w == nil {
+// drawDropdownArrow renders the popup arrow at the dropdown's right edge.
+func (u *UI) drawDropdownArrow(widget *widgets.Widget, state core.WidgetState) {
+	bounds := widget.Bounds()
+	arrow := core.Rect{X: bounds.X + bounds.W - 34, Y: bounds.Y + 7, W: 28, H: 28}
+	u.theme.DrawWidgetPart(widget.Kind(), skin.PartArrow, arrow, state)
+}
+
+// drawDropdownPopup renders a copied item snapshot above all registered widgets.
+func (u *UI) drawDropdownPopup(widget *widgets.Widget) {
+	popup := widget.DropdownPopupBounds()
+	if popup.H <= 0 {
+		return
+	}
+	info := widget.Snapshot(core.StatePressed)
+	info.Bounds = popup
+	u.theme.DrawDropdownPopup(info, widget.DropdownItems(), widget.DropdownIndexAt(u.pointer))
+}
+
+// widgetText resolves plain, textbox, or selected dropdown display text.
+func widgetText(widget *widgets.Widget) string {
+	if widget == nil {
 		return ""
 	}
-	if w.TextBuf != nil {
-		return w.TextBuf.String()
+	if widget.Kind() == core.WidgetDropdown {
+		if value, ok := widget.DropdownSelection(); ok {
+			return value
+		}
+		return ""
 	}
-	if w.Kind == core.WidgetDropdown && w.DropdownIndex >= 0 && w.DropdownIndex < len(w.DropdownItems) {
-		return w.DropdownItems[w.DropdownIndex]
-	}
-	return w.Text
+	return widget.Text()
 }
 
-// needsBorder mirrors the gallery reference: these kinds get a border part.
+// needsBorder reports the widget kinds with a separate border part.
 func needsBorder(kind core.WidgetKind) bool {
 	switch kind {
 	case core.WidgetButton,

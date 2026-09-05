@@ -1,47 +1,40 @@
 package skin
 
-import (
-	"sync"
+import "github.com/draxxris/rtgui/core"
 
-	"rtgui/core"
-)
-
+// Registry is a single-owner descriptor map with exact and normal fallback lookup.
 type Registry struct {
-	mu      sync.RWMutex
 	entries map[SkinKey]SkinDescriptor
 }
 
+// NewRegistry returns an empty descriptor registry.
 func NewRegistry() *Registry { return &Registry{entries: map[SkinKey]SkinDescriptor{}} }
 
+// Set stores descriptor under an exact key.
 func (r *Registry) Set(key SkinKey, descriptor SkinDescriptor) {
 	if r == nil {
 		return
 	}
-	r.mu.Lock()
 	if r.entries == nil {
 		r.entries = map[SkinKey]SkinDescriptor{}
 	}
 	r.entries[key] = descriptor
-	r.mu.Unlock()
 }
 
+// Get returns only an exact-key descriptor.
 func (r *Registry) Get(key SkinKey) (SkinDescriptor, bool) {
 	if r == nil {
 		return SkinDescriptor{}, false
 	}
-	r.mu.RLock()
-	defer r.mu.RUnlock()
 	descriptor, ok := r.entries[key]
 	return descriptor, ok
 }
 
-// Lookup tries the requested state and then falls back to the normal state.
+// Lookup tries the requested state and then its normal-state fallback.
 func (r *Registry) Lookup(kind core.WidgetKind, part SkinPart, state core.WidgetState) (SkinDescriptor, bool) {
 	if r == nil {
 		return SkinDescriptor{}, false
 	}
-	r.mu.RLock()
-	defer r.mu.RUnlock()
 	key := SkinKey{Widget: kind, Part: part, State: state}
 	if descriptor, ok := r.entries[key]; ok {
 		return descriptor, true
@@ -55,11 +48,24 @@ func (r *Registry) Lookup(kind core.WidgetKind, part SkinPart, state core.Widget
 	return SkinDescriptor{}, false
 }
 
-func (r *Registry) Clear() {
+// Replace atomically replaces this registry's complete map with a copy of other.
+func (r *Registry) Replace(other *Registry) {
 	if r == nil {
 		return
 	}
-	r.mu.Lock()
-	r.entries = map[SkinKey]SkinDescriptor{}
-	r.mu.Unlock()
+	entries := make(map[SkinKey]SkinDescriptor)
+	if other != nil {
+		entries = make(map[SkinKey]SkinDescriptor, len(other.entries))
+		for key, descriptor := range other.entries {
+			entries[key] = descriptor
+		}
+	}
+	r.entries = entries
+}
+
+// Clear removes every descriptor.
+func (r *Registry) Clear() {
+	if r != nil {
+		r.entries = map[SkinKey]SkinDescriptor{}
+	}
 }

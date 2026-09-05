@@ -1,38 +1,38 @@
-# rtgui — pure-Go textured GUI
+# rtgui — textured Go GUI library
 
-`rtgui` is a small GUI toolkit built on
-[`github.com/gen2brain/raylib-go/raylib`](https://github.com/gen2brain/raylib-go).
-The module is organized as independent packages instead of one root package.
+`rtgui` is a small raylib-backed GUI toolkit published as
+`github.com/draxxris/rtgui`. It is organized as focused packages rather than one
+root package:
 
 ```text
-Go application → widgets / layout / transform → render → raylib-go
+Go application → ui / widgets / layout / transform → render → raylib-go
 ```
 
 ## Packages
 
 | Package | Responsibility |
 | --- | --- |
-| `rtgui/core` | Geometry, colors, widget kinds, states, and shared snapshots |
-| `rtgui/widgets` | Renderer-independent widget state and interaction |
-| `rtgui/input` | Explicit pointer-capture ownership |
-| `rtgui/text` | UTF-8-aware text buffers |
-| `rtgui/transform` | Physical/logical mapping, snapping, and clipping |
-| `rtgui/skin` | Runtime skin descriptors and registry |
-| `rtgui/assets` | Optional asset metadata for tooling and layout |
-| `rtgui/render` | Themes, draw calls, nine-patch geometry, and raylib drawing |
-| `rtgui/layout` | Anchors, measurement, arrangement, and relative movement |
-| `rtgui/dragdrop` | Drag state, targets, payloads, and ghosts |
-| `rtgui/sim` | Headless harness that simulates human events (`Click`/`Type`) |
-| `rtgui/ui` | Application facade: registry, `HandleMouse`/`HandleKey` dispatch, `OnClick`/`OnChange`/`OnText`, `Draw` |
+| `github.com/draxxris/rtgui/core` | Geometry, colors, widget kinds, states, and renderer snapshots |
+| `github.com/draxxris/rtgui/widgets` | Widget domain data and layout-frame accessors |
+| `github.com/draxxris/rtgui/text` | Bounded, private UTF-8 text buffers |
+| `github.com/draxxris/rtgui/transform` | Physical/logical mapping, snapping, and clipping |
+| `github.com/draxxris/rtgui/skin` | Headless skin descriptors, CSS parsing, and registries |
+| `github.com/draxxris/rtgui/render` | Raylib themes, draw calls, fonts, nine-patch geometry, and CSS texture ownership |
+| `github.com/draxxris/rtgui/layout` | Measurement, `SetPoint` relations, dependency ordering, and arrangement |
+| `github.com/draxxris/rtgui/dragdrop` | Instance-owned drag controllers, targets, payloads, and ghosts |
+| `github.com/draxxris/rtgui/sim` | Headless semantic adapter for an existing `ui.UI` |
+| `github.com/draxxris/rtgui/ui` | Widget registry, interaction ownership, callbacks, input dispatch, and drawing |
 
-The module root contains no Go package. `render` is the only library package
-that imports raylib; the other packages (`ui` included) remain headless and
-renderer-neutral.
+`render` directly imports raylib. `ui` owns a concrete `*render.Theme`, so
+importing `ui` also brings in the raylib dependency. All UI, rendering, layout,
+drag-and-drop, and simulation operations follow a single-owning-goroutine model.
 
 ## Requirements
 
 - Go 1.27 or newer
-- A C toolchain and raylib system dependencies for the gallery
+- A native C toolchain and raylib system dependencies for packages that use
+  `render` or `ui`, including the gallery
+- MinGW-w64 when using the Windows cross-build task
 
 On Debian or Ubuntu:
 
@@ -41,138 +41,159 @@ sudo apt-get install build-essential libgl1-mesa-dev libx11-dev \
   libxcb1-dev libxkbcommon-dev libwayland-dev libasound2-dev pkg-config
 ```
 
+The module pins `github.com/gen2brain/raylib-go/raylib` at `v0.60.1`.
+
 ## Test
 
 ```sh
-go test ./...
-go vet ./...
-gofmt -l .
+DISPLAY= WAYLAND_DISPLAY= mise run test
+mise run vet
+mise run complexity
 ```
 
-The unit tests do not require a display. The `mise.toml` file provides Go 1.27
-and the `mise run test` and `mise run vet` shortcuts.
+The headless unit tests do not require a display. `go test ./...` is also useful
+when running directly through a configured Go toolchain. The complete release
+validation additionally runs race testing, shuffle repetition, staticcheck,
+`govulncheck`, platform builds, focused benchmarks, and a three-frame gallery
+smoke.
 
 ## Example
 
+The runnable example is the widget gallery:
+
 ```sh
 go run ./examples/widget_gallery -frames 3 -screenshot out.png
-go run ./examples/ui_sample -frames 3
 ```
 
-For a headless Linux run, use a virtual display:
+On a headless Linux host, use a virtual display for a real framebuffer image:
 
 ```sh
 xvfb-run --auto-servernum --server-args="-screen 0 1280x800x24" \
   go run ./examples/widget_gallery -frames 3 -screenshot out.png
 ```
 
-Without a display, the gallery runs a headless smoke path and writes a
-placeholder PNG when `-screenshot` is supplied.
+Without a display, the gallery runs its headless interaction smoke and writes a
+standard-library placeholder PNG when `-screenshot` is supplied.
 
-## API shape
+## UI and callbacks
 
-The application fixes a logical design resolution at startup. Resizing the
-window rescales the UI around it instead of reflowing the layout, so
-components scale with the window:
-
-```go
-viewport := core.Viewport{
-    Viewport:    core.Rect{W: 800, H: 600},
-    LogicalSize: core.Vec2{X: 800, Y: 600},
-}
-uiTransform := transform.New(viewport)
-capture := input.NewCapture()
-theme := render.NewTheme(uiTransform)
-button := widgets.NewButton("okButton", core.Rect{W: 120, H: 40}, "OK")
-
-mouse := uiTransform.PhysicalToViewport(core.Vec2{X: 20, Y: 20})
-button.UpdateHover(mouse)
-button.Press(mouse, capture)
-_ = theme.DrawWidget(button.Info(), button.Text, button.Value, button.Checked)
-```
-
-Widgets are named with strings. The external `Name` maps to an internal
-numeric ID (FNV-1a, deterministic per name) used by `input.Capture` and
-`core.WidgetInfo`, so the renderer path is unchanged apart from carrying
-the name through.
-
-Human-event simulation stays instance-owned via `rtgui/sim` (no globals):
-
-```go
-stage := sim.NewStage()
-button := widgets.NewButton("okButton", core.Rect{W: 120, H: 40}, "OK")
-_ = stage.Register(button)
-stage.Click("okButton")
-stage.Type("myTextField", "hello world") // focus-first append
-```
-
-`Register` returns an error on duplicate or empty names. `Click` drives
-hover/press/release at the widget center and `Type` focuses the textbox
-first, then appends per rune (UTF-8 safe); both report `false` on
-unknown, disabled, or wrong-kind targets.
-
-`render.Theme` owns its skin registry and draw log and uses the supplied
-`transform.Transform` for viewport and pixel-snap state. `input.Capture` and
-`transform.Transform` are instance-owned, so separate windows do not share
-hidden global UI state.
-
-Most applications should use the `rtgui/ui` facade instead of wiring the
-primitives above by hand. Raylib still owns the OS window and frame loop; the
-UI reports whether it consumed each polled input so game input keeps working:
+Most applications should use `ui.UI`. It owns the registry, transform, theme,
+hover, press, and focus state. Widgets retain domain data and enabled state;
+the UI computes the visual state with the priority disabled, pressed, focused,
+hovered, then normal.
 
 ```go
 u := ui.New(800, 600)
-u.Add(widgets.NewButton("primaryButton", core.Rect{X: 40, Y: 40, W: 200, H: 42}, "Primary"))
-u.OnClick("primaryButton", func() { status = "Primary clicked" })
-u.OnChange("valueSlider", func(v float32) { progress.Value = v })
-u.OnText("inputBox", func(s string) { status = "typed: " + s })
+button := widgets.NewButton("primaryButton", core.Rect{X: 40, Y: 40, W: 200, H: 42}, "Primary")
+if err := u.Add(button); err != nil {
+    log.Fatal(err)
+}
+u.OnClick("primaryButton", func() { status = "clicked" })
 
-physical := rl.GetMousePosition()
 mouseHandled := u.HandleMouse(ui.MouseEvent{
-    Pos:      u.ToLogical(core.Vec2{X: physical.X, Y: physical.Y}),
-    Pressed:  rl.IsMouseButtonPressed(rl.MouseButtonLeft),
-    Down:     rl.IsMouseButtonDown(rl.MouseButtonLeft),
-    Released: rl.IsMouseButtonReleased(rl.MouseButtonLeft),
-    Wheel:    rl.GetMouseWheelMove(),
+    Pos:      u.ToLogical(core.Vec2{X: mouseX, Y: mouseY}),
+    Pressed:  pressed,
+    Down:     down,
+    Released: released,
+    Wheel:    wheel,
 })
 if !mouseHandled {
-    // UI did not want it: camera zoom / drag / world picking runs here.
+    // The application may process world input here.
 }
-keyHandled := u.HandleKey(ui.KeyEvent{Chars: runes, Backspace: bs, Escape: esc})
-if !keyHandled {
-    // No focused textbox ate the input: game hotkeys run here.
-}
+u.HandleKey(ui.KeyEvent{Chars: runes, Backspace: backspace, Escape: escape})
 u.Draw()
 ```
 
-`HandleMouse`/`HandleKey` return `handled=true` only when the UI used the
-input: press/drag/release on a hit widget (or an active capture), wheel over
-a scrolled widget, chars/backspace into a focused textbox, or an `Escape` that
-blurred focus. Hover alone, empty-space clicks (which blur but pass through),
-and off-widget wheel/keys return `false`. `Add` overwrites duplicates without
-changing order (unlike `sim.Register`, which errors); callbacks for unknown
-names are stored and fire once the widget is added; `nil` removes a callback.
+`Add` rejects nil, empty-name, and duplicate widgets atomically. `Remove` and
+`ClearWidgets` clear active interaction owners. Text and slider callbacks run
+only after a real mutation; rejected full-buffer characters and empty backspace
+are silent. `sim.NewStage(u)` adapts the same activation, focus, text-edit, and
+callback path for headless tests without inventing pointer or hover state.
 
-## Gallery contract
+## Drag controllers
 
-The gallery demonstrates buttons, checkbox state, UTF-8 text editing, a
-dropdown popup, slider/progress interaction, scrolling with application-owned
-scissor mode, relative frame movement, and widget-state samples. It accepts
-`-frames N` and `-screenshot PATH`.
+Drag-and-drop is instance-owned. Create one `dragdrop.Controller` per UI or
+window, register its targets on that controller, and do not rely on package
+global state:
 
-Widget art comes from two checked-in sources: the procedural atlas for panel
-fills, tracks, and progress, and the Kenney set under `testdata/skins/kenney/`
-for button states (blue line rest, blue border hover, red border press),
-checkbox empty/cross icons, the slider handle, the dropdown arrow, and the
-grey 8-patch panel ring on frames. File-driven LOOK lives in
-`testdata/skins/gallery.css` (`Kind[::part][:pseudo]` selectors with
-`border-image-source`, `border-image-slice`, `background-image`, `*-tint`,
-and `padding`); it layers over the programmatic aux base, so every key the
-file authors wins. Gallery typography uses the Grenze family (SIL OFL,
-`testdata/fonts/Grenze-OFL.txt`): `Grenze-Light.ttf` for titles, values,
-and widget text, `Grenze-LightItalic.ttf` for captions and the status line.
+```go
+controller := dragdrop.NewController(6)
+_ = controller.RegisterTarget(&dragdrop.DropTarget{
+    Name: "inventory",
+    Bounds: core.Rect{X: 20, Y: 20, W: 160, H: 80},
+    OnDrop: func(payload dragdrop.Payload) { /* application action */ },
+})
+controller.Begin(dragdrop.NewPayload("item-1", "item", item), pressPosition)
+controller.Move(pointerPosition)
+phase := controller.Drop(pointerPosition)
+```
 
-## Raylib pin
+## Layout
 
-The module pins `github.com/gen2brain/raylib-go/raylib` at `v0.60.1`.
-Raylib conversion code is kept at the `render` boundary.
+Each visual widget has one `layout.Node`. `SetPoint` relates a source point to
+a target point; a nil target means the ownership parent. One point uses the
+preferred size, while two independent points solve the corresponding origin and
+size. Contradictory equations, cycles, out-of-tree targets, and point-derived
+sizes outside limits return errors.
+
+```go
+parent := widgets.NewFrame("panel", core.Rect{W: 400, H: 200})
+child := widgets.NewButton("ok", core.Rect{W: 100, H: 36}, "OK")
+_ = parent.Frame().AddChild(child.Frame())
+if err := child.SetPoint(layout.AnchorTopLeft, nil, layout.AnchorTopRight, core.Vec2{X: 8}); err != nil {
+    log.Fatal(err)
+}
+if err := layout.Arrange(parent.Frame(), core.Rect{}); err != nil {
+    log.Fatal(err)
+}
+```
+
+Use `layout.AnchorName` when a diagnostic or serialized name is needed. A
+widget with no arranged parent keeps its authored constructor bounds.
+
+## Drawing, recording, and CSS skins
+
+Normal `Theme` drawing retains no draw-call history. Diagnostics are opt-in and
+bounded:
+
+```go
+recorder, err := render.NewDrawRecorder(256)
+if err != nil {
+    log.Fatal(err)
+}
+u.Theme().SetDrawRecorder(recorder)
+u.Draw() // UI.Draw starts the recorder frame
+calls := recorder.Calls()
+```
+
+Direct `Theme` users call `BeginFrame` at their frame boundary. `Calls` is a
+defensive snapshot and `Truncated` reports a full recorder. A zero `core.Color`
+is exact transparent black; code that means no tint must set opaque white
+explicitly (`core.Color{R: 255, G: 255, B: 255, A: 255}`).
+
+`LoadCSSFile` validates and uploads a complete candidate skin transactionally.
+Each source image is uploaded once, CSS-created textures are owned by the theme,
+and programmatic textures remain borrowed. Call `UnloadSkin` while the graphics
+context is still active, before closing the raylib window. `ClearSkin` also
+clears borrowed programmatic descriptors but never unloads their handles.
+
+Font atlases currently contain printable ASCII plus en dash, em dash, bullet,
+and ellipsis. UTF-8 storage therefore does not promise glyph coverage for every
+Unicode script; callers needing other scripts must provide an appropriate font
+and later rasterization strategy.
+
+## Gallery contract and test assets
+
+The gallery demonstrates textured buttons, checkbox state, bounded UTF-8 editing,
+a UI-owned dropdown popup, slider/progress interaction, scrolling, nine-patch
+borders, CSS tinting, layout movement, and visual state samples.
+
+The Kenney PNGs under `testdata/skins/kenney/` are ignored local fixtures. They
+exist in the accepted current worktree but are not present in a clean
+`git archive`; consequently a clean checkout cannot run the CSS tests or the
+file-driven gallery skin. This known image limitation is documented evidence,
+not a release-validation gate. Do not change the ignored files or `.gitignore`
+to hide it.
+
+There is no software license yet. Selecting one remains an unresolved release
+item for the repository owner; this project does not add a license by assumption.

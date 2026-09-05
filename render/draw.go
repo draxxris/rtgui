@@ -1,49 +1,21 @@
 package render
 
 import (
-	"errors"
 	"image/color"
 	"math"
 
+	"github.com/draxxris/rtgui/core"
+	"github.com/draxxris/rtgui/skin"
 	rl "github.com/gen2brain/raylib-go/raylib"
-	"rtgui/core"
-	"rtgui/skin"
 )
 
+// effectiveTint returns either the fixed fallback tint or the descriptor's
+// exact RGBA tint. Zero descriptor tint intentionally remains transparent black.
 func effectiveTint(descriptor skin.SkinDescriptor, fallback bool) color.RGBA {
 	if fallback {
 		return color.RGBA{R: 200, G: 200, B: 200, A: 255}
 	}
-	base := normalizedTint(descriptor.Tint)
-	finalAlpha := float32(base.A) * normalizedAlpha(descriptor.Alpha)
-	if finalAlpha < 0 {
-		finalAlpha = 0
-	}
-	if finalAlpha > 255 {
-		finalAlpha = 255
-	}
-	base.A = uint8(finalAlpha + 0.5)
-	return base
-}
-
-func normalizedAlpha(alpha float32) float32 {
-	if alpha == 0 {
-		return 1
-	}
-	if alpha < 0 {
-		return 0
-	}
-	if alpha > 1 {
-		return 1
-	}
-	return alpha
-}
-
-func normalizedTint(tint core.Color) color.RGBA {
-	if tint.R == 0 && tint.G == 0 && tint.B == 0 && tint.A == 0 {
-		return color.RGBA{R: 255, G: 255, B: 255, A: 255}
-	}
-	return color.RGBA{R: tint.R, G: tint.G, B: tint.B, A: tint.A}
+	return descriptor.Tint.RGBA()
 }
 
 func (t *Theme) snap(rect core.Rect) core.Rect {
@@ -58,12 +30,12 @@ func (t *Theme) resolveDescriptor(kind core.WidgetKind, part skin.SkinPart, stat
 	return descriptor, !ok
 }
 
+// logDrawCall records one operation only when diagnostics are explicitly enabled.
 func (t *Theme) logDrawCall(kind core.WidgetKind, part skin.SkinPart, state core.WidgetState, bounds, dest core.Rect, descriptor skin.SkinDescriptor, tint color.RGBA, fallback bool) {
-	alpha := descriptor.Alpha
-	if alpha == 0 {
-		alpha = 1
+	if t == nil || t.recorder == nil {
+		return
 	}
-	t.drawLog = append(t.drawLog, DrawCall{
+	t.recorder.record(DrawCall{
 		Kind:     kind,
 		Part:     part,
 		State:    state,
@@ -71,11 +43,11 @@ func (t *Theme) logDrawCall(kind core.WidgetKind, part skin.SkinPart, state core
 		Dest:     dest,
 		Src:      descriptor.AtlasRegion,
 		Tint:     core.Color{R: tint.R, G: tint.G, B: tint.B, A: tint.A},
-		Alpha:    alpha,
 		Fallback: fallback,
 	})
 }
 
+// drawTexturedPart selects simple, nine-patch, or fallback drawing for descriptor.
 func drawTexturedPart(descriptor skin.SkinDescriptor, dest core.Rect, tint color.RGBA) {
 	if !descriptor.HasTexture || descriptor.Texture.ID == 0 {
 		drawFallbackPart(dest, tint)
@@ -113,10 +85,10 @@ func drawSingleTexture(texture rl.Texture2D, source, dest core.Rect, tint color.
 	rl.DrawTexturePro(texture, toRaylibRect(source), toRaylibRect(dest), rl.NewVector2(0, 0), 0, tint)
 }
 
+// drawNinePatch renders source across the deterministic nine destination rectangles.
 func drawNinePatch(texture rl.Texture2D, source core.Rect, descriptor skin.SkinDescriptor, dest core.Rect, tint color.RGBA) {
 	sourceRects := NinePatchSourceRects(source, descriptor.NinePatch)
-	destinationRects := NinePatchRects(source, NinePatchConfig{
-		Source: source,
+	destinationRects := NinePatchRects(NinePatchConfig{
 		Left:   float32(descriptor.NinePatch.Left),
 		Top:    float32(descriptor.NinePatch.Top),
 		Right:  float32(descriptor.NinePatch.Right),
@@ -141,6 +113,7 @@ func validPatch(destination, source core.Rect) bool {
 
 func skipCenter(centerFill bool, index int) bool { return !centerFill && index == 4 }
 
+// drawTextInContent lays out and draws text, recording its text operation when enabled.
 func (t *Theme) drawTextInContent(kind core.WidgetKind, value string, content core.Rect, state core.WidgetState) {
 	if value == "" || content.W <= 0 || content.H <= 0 {
 		return
@@ -161,7 +134,7 @@ func (t *Theme) drawTextInContent(kind core.WidgetKind, value string, content co
 	y := float32(math.Round(float64(content.Y + (content.H-float32(fontSize))/2)))
 	t.logDrawCall(kind, skin.PartText, state, content, content, skin.SkinDescriptor{}, textColor, false)
 	if rl.IsWindowReady() {
-		if t != nil && t.hasFont {
+		if t != nil && t.HasFont() {
 			rl.DrawTextEx(t.FontForSize(float32(fontSize)), value, rl.NewVector2(x, y), float32(fontSize), float32(fontSize)/10, textColor)
 		} else {
 			rl.DrawText(value, int32(x), int32(y), fontSize, textColor)
@@ -169,6 +142,7 @@ func (t *Theme) drawTextInContent(kind core.WidgetKind, value string, content co
 	}
 }
 
+// drawPart resolves, records, and optionally draws one widget skin part.
 func (t *Theme) drawPart(kind core.WidgetKind, part skin.SkinPart, bounds core.Rect, state core.WidgetState) (skin.SkinDescriptor, bool) {
 	descriptor, fallback := t.resolveDescriptor(kind, part, state)
 	tint := effectiveTint(descriptor, fallback)
@@ -181,21 +155,21 @@ func (t *Theme) drawPart(kind core.WidgetKind, part skin.SkinPart, bounds core.R
 }
 
 // DrawWidgetPart draws one part of a widget.
-func (t *Theme) DrawWidgetPart(kind core.WidgetKind, part skin.SkinPart, bounds core.Rect, state core.WidgetState) error {
-	if t == nil {
-		return errors.New("render: nil theme")
+func (t *Theme) DrawWidgetPart(kind core.WidgetKind, part skin.SkinPart, bounds core.Rect, state core.WidgetState) {
+	if t != nil {
+		t.drawPart(kind, part, bounds, state)
 	}
-	t.drawPart(kind, part, bounds, state)
-	return nil
 }
 
 // DrawWidget renders a widget using the theme's registry and transform.
-func (t *Theme) DrawWidget(info core.WidgetInfo, value string, amount float32, checked bool) error {
+func (t *Theme) DrawWidget(info core.WidgetInfo, value string, amount float32, checked bool) {
 	if t == nil {
-		return errors.New("render: nil theme")
+		return
 	}
 	background, _ := t.drawPart(info.Kind, skin.PartBackground, info.Bounds, info.State)
-	t.lastWidgetInfo = info
+	if t.recorder != nil {
+		t.recorder.setLastWidgetInfo(info)
+	}
 	content := t.snap(ContentRect(info.Bounds, background))
 
 	switch info.Kind {
@@ -208,9 +182,51 @@ func (t *Theme) DrawWidget(info core.WidgetInfo, value string, amount float32, c
 	default:
 		t.drawTextInContent(info.Kind, value, content, info.State)
 	}
-	return nil
 }
 
+// DrawDropdownPopup renders a dropdown list with the gallery's popup spacing,
+// hover highlight, and themed text. info.Bounds is the complete popup bounds.
+func (t *Theme) DrawDropdownPopup(info core.WidgetInfo, items []string, hovered int) {
+	if t == nil || len(items) == 0 || info.Bounds.H <= 0 {
+		return
+	}
+	t.DrawWidget(info, "", 0, false)
+	t.DrawWidgetPart(info.Kind, skin.PartBorder, info.Bounds, info.State)
+	rowHeight := info.Bounds.H / float32(len(items))
+	for index, item := range items {
+		row := core.Rect{X: info.Bounds.X, Y: info.Bounds.Y + float32(index)*rowHeight, W: info.Bounds.W, H: rowHeight}
+		if index == hovered {
+			t.drawDropdownHighlight(info, row)
+		}
+		t.drawDropdownText(info, row, item)
+	}
+}
+
+// drawDropdownHighlight records and draws the fixed popup row highlight.
+func (t *Theme) drawDropdownHighlight(info core.WidgetInfo, row core.Rect) {
+	destination := core.Rect{X: row.X + 4, Y: row.Y + 3, W: row.W - 8, H: row.H - 6}
+	tint := color.RGBA{R: 67, G: 97, B: 139, A: 255}
+	t.logDrawCall(info.Kind, skin.PartOverlay, core.StateHovered, row, destination, skin.SkinDescriptor{}, tint, false)
+	if rl.IsWindowReady() {
+		drawFallbackPart(destination, tint)
+	}
+}
+
+// drawDropdownText records and draws one popup label with the gallery colors.
+func (t *Theme) drawDropdownText(info core.WidgetInfo, row core.Rect, value string) {
+	tint := color.RGBA{R: 230, G: 240, B: 255, A: 255}
+	t.logDrawCall(info.Kind, skin.PartText, info.State, row, row, skin.SkinDescriptor{}, tint, false)
+	if !rl.IsWindowReady() {
+		return
+	}
+	if t.HasFont() {
+		rl.DrawTextEx(t.FontForSize(16), value, rl.NewVector2(row.X+16, row.Y+8), 16, 1.6, tint)
+		return
+	}
+	rl.DrawText(value, int32(row.X+16), int32(row.Y+8), 16, tint)
+}
+
+// drawCheckbox renders its icon state followed by its optional text.
 func (t *Theme) drawCheckbox(info core.WidgetInfo, value string, content core.Rect, checked bool) {
 	if checked {
 		t.drawCheckmark(info, content)
@@ -264,6 +280,7 @@ func (t *Theme) drawCenteredIcon(info core.WidgetInfo, content core.Rect, part s
 	drawSingleTexture(texture, source, destination, tint)
 }
 
+// checkmarkSize derives an icon size from its atlas region and content box.
 func checkmarkSize(descriptor skin.SkinDescriptor, content core.Rect) (float32, float32) {
 	width, height := descriptor.AtlasRegion.W, descriptor.AtlasRegion.H
 	if width == 0 || height == 0 {
@@ -278,13 +295,14 @@ func checkmarkSize(descriptor skin.SkinDescriptor, content core.Rect) (float32, 
 	return width, height
 }
 
+// drawGeometryCheckmark renders the fallback checkmark and records its color.
 func (t *Theme) drawGeometryCheckmark(info core.WidgetInfo, missingSkin bool) {
 	destination := t.snap(info.Bounds)
+	checkColor := color.RGBA{R: 20, G: 120, B: 60, A: 255}
+	if missingSkin {
+		checkColor = color.RGBA{A: 255}
+	}
 	if rl.IsWindowReady() {
-		checkColor := color.RGBA{R: 20, G: 120, B: 60, A: 255}
-		if missingSkin {
-			checkColor = color.RGBA{A: 255}
-		}
 		x, y, width, height := destination.X, destination.Y, destination.W, destination.H
 		p1 := rl.NewVector2(x+width*0.25, y+height*0.55)
 		p2 := rl.NewVector2(x+width*0.40, y+height*0.70)
@@ -292,9 +310,10 @@ func (t *Theme) drawGeometryCheckmark(info core.WidgetInfo, missingSkin bool) {
 		rl.DrawLineEx(p1, p2, 2.5, checkColor)
 		rl.DrawLineEx(p2, p3, 2.5, checkColor)
 	}
-	t.logDrawCall(info.Kind, skin.PartCheckmark, info.State, destination, destination, skin.SkinDescriptor{}, color.RGBA{}, true)
+	t.logDrawCall(info.Kind, skin.PartCheckmark, info.State, destination, destination, skin.SkinDescriptor{}, checkColor, true)
 }
 
+// drawSlider renders the track and thumb at amount's clamped position.
 func (t *Theme) drawSlider(info core.WidgetInfo, content core.Rect, amount float32) {
 	track, fallback := t.resolveDescriptor(info.Kind, skin.PartTrack, info.State)
 	trackTint := effectiveTint(track, fallback)
@@ -313,6 +332,7 @@ func (t *Theme) drawSlider(info core.WidgetInfo, content core.Rect, amount float
 	}
 }
 
+// sliderTrackRect chooses the content-aligned track rectangle for a slider.
 func sliderTrackRect(t *Theme, info core.WidgetInfo, content core.Rect, descriptor skin.SkinDescriptor, fallback bool) core.Rect {
 	trackHeight := sliderTrackHeight(content.H, descriptor, fallback)
 	trackY := content.Y + (content.H-trackHeight)/2
@@ -330,6 +350,7 @@ func sliderTrackRect(t *Theme, info core.WidgetInfo, content core.Rect, descript
 	return trackRect
 }
 
+// sliderTrackHeight chooses a textured or fallback track height within content.
 func sliderTrackHeight(contentHeight float32, descriptor skin.SkinDescriptor, fallback bool) float32 {
 	trackHeight := float32(8)
 	if !fallback && descriptor.AtlasRegion.H > 0 {
@@ -341,6 +362,7 @@ func sliderTrackHeight(contentHeight float32, descriptor skin.SkinDescriptor, fa
 	return trackHeight
 }
 
+// sliderThumbRect positions the thumb in track for the clamped amount.
 func sliderThumbRect(t *Theme, track core.Rect, descriptor skin.SkinDescriptor, fallback bool, amount float32) core.Rect {
 	thumbWidth, thumbHeight := float32(14), float32(20)
 	if !fallback && descriptor.AtlasRegion.W > 0 {
@@ -358,6 +380,7 @@ func sliderThumbRect(t *Theme, track core.Rect, descriptor skin.SkinDescriptor, 
 	})
 }
 
+// drawProgressBar renders a track and a proportional overlay.
 func (t *Theme) drawProgressBar(info core.WidgetInfo, content core.Rect, amount float32) {
 	track, fallback := t.resolveDescriptor(info.Kind, skin.PartTrack, info.State)
 	trackTint := effectiveTint(track, fallback)
@@ -384,6 +407,7 @@ func (t *Theme) drawProgressBar(info core.WidgetInfo, content core.Rect, amount 
 	}
 }
 
+// clamp01 confines value to the unit interval.
 func clamp01(value float32) float32 {
 	if value < 0 {
 		return 0
@@ -400,27 +424,4 @@ func toRaylibRect(rect core.Rect) rl.Rectangle {
 
 func toRaylibTexture(texture skin.Texture) rl.Texture2D {
 	return rl.NewTexture2D(texture.ID, texture.Width, texture.Height, texture.Mipmaps, rl.PixelFormat(texture.Format))
-}
-
-func DebugBounds(call DrawCall) DebugInfo {
-	return DebugInfo{
-		Bounds:   call.Bounds,
-		Fallback: call.Fallback,
-		SkinKey:  skin.SkinKey{Widget: call.Kind, Part: call.Part, State: call.State},
-	}
-}
-
-func EstimateDrawCalls(calls []DrawCall) (drawCalls int, textureSwitches int) {
-	if len(calls) == 0 {
-		return 0, 0
-	}
-	drawCalls = len(calls)
-	lastSource := calls[0].Src
-	for _, call := range calls[1:] {
-		if call.Src != lastSource {
-			textureSwitches++
-			lastSource = call.Src
-		}
-	}
-	return drawCalls, textureSwitches
 }

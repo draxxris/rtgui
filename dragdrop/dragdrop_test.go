@@ -3,104 +3,239 @@ package dragdrop
 import (
 	"testing"
 
-	"rtgui/core"
-	"rtgui/input"
+	"github.com/draxxris/rtgui/core"
 )
 
-func TestDragThreshold(t *testing.T) {
-	ds := NewDragState(5, input.NewCapture())
+func mustRegisterTarget(t *testing.T, controller *Controller, target *DropTarget) {
+	t.Helper()
+	if err := controller.RegisterTarget(target); err != nil {
+		t.Fatalf("RegisterTarget(%+v): %v", target, err)
+	}
+}
+
+// TestControllerThresholdTransitions checks the pending and dragging phases.
+func TestControllerThresholdTransitions(t *testing.T) {
+	controller := NewController(5)
 	payload := NewPayload("dragSource", "icon", "data")
-	ds.OnPress("dragSource", core.Vec2{X: 10, Y: 10}, payload)
-	if ds.Phase != PhasePressed {
-		t.Fatalf("pressed %v", ds.Phase)
+	controller.Begin(payload, core.Vec2{X: 10, Y: 10})
+	if got := controller.Phase(); got != PhasePressed {
+		t.Fatalf("phase after Begin = %v, want pressed", got)
 	}
-	ds.OnMove(core.Vec2{X: 12, Y: 12}) // dist sqrt(8) ~2.8 <5
-	if ds.Phase != PhaseThresholdPending {
-		t.Fatalf("pending %v", ds.Phase)
+	controller.Move(core.Vec2{X: 12, Y: 12})
+	if got := controller.Phase(); got != PhaseThresholdPending {
+		t.Fatalf("phase below threshold = %v, want pending", got)
 	}
-	ds.OnMove(core.Vec2{X: 20, Y: 20}) // dist ~14 >5
-	if ds.Phase != PhaseDragging {
-		t.Fatalf("dragging %v", ds.Phase)
-	}
-}
-
-func TestValidDrop(t *testing.T) {
-	ClearTargets()
-	ds := NewDragState(0, input.NewCapture())
-	target := &DropTarget{ID: "dropTarget", Bounds: core.Rect{X: 100, Y: 100, W: 50, H: 50}, Accepts: func(p Payload) bool { return p.Kind == "icon" }, OnDrop: func(p Payload) {}}
-	RegisterTarget(target)
-	ds.OnPress("dragSource", core.Vec2{X: 10, Y: 10}, NewPayload("dragSource", "icon", 123))
-	ds.OnMove(core.Vec2{X: 110, Y: 110})
-	if ds.Phase != PhaseDragging && ds.Phase != PhaseOverTarget {
-		t.Logf("phase %v", ds.Phase)
-	}
-	// move to trigger over-target
-	ds.Phase = PhaseDragging
-	ds.OnMove(core.Vec2{X: 110, Y: 110})
-	if ds.Phase != PhaseOverTarget {
-		t.Fatalf("expected over-target %v", ds.Phase)
-	}
-	phase := ds.OnRelease(core.Vec2{X: 110, Y: 110})
-	if phase != PhaseDropped {
-		t.Fatalf("expected dropped %v", phase)
+	controller.Move(core.Vec2{X: 15, Y: 10})
+	if got := controller.Phase(); got != PhaseDragging {
+		t.Fatalf("phase at threshold = %v, want dragging", got)
 	}
 }
 
-func TestInvalidDrop(t *testing.T) {
-	ClearTargets()
-	ds := NewDragState(0, input.NewCapture())
-	target := &DropTarget{ID: "dropTarget", Bounds: core.Rect{X: 100, Y: 100, W: 50, H: 50}, Accepts: func(p Payload) bool { return false }}
-	RegisterTarget(target)
-	ds.OnPress("dragSource", core.Vec2{X: 10, Y: 10}, NewPayload("dragSource", "icon", nil))
-	ds.Phase = PhaseDragging
-	phase := ds.OnRelease(core.Vec2{X: 110, Y: 110})
-	if phase != PhaseCanceled {
-		t.Fatalf("invalid drop should cancel %v", phase)
+// TestControllerAcceptedAndRejectedDrops checks target acceptance callbacks.
+func TestControllerAcceptedAndRejectedDrops(t *testing.T) {
+	accepted := NewController(0)
+	var delivered Payload
+	target := &DropTarget{
+		Name:   "accept",
+		Bounds: core.Rect{X: 100, Y: 100, W: 50, H: 50},
+		Accepts: func(payload Payload) bool {
+			return payload.Kind == "icon"
+		},
+		OnDrop: func(payload Payload) {
+			delivered = payload
+		},
+	}
+	mustRegisterTarget(t, accepted, target)
+	payload := NewPayload("dragSource", "icon", 123)
+	accepted.Begin(payload, core.Vec2{X: 10, Y: 10})
+	accepted.Move(core.Vec2{X: 110, Y: 110})
+	if got := accepted.Phase(); got != PhaseOverTarget {
+		t.Fatalf("phase over accepted target = %v", got)
+	}
+	if got := accepted.Drop(core.Vec2{X: 110, Y: 110}); got != PhaseDropped {
+		t.Fatalf("accepted Drop = %v, want dropped", got)
+	}
+	if delivered != payload {
+		t.Fatalf("delivered payload = %+v, want %+v", delivered, payload)
+	}
+
+	rejected := NewController(0)
+	mustRegisterTarget(t, rejected, &DropTarget{
+		Name:    "reject",
+		Bounds:  target.Bounds,
+		Accepts: func(Payload) bool { return false },
+	})
+	rejected.Begin(payload, core.Vec2{})
+	rejected.Move(core.Vec2{X: 110, Y: 110})
+	if got := rejected.Drop(core.Vec2{X: 110, Y: 110}); got != PhaseCanceled {
+		t.Fatalf("rejected Drop = %v, want canceled", got)
 	}
 }
 
-func TestCancel(t *testing.T) {
-	ds := NewDragState(5, input.NewCapture())
-	ds.OnPress("dragSource", core.Vec2{X: 0, Y: 0}, NewPayload("dragSource", "x", nil))
-	ds.Cancel("escape")
-	if ds.Phase != PhaseCanceled {
-		t.Fatal("cancel")
+// TestControllerCancel checks cancellation clears the active target.
+func TestControllerCancel(t *testing.T) {
+	controller := NewController(1)
+	mustRegisterTarget(t, controller, &DropTarget{Name: "target", Bounds: core.Rect{W: 20, H: 20}})
+	controller.Begin(NewPayload("source", "kind", nil), core.Vec2{})
+	controller.Move(core.Vec2{X: 1, Y: 0})
+	if controller.CurrentTarget() == nil {
+		t.Fatal("drag should hover target before cancellation")
 	}
-	if ds.Captured {
-		t.Fatal("should release capture")
+	controller.Cancel()
+	if got := controller.Phase(); got != PhaseCanceled {
+		t.Fatalf("Cancel phase = %v", got)
 	}
-}
-
-func TestTargetHoverResetAndOrdering(t *testing.T) {
-	ClearTargets()
-	ds := NewDragState(1, input.NewCapture())
-	RegisterTarget(&DropTarget{ID: "hoverTarget", Bounds: core.Rect{X: 10, Y: 10, W: 20, H: 20}})
-	ds.OnPress("farSource", core.Vec2{X: 0, Y: 0}, NewPayload("farSource", "icon", nil))
-	ds.OnMove(core.Vec2{X: 15, Y: 15})
-	if ds.Phase != PhaseOverTarget {
-		t.Fatalf("target hover phase %v", ds.Phase)
-	}
-	ds.OnMove(core.Vec2{X: 100, Y: 100})
-	if ds.Phase != PhaseDragging {
-		t.Fatalf("hover should clear outside target, got %v", ds.Phase)
-	}
-	// Register order, rather than map iteration, wins for overlapping targets.
-	ClearTargets()
-	RegisterTarget(&DropTarget{ID: "firstTarget", Bounds: core.Rect{X: 0, Y: 0, W: 20, H: 20}})
-	RegisterTarget(&DropTarget{ID: "secondTarget", Bounds: core.Rect{X: 0, Y: 0, W: 20, H: 20}})
-	if got := HitTarget(core.Vec2{X: 10, Y: 10}); got == nil || got.ID != "firstTarget" {
-		t.Fatalf("ordered target %v", got)
-	}
-	UnregisterTarget("firstTarget")
-	if got := HitTarget(core.Vec2{X: 10, Y: 10}); got == nil || got.ID != "secondTarget" {
-		t.Fatalf("unregistered target %v", got)
+	if controller.CurrentTarget() != nil {
+		t.Fatal("Cancel must clear the active target")
 	}
 }
 
-func TestGhost(t *testing.T) {
-	g := NewGhost(NewPayload("ghostSource", "k", nil), core.Vec2{X: 10, Y: 10})
-	b := g.Bounds()
-	if b.W != 32 || b.H != 32 {
-		t.Fatalf("ghost size %v", b)
+// TestControllerTargetReplacementAndRemoval checks registry refresh behavior.
+func TestControllerTargetReplacementAndRemoval(t *testing.T) {
+	controller := NewController(0)
+	first := &DropTarget{Name: "target", Bounds: core.Rect{W: 20, H: 20}}
+	mustRegisterTarget(t, controller, first)
+	controller.Begin(NewPayload("source", "kind", nil), core.Vec2{})
+	controller.Move(core.Vec2{X: 10, Y: 10})
+	if controller.CurrentTarget() != first {
+		t.Fatal("first target was not selected")
+	}
+
+	replacement := &DropTarget{Name: "target", Bounds: core.Rect{X: 40, Y: 40, W: 20, H: 20}}
+	mustRegisterTarget(t, controller, replacement)
+	if controller.CurrentTarget() != nil || controller.Phase() != PhaseDragging {
+		t.Fatal("replacement must refresh a target that no longer contains the pointer")
+	}
+	controller.Move(core.Vec2{X: 50, Y: 50})
+	if controller.CurrentTarget() != replacement {
+		t.Fatal("replacement target was not selected")
+	}
+	if !controller.RemoveTarget("target") {
+		t.Fatal("RemoveTarget must report the registered target")
+	}
+	if controller.CurrentTarget() != nil || controller.Phase() != PhaseDragging {
+		t.Fatal("removal must clear the current target")
+	}
+	if controller.RemoveTarget("target") {
+		t.Fatal("removing a missing target must report false")
+	}
+}
+
+// TestControllerFirstRegistrationWinsOverlaps checks deterministic target order.
+func TestControllerFirstRegistrationWinsOverlaps(t *testing.T) {
+	controller := NewController(0)
+	var drops []string
+	first := &DropTarget{
+		Name:   "first",
+		Bounds: core.Rect{W: 20, H: 20},
+		OnDrop: func(Payload) {
+			drops = append(drops, "first")
+		},
+	}
+	second := &DropTarget{
+		Name:   "second",
+		Bounds: core.Rect{W: 20, H: 20},
+		OnDrop: func(Payload) {
+			drops = append(drops, "second")
+		},
+	}
+	mustRegisterTarget(t, controller, first)
+	mustRegisterTarget(t, controller, second)
+	controller.Begin(NewPayload("source", "kind", nil), core.Vec2{})
+	controller.Move(core.Vec2{X: 10, Y: 10})
+	if got := controller.CurrentTarget(); got != first {
+		t.Fatalf("overlap target = %+v, want first", got)
+	}
+	if got := controller.Drop(core.Vec2{X: 10, Y: 10}); got != PhaseDropped {
+		t.Fatalf("Drop = %v", got)
+	}
+	if len(drops) != 1 || drops[0] != "first" {
+		t.Fatalf("drop order = %v, want first", drops)
+	}
+
+	replacement := &DropTarget{Name: "first", Bounds: first.Bounds, OnDrop: first.OnDrop}
+	mustRegisterTarget(t, controller, replacement)
+	controller.Begin(NewPayload("source", "kind", nil), core.Vec2{})
+	controller.Move(core.Vec2{X: 10, Y: 10})
+	if got := controller.CurrentTarget(); got != replacement {
+		t.Fatalf("replacement changed precedence: got %+v", got)
+	}
+}
+
+// TestControllerHoverResetsOutsideTarget checks target exit transitions.
+func TestControllerHoverResetsOutsideTarget(t *testing.T) {
+	controller := NewController(1)
+	mustRegisterTarget(t, controller, &DropTarget{Name: "target", Bounds: core.Rect{X: 10, Y: 10, W: 20, H: 20}})
+	controller.Begin(NewPayload("source", "kind", nil), core.Vec2{})
+	controller.Move(core.Vec2{X: 15, Y: 15})
+	if controller.Phase() != PhaseOverTarget || controller.CurrentTarget() == nil {
+		t.Fatalf("inside target phase/target = %v/%+v", controller.Phase(), controller.CurrentTarget())
+	}
+	controller.Move(core.Vec2{X: 100, Y: 100})
+	if controller.Phase() != PhaseDragging || controller.CurrentTarget() != nil {
+		t.Fatalf("outside target phase/target = %v/%+v", controller.Phase(), controller.CurrentTarget())
+	}
+}
+
+// TestControllersAreIsolated checks that controller state is not shared.
+func TestControllersAreIsolated(t *testing.T) {
+	first := NewController(0)
+	second := NewController(0)
+	firstTarget := &DropTarget{Name: "first", Bounds: core.Rect{W: 20, H: 20}}
+	secondTarget := &DropTarget{Name: "second", Bounds: core.Rect{X: 50, Y: 50, W: 20, H: 20}}
+	mustRegisterTarget(t, first, firstTarget)
+	mustRegisterTarget(t, second, secondTarget)
+
+	first.Begin(NewPayload("first-source", "kind", nil), core.Vec2{})
+	first.Move(core.Vec2{X: 10, Y: 10})
+	second.Begin(NewPayload("second-source", "kind", nil), core.Vec2{})
+	second.Move(core.Vec2{X: 10, Y: 10})
+	if first.CurrentTarget() != firstTarget {
+		t.Fatal("first controller lost its own target")
+	}
+	if second.CurrentTarget() != nil || second.Phase() != PhaseDragging {
+		t.Fatal("second controller saw first controller's target")
+	}
+	if first.Payload().ID != "first-source" || second.Payload().ID != "second-source" {
+		t.Fatal("controllers shared a source payload")
+	}
+}
+
+// TestControllerPayloadAndGhostUseOnePosition checks the single pointer state.
+func TestControllerPayloadAndGhostUseOnePosition(t *testing.T) {
+	var controller Controller
+	if err := controller.RegisterTarget(&DropTarget{Name: "target", Bounds: core.Rect{W: 20, H: 20}}); err != nil {
+		t.Fatalf("zero-value RegisterTarget: %v", err)
+	}
+	payload := NewPayload("source-id", "icon", "data")
+	controller.Begin(payload, core.Vec2{X: 3, Y: 4})
+	controller.Move(core.Vec2{X: 10, Y: 12})
+	if got := controller.Payload(); got != payload {
+		t.Fatalf("payload = %+v, want %+v", got, payload)
+	}
+	if got := controller.PointerPosition(); got != (core.Vec2{X: 10, Y: 12}) {
+		t.Fatalf("pointer = %+v", got)
+	}
+	ghost := controller.Ghost()
+	if ghost.Payload.ID != "source-id" || ghost.Pos != controller.PointerPosition() {
+		t.Fatalf("ghost = %+v, pointer = %+v", ghost, controller.PointerPosition())
+	}
+	if bounds := ghost.Bounds(); bounds.W != 32 || bounds.H != 32 {
+		t.Fatalf("ghost bounds = %+v", bounds)
+	}
+}
+
+// TestControllerRejectsInvalidTargets checks registration validation errors.
+func TestControllerRejectsInvalidTargets(t *testing.T) {
+	controller := NewController(0)
+	if err := controller.RegisterTarget(nil); err == nil || err.Error() != "dragdrop: nil target" {
+		t.Fatalf("nil target error = %v", err)
+	}
+	if err := controller.RegisterTarget(&DropTarget{}); err == nil || err.Error() != "dragdrop: empty target name" {
+		t.Fatalf("empty target error = %v", err)
+	}
+	var nilController *Controller
+	if err := nilController.RegisterTarget(&DropTarget{Name: "target"}); err == nil || err.Error() != "dragdrop: nil controller" {
+		t.Fatalf("nil controller error = %v", err)
 	}
 }

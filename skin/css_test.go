@@ -1,28 +1,10 @@
 package skin
 
 import (
-	"image"
-	"image/color"
 	"testing"
 
-	"rtgui/core"
+	"github.com/draxxris/rtgui/core"
 )
-
-// nrgbaAt reads a pixel straight back; NRGBA storage round-trips exactly.
-func nrgbaAt(img image.Image, x, y int) color.NRGBA {
-	return img.At(x, y).(color.NRGBA)
-}
-
-// solidImage builds an 8x8 test image of one NRGBA color.
-func solidImage(c color.NRGBA) image.Image {
-	img := image.NewNRGBA(image.Rect(0, 0, 8, 8))
-	for y := 0; y < 8; y++ {
-		for x := 0; x < 8; x++ {
-			img.SetNRGBA(x, y, c)
-		}
-	}
-	return img
-}
 
 // TestParseCSSSelectors verifies every kind, pseudo-class, and ::part spelling.
 func TestParseCSSSelectors(t *testing.T) {
@@ -152,27 +134,5 @@ func TestParseCSSOrder(t *testing.T) {
 	}
 	if len(rules) != 3 || rules[0].Padding[0] != 1 || rules[1].Padding[0] != 2 || rules[2].Padding[0] != 3 {
 		t.Fatalf("order not preserved: %+v", rules)
-	}
-}
-
-// TestTintImage verifies channel math incl. alpha with stdlib images only.
-// Sources are opaque so premultiplied storage round-trips exactly.
-func TestTintImage(t *testing.T) {
-	src := solidImage(color.NRGBA{R: 200, G: 100, B: 50, A: 255})
-	white := TintImage(src, core.Color{R: 255, G: 255, B: 255, A: 255})
-	if got := nrgbaAt(white, 3, 3); got != (color.NRGBA{R: 200, G: 100, B: 50, A: 255}) {
-		t.Fatalf("white tint must be identity, got %v", got)
-	}
-	red := TintImage(src, core.Color{R: 255, G: 0, B: 0, A: 255})
-	if got := nrgbaAt(red, 0, 0); got != (color.NRGBA{R: 200, G: 0, B: 0, A: 255}) {
-		t.Fatalf("red multiply wrong: %v", got)
-	}
-	half := TintImage(src, core.Color{R: 255, G: 255, B: 255, A: 128})
-	if got := nrgbaAt(half, 0, 0); got != (color.NRGBA{R: 200, G: 100, B: 50, A: 128}) {
-		t.Fatalf("alpha multiply wrong: %v", got)
-	}
-	translucent := TintImage(solidImage(color.NRGBA{R: 200, G: 100, B: 50, A: 200}), core.Color{R: 255, G: 255, B: 255, A: 255})
-	if bounds := translucent.Bounds(); bounds.Dx() != 8 || bounds.Dy() != 8 {
-		t.Fatalf("dims must survive: %v", bounds)
 	}
 }

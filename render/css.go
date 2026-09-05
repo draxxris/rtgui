@@ -1,11 +1,5 @@
-// CSS file skinning: upload half of Theme.LoadCSSFile. Parse and mapping live
-// headless in skin/css.go; this file resolves asset files, bakes tints,
-// uploads each unique file+tint once, and writes registry descriptors.
-//
-// Application is two-phase and atomic: parse, merge, and validate everything
-// (including file reads and PNG decodes) before the first texture upload or
-// SetSkinPart. Headless callers get a loud early error instead of a
-// half-registered theme, since upload needs a GL context.
+// CSS file skinning: parse and mapping stay headless in skin, while this file
+// validates encoded assets and transactionally owns uploaded textures.
 package render
 
 import (
@@ -13,17 +7,50 @@ import (
 	"errors"
 	"fmt"
 	"image"
-	"image/png"
+	_ "image/png" // Register PNG decoding for CSS asset validation.
 	"os"
 	"path/filepath"
 
+	"github.com/draxxris/rtgui/core"
+	"github.com/draxxris/rtgui/skin"
 	rl "github.com/gen2brain/raylib-go/raylib"
-	"rtgui/core"
-	"rtgui/skin"
 )
 
-// mergedRule is one registry key's resolved declarations: later file rules win
-// per field, then states inherit unset siblings from their kind+part normal.
+type textureBackend interface {
+	ready() bool
+	upload(fileType string, data []byte) (skin.Texture, error)
+	setFilter(texture skin.Texture) error
+	unload(texture skin.Texture)
+}
+
+type raylibTextureBackend struct{}
+
+func (raylibTextureBackend) ready() bool { return rl.IsWindowReady() }
+
+// upload decodes original encoded bytes in raylib and uploads one texture.
+func (raylibTextureBackend) upload(fileType string, data []byte) (skin.Texture, error) {
+	loaded := rl.LoadImageFromMemory(fileType, data, int32(len(data)))
+	if loaded == nil {
+		return skin.Texture{}, errors.New("raylib image decode failed")
+	}
+	defer rl.UnloadImage(loaded)
+	uploaded := rl.LoadTextureFromImage(loaded)
+	if uploaded.ID == 0 {
+		return skin.Texture{}, errors.New("raylib texture upload failed")
+	}
+	return fromRaylibTexture(uploaded), nil
+}
+
+func (raylibTextureBackend) setFilter(texture skin.Texture) error {
+	rl.SetTextureFilter(toRaylibTexture(texture), rl.FilterPoint)
+	return nil
+}
+
+func (raylibTextureBackend) unload(texture skin.Texture) {
+	rl.UnloadTexture(toRaylibTexture(texture))
+}
+
+// mergedRule is one registry key's resolved declarations.
 type mergedRule struct {
 	image      string
 	hasImage   bool
@@ -35,16 +62,18 @@ type mergedRule struct {
 	hasPadding bool
 }
 
-// LoadCSSFile skins the theme from a LOOK-only CSS file. Asset paths resolve
-// against assetDir, or the CSS file's own directory when assetDir is empty.
-// Programmatic registrations stay underneath: CSS patches each key's
-// descriptor, so properties a file never mentions keep their current values.
+type cssImage struct {
+	name     string
+	fileType string
+	data     []byte
+}
+
+// LoadCSSFile builds and uploads a complete CSS candidate before publication.
+// Failure unloads candidate textures and preserves the published CSS layer;
+// success swaps layers before unloading the previous owned textures.
 func (t *Theme) LoadCSSFile(cssPath, assetDir string) error {
 	if t == nil {
 		return errors.New("render: nil theme")
-	}
-	if !rl.IsWindowReady() {
-		return errors.New("render: window not ready")
 	}
 	text, err := os.ReadFile(cssPath)
 	if err != nil {
@@ -59,26 +88,35 @@ func (t *Theme) LoadCSSFile(cssPath, assetDir string) error {
 		return err
 	}
 	merged, order := mergeSkinRules(rules)
-	images, err := loadRuleImages(base, merged, order)
+	images, imageOrder, err := loadRuleImages(base, merged, order)
 	if err != nil {
 		return err
 	}
-	cache := map[string]skin.Texture{}
-	for _, key := range order {
-		descriptor, err := t.buildCSSDescriptor(key, merged[key], base, images, cache)
-		if err != nil {
-			return err
-		}
-		if err := t.SetSkinPart(key, descriptor); err != nil {
-			return err
-		}
+	if (len(imageOrder) > 0 || len(t.ownedSkinTextures) > 0) && !t.ensureTextureBackend().ready() {
+		return errors.New("render: window not ready")
 	}
+	textures, owned, err := t.uploadCSSImages(images, imageOrder)
+	if err != nil {
+		t.unloadTextures(owned)
+		return err
+	}
+	candidate, err := t.buildCSSRegistry(merged, order, base, textures)
+	if err != nil {
+		t.unloadTextures(owned)
+		return err
+	}
+	if t.css == nil {
+		t.css = skin.NewRegistry()
+	}
+	oldTextures := t.ownedSkinTextures
+	t.css.Replace(candidate)
+	t.ownedSkinTextures = owned
+	t.unloadTextures(oldTextures)
 	return nil
 }
 
-// mergeSkinRules groups rules by key in first-appearance order with later
-// rules winning per field, then resolves each state key over its kind+part
-// normal key so tint-only or padding-only state rules inherit siblings.
+// mergeSkinRules groups rules by first key appearance, applies later fields,
+// and resolves state entries over their same-kind, same-part normal entry.
 func mergeSkinRules(rules []skin.SkinRule) (map[skin.SkinKey]mergedRule, []skin.SkinKey) {
 	merged := map[skin.SkinKey]mergedRule{}
 	var order []skin.SkinKey
@@ -102,6 +140,12 @@ func mergeSkinRules(rules []skin.SkinRule) (map[skin.SkinKey]mergedRule, []skin.
 		}
 		merged[key] = entry
 	}
+	inheritNormalRules(merged, order)
+	return merged, order
+}
+
+// inheritNormalRules fills state fields omitted from an authored rule.
+func inheritNormalRules(merged map[skin.SkinKey]mergedRule, order []skin.SkinKey) {
 	for _, key := range order {
 		if key.State == core.StateNormal {
 			continue
@@ -125,17 +169,17 @@ func mergeSkinRules(rules []skin.SkinRule) (map[skin.SkinKey]mergedRule, []skin.
 		}
 		merged[key] = entry
 	}
-	return merged, order
 }
 
-// loadRuleImages reads and decodes every referenced image before any upload,
-// so missing or corrupt files fail before the theme is touched.
-func loadRuleImages(base string, merged map[skin.SkinKey]mergedRule, order []skin.SkinKey) (map[string]image.Image, error) {
-	images := map[string]image.Image{}
+// loadRuleImages reads original bytes and decodes each unique source before
+// any upload. It returns deterministic first-reference upload order.
+func loadRuleImages(base string, merged map[skin.SkinKey]mergedRule, order []skin.SkinKey) (map[string]cssImage, []string, error) {
+	images := map[string]cssImage{}
+	imageOrder := make([]string, 0)
 	for _, key := range order {
 		entry := merged[key]
 		if entry.hasTint && !entry.hasImage {
-			return nil, fmt.Errorf("render: css tint without an image for %v", key)
+			return nil, nil, fmt.Errorf("render: css tint without an image for %v", key)
 		}
 		if !entry.hasImage {
 			continue
@@ -144,40 +188,78 @@ func loadRuleImages(base string, merged map[skin.SkinKey]mergedRule, order []ski
 		if _, ok := images[resolved]; ok {
 			continue
 		}
-		file, err := os.Open(resolved)
+		data, err := os.ReadFile(resolved)
 		if err != nil {
-			return nil, fmt.Errorf("render: css image %q: %w", entry.image, err)
+			return nil, nil, fmt.Errorf("render: css image %q: %w", entry.image, err)
 		}
-		img, _, err := image.Decode(file)
-		_ = file.Close()
+		_, format, err := image.Decode(bytes.NewReader(data))
 		if err != nil {
-			return nil, fmt.Errorf("render: css image %q: %w", entry.image, err)
+			return nil, nil, fmt.Errorf("render: css image %q: %w", entry.image, err)
 		}
-		images[resolved] = img
+		fileType := filepath.Ext(resolved)
+		if fileType == "" {
+			fileType = "." + format
+		}
+		images[resolved] = cssImage{name: entry.image, fileType: fileType, data: data}
+		imageOrder = append(imageOrder, resolved)
 	}
-	return images, nil
+	return images, imageOrder, nil
 }
 
-// buildCSSDescriptor overlays one merged key onto the current registry
-// descriptor and uploads its texture (cached per file+tint). Descriptor Tint
-// stays white on baked textures so nothing tints twice.
-func (t *Theme) buildCSSDescriptor(key skin.SkinKey, entry mergedRule, base string, images map[string]image.Image, cache map[string]skin.Texture) (skin.SkinDescriptor, error) {
-	descriptor, _ := t.GetSkinPart(key)
-	if !entry.hasImage && !entry.hasSlice && !entry.hasPadding {
-		return descriptor, nil
+// uploadCSSImages uploads and filters each validated source exactly once.
+// Its returned owned slice includes every successful upload, including one
+// whose later filtering fails, so the caller can roll all candidates back.
+func (t *Theme) uploadCSSImages(images map[string]cssImage, order []string) (map[string]skin.Texture, []skin.Texture, error) {
+	backend := t.ensureTextureBackend()
+	if len(order) > 0 && !backend.ready() {
+		return nil, nil, errors.New("render: window not ready")
 	}
-	if entry.hasImage {
-		texture, err := uploadCSSImage(entry, base, images, cache)
+	textures := make(map[string]skin.Texture, len(order))
+	owned := make([]skin.Texture, 0, len(order))
+	for _, path := range order {
+		asset := images[path]
+		texture, err := backend.upload(asset.fileType, asset.data)
+		if err != nil || texture.ID == 0 {
+			if err == nil {
+				err = errors.New("empty texture handle")
+			}
+			return nil, owned, fmt.Errorf("render: css image %q failed to upload: %w", asset.name, err)
+		}
+		owned = append(owned, texture)
+		if err := backend.setFilter(texture); err != nil {
+			return nil, owned, fmt.Errorf("render: css image %q failed to set filter: %w", asset.name, err)
+		}
+		textures[path] = texture
+	}
+	return textures, owned, nil
+}
+
+// buildCSSRegistry materializes every CSS descriptor over the programmatic
+// layer as it exists at load time.
+func (t *Theme) buildCSSRegistry(merged map[skin.SkinKey]mergedRule, order []skin.SkinKey, base string, textures map[string]skin.Texture) (*skin.Registry, error) {
+	candidate := skin.NewRegistry()
+	for _, key := range order {
+		descriptor, err := t.buildCSSDescriptor(key, merged[key], base, textures)
 		if err != nil {
-			return skin.SkinDescriptor{}, err
+			return nil, err
 		}
-		region := core.Rect{W: float32(texture.Width), H: float32(texture.Height)}
-		descriptor.Texture, descriptor.AtlasRegion = texture, region
+		candidate.Set(key, descriptor)
+	}
+	return candidate, nil
+}
+
+// buildCSSDescriptor applies one merged rule over the exact programmatic key.
+func (t *Theme) buildCSSDescriptor(key skin.SkinKey, entry mergedRule, base string, textures map[string]skin.Texture) (skin.SkinDescriptor, error) {
+	descriptor, _ := t.programmatic.Get(key)
+	if entry.hasImage {
+		texture, ok := textures[filepath.Join(base, entry.image)]
+		if !ok {
+			return skin.SkinDescriptor{}, fmt.Errorf("render: css image %q was not uploaded", entry.image)
+		}
+		descriptor.Texture = texture
+		descriptor.AtlasRegion = core.Rect{W: float32(texture.Width), H: float32(texture.Height)}
 		descriptor.HasTexture = true
-		descriptor.Tint, descriptor.Alpha = core.Color{R: 255, G: 255, B: 255, A: 255}, 1
-		if key.Part == skin.PartBorder {
-			descriptor.NinePatch.Source = region
-		}
+		descriptor.Tint = cssTint(entry)
 	}
 	if key.Part == skin.PartBorder && entry.hasSlice {
 		descriptor.NinePatch.Left, descriptor.NinePatch.Top = entry.slice, entry.slice
@@ -192,43 +274,28 @@ func (t *Theme) buildCSSDescriptor(key skin.SkinKey, entry mergedRule, base stri
 	return descriptor, nil
 }
 
-// uploadCSSImage encodes the (optionally tint-baked) image to PNG bytes and
-// uploads once per file+tint pair.
-func uploadCSSImage(entry mergedRule, base string, images map[string]image.Image, cache map[string]skin.Texture) (skin.Texture, error) {
-	resolved := filepath.Join(base, entry.image)
-	cacheKey := resolved + "\x00" + tintKey(entry)
-	if texture, ok := cache[cacheKey]; ok {
-		return texture, nil
-	}
-	img := images[resolved]
-	var encoded bytes.Buffer
-	pixels := img
+// cssTint returns exact authored tint or explicit no-tint opaque white.
+func cssTint(entry mergedRule) core.Color {
 	if entry.hasTint {
-		pixels = skin.TintImage(img, entry.tint)
+		return entry.tint
 	}
-	if err := png.Encode(&encoded, pixels); err != nil {
-		return skin.Texture{}, fmt.Errorf("render: css image %q: %w", entry.image, err)
-	}
-	raw := encoded.Bytes()
-	loaded := rl.LoadImageFromMemory(".png", raw, int32(len(raw)))
-	if loaded == nil {
-		return skin.Texture{}, fmt.Errorf("render: css image %q failed to load", entry.image)
-	}
-	defer rl.UnloadImage(loaded)
-	uploaded := rl.LoadTextureFromImage(loaded)
-	if uploaded.ID == 0 {
-		return skin.Texture{}, fmt.Errorf("render: css image %q failed to upload", entry.image)
-	}
-	rl.SetTextureFilter(uploaded, rl.FilterPoint)
-	texture := fromRaylibTexture(uploaded)
-	cache[cacheKey] = texture
-	return texture, nil
+	return core.Color{R: 255, G: 255, B: 255, A: 255}
 }
 
-// tintKey renders a tint cache-safe: white for untinted entries.
-func tintKey(entry mergedRule) string {
-	if !entry.hasTint {
-		return "none"
+func (t *Theme) ensureTextureBackend() textureBackend {
+	if t.textureBackend == nil {
+		t.textureBackend = raylibTextureBackend{}
 	}
-	return fmt.Sprintf("%02x%02x%02x%02x", entry.tint.R, entry.tint.G, entry.tint.B, entry.tint.A)
+	return t.textureBackend
+}
+
+// unloadTextures releases each texture through the current backend.
+func (t *Theme) unloadTextures(textures []skin.Texture) {
+	if len(textures) == 0 {
+		return
+	}
+	backend := t.ensureTextureBackend()
+	for _, texture := range textures {
+		backend.unload(texture)
+	}
 }

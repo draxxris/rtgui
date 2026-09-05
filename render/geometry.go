@@ -1,29 +1,22 @@
 package render
 
 import (
-	"rtgui/core"
-	"rtgui/skin"
+	"github.com/draxxris/rtgui/core"
+	"github.com/draxxris/rtgui/skin"
 )
 
-type DrawMode int
-
-const (
-	ModeStretch DrawMode = iota
-	ModeTile
-	ModeCenterFill
-)
-
+// NinePatchConfig contains the destination border widths for a nine-patch.
 type NinePatchConfig struct {
-	Source                   core.Rect
-	Left, Top, Right, Bottom float32
-	Mode                     DrawMode
-	CenterFill               bool
+	// Left and Top are the destination's left and top border widths.
+	Left, Top float32
+	// Right and Bottom are the destination's right and bottom border widths.
+	Right, Bottom float32
 }
 
-// NinePatchRects returns the nine destination rectangles for a nine-patch.
+// NinePatchRects returns the nine destination rectangles for borders and dest.
 // Negative borders and destination sizes are clamped. If borders are larger
 // than a destination dimension, they are scaled proportionally.
-func NinePatchRects(_ core.Rect, borders NinePatchConfig, dest core.Rect) [9]core.Rect {
+func NinePatchRects(borders NinePatchConfig, dest core.Rect) [9]core.Rect {
 	left, right := nonNegative(borders.Left), nonNegative(borders.Right)
 	top, bottom := nonNegative(borders.Top), nonNegative(borders.Bottom)
 	dest.W = nonNegative(dest.W)
@@ -34,8 +27,7 @@ func NinePatchRects(_ core.Rect, borders NinePatchConfig, dest core.Rect) [9]cor
 	midW := nonNegative(dest.W - left - right)
 	midH := nonNegative(dest.H - top - bottom)
 
-	x, y := dest.X, dest.Y
-	return tileRects(x, y, left, top, midW, midH, right, bottom)
+	return tileRects(dest.X, dest.Y, left, top, midW, midH, right, bottom)
 }
 
 // NinePatchSourceRects returns source rectangles corresponding to the nine
@@ -56,6 +48,7 @@ func NinePatchSourceRects(src core.Rect, patch skin.NinePatch) [9]core.Rect {
 	return tileRects(src.X, src.Y, left, top, midW, midH, right, bottom)
 }
 
+// tileRects builds the shared row-major nine-patch rectangle layout.
 func tileRects(x, y, left, top, midW, midH, right, bottom float32) [9]core.Rect {
 	r0c0 := core.Rect{X: x, Y: y, W: left, H: top}
 	r0c1 := core.Rect{X: x + left, Y: y, W: midW, H: top}
@@ -69,6 +62,7 @@ func tileRects(x, y, left, top, midW, midH, right, bottom float32) [9]core.Rect 
 	return [9]core.Rect{r0c0, r0c1, r0c2, r1c0, r1c1, r1c2, r2c0, r2c1, r2c2}
 }
 
+// fitPair proportionally scales two nonnegative values into size when needed.
 func fitPair(first, second, size float32) (float32, float32) {
 	if size <= 0 {
 		return 0, 0
@@ -109,20 +103,6 @@ func ContentRect(bounds core.Rect, descriptor skin.SkinDescriptor) core.Rect {
 		W: nonNegative(bounds.W - left - right),
 		H: nonNegative(bounds.H - top - bottom),
 	}
-}
-
-func ApplyPadding(bounds core.Rect, descriptor skin.SkinDescriptor) core.Rect {
-	return ContentRect(bounds, descriptor)
-}
-
-func EnforceMinSize(width, height float32, descriptor skin.SkinDescriptor) (float32, float32) {
-	if width < descriptor.MinWidth {
-		width = descriptor.MinWidth
-	}
-	if height < descriptor.MinHeight {
-		height = descriptor.MinHeight
-	}
-	return width, height
 }
 
 func maxFloat(a, b float32) float32 {

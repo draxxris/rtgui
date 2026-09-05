@@ -5,68 +5,143 @@ import (
 	"math"
 	"os"
 
+	"github.com/draxxris/rtgui/core"
+	"github.com/draxxris/rtgui/skin"
+	"github.com/draxxris/rtgui/transform"
 	rl "github.com/gen2brain/raylib-go/raylib"
-	"rtgui/core"
-	"rtgui/skin"
-	"rtgui/transform"
 )
 
 // Theme owns render state for one UI. It has no package-global registry or
 // viewport, so multiple windows can render independently.
 type Theme struct {
-	registry       *skin.Registry
-	transform      *transform.Transform
-	drawLog        []DrawCall
-	lastWidgetInfo core.WidgetInfo
-	fontPath       string
-	hasFont        bool
-	fonts          map[int32]rl.Font
-	italicPath     string
-	hasItalic      bool
-	italics        map[int32]rl.Font
+	programmatic      *skin.Registry
+	css               *skin.Registry
+	ownedSkinTextures []skin.Texture
+	textureBackend    textureBackend
+	transform         *transform.Transform
+	recorder          *DrawRecorder
+	font              fontFace
+	italic            fontFace
 }
 
+// fontFace owns one font path and its size-specific raster cache.
+type fontFace struct {
+	path      string
+	available bool
+	cache     map[int32]rl.Font
+}
+
+// NewTheme returns a theme using uiTransform, or a fresh empty transform.
 func NewTheme(uiTransform *transform.Transform) *Theme {
 	if uiTransform == nil {
 		uiTransform = transform.New(core.Viewport{})
 	}
-	return &Theme{registry: skin.NewRegistry(), transform: uiTransform}
+	return &Theme{
+		programmatic:   skin.NewRegistry(),
+		css:            skin.NewRegistry(),
+		textureBackend: raylibTextureBackend{},
+		transform:      uiTransform,
+	}
 }
 
-func (t *Theme) SetSkinPart(key skin.SkinKey, descriptor skin.SkinDescriptor) error {
+// SetDrawRecorder attaches recorder for subsequent diagnostic frames. Passing
+// nil disables recording without retaining any draw history in the theme.
+func (t *Theme) SetDrawRecorder(recorder *DrawRecorder) {
+	if t != nil {
+		t.recorder = recorder
+	}
+}
+
+// BeginFrame resets the attached recorder for a new draw frame.
+func (t *Theme) BeginFrame() {
+	if t != nil {
+		t.recorder.beginFrame()
+	}
+}
+
+// SetSkinPart stores a borrowed descriptor in the programmatic layer.
+func (t *Theme) SetSkinPart(key skin.SkinKey, descriptor skin.SkinDescriptor) {
 	if t == nil {
-		return errors.New("render: nil theme")
+		return
 	}
-	if t.registry == nil {
-		t.registry = skin.NewRegistry()
+	if t.programmatic == nil {
+		t.programmatic = skin.NewRegistry()
 	}
-	t.registry.Set(key, descriptor)
-	return nil
+	t.programmatic.Set(key, descriptor)
 }
 
+// GetSkinPart returns an exact CSS descriptor before an exact programmatic descriptor.
 func (t *Theme) GetSkinPart(key skin.SkinKey) (skin.SkinDescriptor, error) {
-	if t == nil || t.registry == nil {
+	if t == nil {
 		return skin.SkinDescriptor{}, core.StatusMissingSkin
 	}
-	if descriptor, ok := t.registry.Get(key); ok {
+	if descriptor, ok := t.css.Get(key); ok {
+		return descriptor, nil
+	}
+	if descriptor, ok := t.programmatic.Get(key); ok {
 		return descriptor, nil
 	}
 	return skin.SkinDescriptor{}, core.StatusMissingSkin
 }
 
+// Lookup resolves exact CSS, exact programmatic, normal CSS, then normal
+// programmatic descriptors in that order.
 func (t *Theme) Lookup(kind core.WidgetKind, part skin.SkinPart, state core.WidgetState) (skin.SkinDescriptor, bool) {
-	if t == nil || t.registry == nil {
+	if t == nil {
 		return skin.SkinDescriptor{}, false
 	}
-	return t.registry.Lookup(kind, part, state)
-}
-
-func (t *Theme) ClearSkin() {
-	if t != nil && t.registry != nil {
-		t.registry.Clear()
+	key := skin.SkinKey{Widget: kind, Part: part, State: state}
+	if descriptor, ok := t.css.Get(key); ok {
+		return descriptor, true
 	}
+	if descriptor, ok := t.programmatic.Get(key); ok {
+		return descriptor, true
+	}
+	if state != core.StateNormal {
+		key.State = core.StateNormal
+		if descriptor, ok := t.css.Get(key); ok {
+			return descriptor, true
+		}
+		if descriptor, ok := t.programmatic.Get(key); ok {
+			return descriptor, true
+		}
+	}
+	return skin.SkinDescriptor{}, false
 }
 
+// UnloadSkin unloads only Theme-owned CSS textures and clears the CSS layer.
+// When textures exist without a graphics context, it retains them for retry.
+func (t *Theme) UnloadSkin() error {
+	if t == nil {
+		return nil
+	}
+	if len(t.ownedSkinTextures) > 0 && !t.ensureTextureBackend().ready() {
+		return errors.New("render: window not ready for skin texture cleanup")
+	}
+	t.unloadTextures(t.ownedSkinTextures)
+	t.ownedSkinTextures = nil
+	if t.css != nil {
+		t.css.Clear()
+	}
+	return nil
+}
+
+// ClearSkin unloads the owned CSS layer and then clears borrowed descriptors
+// without unloading their programmatic texture handles.
+func (t *Theme) ClearSkin() error {
+	if t == nil {
+		return nil
+	}
+	if err := t.UnloadSkin(); err != nil {
+		return err
+	}
+	if t.programmatic != nil {
+		t.programmatic.Clear()
+	}
+	return nil
+}
+
+// SetViewport replaces the logical-to-physical viewport transform.
 func (t *Theme) SetViewport(viewport core.Viewport) error {
 	if t == nil {
 		return errors.New("render: nil theme")
@@ -74,6 +149,7 @@ func (t *Theme) SetViewport(viewport core.Viewport) error {
 	return t.ensureTransform().SetViewport(viewport)
 }
 
+// GetViewport reports the theme's current viewport.
 func (t *Theme) GetViewport() core.Viewport {
 	if t == nil || t.transform == nil {
 		return core.Viewport{}
@@ -81,12 +157,14 @@ func (t *Theme) GetViewport() core.Viewport {
 	return t.transform.Viewport
 }
 
+// SetPixelSnap enables or disables logical rectangle pixel snapping.
 func (t *Theme) SetPixelSnap(enabled bool) {
 	if t != nil {
 		t.ensureTransform().PixelSnap = enabled
 	}
 }
 
+// GetPixelSnap reports whether logical rectangle pixel snapping is enabled.
 func (t *Theme) GetPixelSnap() bool {
 	return t != nil && t.transform != nil && t.transform.PixelSnap
 }
@@ -99,94 +177,140 @@ func (t *Theme) LoadFont(path string) error {
 	if t == nil {
 		return errors.New("render: nil theme")
 	}
-	if _, err := os.Stat(path); err != nil {
-		return errors.New("render: font not found")
-	}
-	t.clearFontCache()
-	t.fontPath, t.hasFont = path, true
-	return nil
+	return t.font.load(path)
 }
 
-// LoadItalicFont records a second TTF/OTF file for accent text (hints, status).
-// Semantics mirror LoadFont; galleries use it for captions and the status line.
+// LoadItalicFont records a second TTF/OTF file for accent text. Its lifecycle
+// and raster behavior match LoadFont.
 func (t *Theme) LoadItalicFont(path string) error {
 	if t == nil {
 		return errors.New("render: nil theme")
 	}
-	if _, err := os.Stat(path); err != nil {
-		return errors.New("render: font not found")
-	}
-	t.clearItalicCache()
-	t.italicPath, t.hasItalic = path, true
-	return nil
+	return t.italic.load(path)
 }
 
 // HasFont reports whether a widget-text font file is recorded.
-func (t *Theme) HasFont() bool { return t != nil && t.hasFont }
+func (t *Theme) HasFont() bool { return t != nil && t.font.available }
 
-// HasItalicFont reports whether the accent font file is recorded.
-func (t *Theme) HasItalicFont() bool { return t != nil && t.hasItalic }
+// HasItalicFont reports whether an accent font file is recorded.
+func (t *Theme) HasItalicFont() bool { return t != nil && t.italic.available }
 
-// Font returns the widget-text font rasterized at 32px, or the raylib
-// default when none is recorded. Prefer FontForSize for crisp text.
+// Font returns the widget-text font rasterized at 32px, or the raylib default
+// when none is recorded. Prefer FontForSize for crisp text.
 func (t *Theme) Font() rl.Font {
-	if t != nil && t.hasFont {
-		return t.FontForSize(32)
+	if t != nil {
+		return t.font.forSize(32)
 	}
 	return rl.GetFontDefault()
 }
 
-// ItalicFont returns the accent font rasterized at 32px, or the raylib
-// default when none is recorded. Prefer ItalicForSize for crisp text.
+// ItalicFont returns the accent font rasterized at 32px, or the raylib default
+// when none is recorded. Prefer ItalicForSize for crisp text.
 func (t *Theme) ItalicFont() rl.Font {
-	if t != nil && t.hasItalic {
-		return t.ItalicForSize(32)
+	if t != nil {
+		return t.italic.forSize(32)
 	}
 	return rl.GetFontDefault()
 }
 
 // FontForSize returns the widget-text font rasterized at the requested pixel
 // size, building and caching the atlas on first use. Without a recorded font
-// or ready window it returns the raylib default, so headless draws still log.
+// or ready window it returns the raylib default, so headless draws still work.
 func (t *Theme) FontForSize(size float32) rl.Font {
-	if t == nil || !t.hasFont {
+	if t == nil {
 		return rl.GetFontDefault()
 	}
-	return t.cachedFont(t.fontPath, &t.fonts, size)
+	return t.font.forSize(size)
 }
 
 // ItalicForSize returns the accent font rasterized at the requested size.
 // Fallback semantics mirror FontForSize.
 func (t *Theme) ItalicForSize(size float32) rl.Font {
-	if t == nil || !t.hasItalic {
+	if t == nil {
 		return rl.GetFontDefault()
 	}
-	return t.cachedFont(t.italicPath, &t.italics, size)
+	return t.italic.forSize(size)
 }
 
-// cachedFont rasterizes path at the rounded size once and caches the atlas.
-// Sizes round to whole pixels with a floor of 1; unready windows and invalid
-// rasters fall back to the default font without caching failures.
-func (t *Theme) cachedFont(path string, cache *map[int32]rl.Font, size float32) rl.Font {
+// UnloadFonts releases all rasterized font atlases and forgets recorded paths.
+// It is safe to call repeatedly or when no font has been loaded.
+func (t *Theme) UnloadFonts() {
+	if t == nil {
+		return
+	}
+	t.font.unload()
+	t.italic.unload()
+}
+
+// SetTexture stores a borrowed raylib texture handle in a skin descriptor.
+// Raylib is intentionally confined to this render package.
+func (t *Theme) SetTexture(key skin.SkinKey, texture rl.Texture2D, region core.Rect, tint core.Color) {
+	t.SetSkinPart(key, skin.SkinDescriptor{
+		Texture:     fromRaylibTexture(texture),
+		AtlasRegion: region,
+		Tint:        tint,
+		HasTexture:  true,
+	})
+}
+
+// Transform exposes the theme's logical-to-physical transform.
+func (t *Theme) Transform() *transform.Transform {
+	if t == nil {
+		return nil
+	}
+	return t.ensureTransform()
+}
+
+// load validates path, clears old raster data, and records the new face.
+func (f *fontFace) load(path string) error {
+	if _, err := os.Stat(path); err != nil {
+		return errors.New("render: font not found")
+	}
+	f.clearCache()
+	f.path = path
+	f.available = true
+	return nil
+}
+
+// forSize rasterizes the recorded face once per rounded positive pixel size.
+func (f *fontFace) forSize(size float32) rl.Font {
+	if !f.available {
+		return rl.GetFontDefault()
+	}
 	pixels := int32(math.Round(float64(size)))
 	if pixels < 1 {
 		pixels = 1
 	}
-	if *cache == nil {
-		*cache = make(map[int32]rl.Font)
+	if f.cache == nil {
+		f.cache = make(map[int32]rl.Font)
 	}
-	if font, ok := (*cache)[pixels]; ok {
+	if font, ok := f.cache[pixels]; ok {
 		return font
 	}
 	if !rl.IsWindowReady() {
 		return rl.GetFontDefault()
 	}
-	font := rl.LoadFontEx(path, pixels, fontCodepoints(), 0)
+	font := rl.LoadFontEx(f.path, pixels, fontCodepoints(), 0)
 	if !rl.IsFontValid(font) {
 		return rl.GetFontDefault()
 	}
-	(*cache)[pixels] = font
+	f.cache[pixels] = font
 	return font
+}
+
+// unload releases all cached rasters and clears the recorded source path.
+func (f *fontFace) unload() {
+	f.clearCache()
+	f.path = ""
+	f.available = false
+}
+
+// clearCache releases cached raylib rasters while preserving the source path.
+func (f *fontFace) clearCache() {
+	for _, font := range f.cache {
+		rl.UnloadFont(font)
+	}
+	f.cache = nil
 }
 
 // fontCodepoints lists the glyphs rasterized into theme font atlases: printable
@@ -200,53 +324,7 @@ func fontCodepoints() []rune {
 	return append(points, '\u2013', '\u2014', '\u2022', '\u2026')
 }
 
-// UnloadFonts releases rasterized font atlases and forgets recorded paths.
-// Safe to call without loaded fonts.
-func (t *Theme) UnloadFonts() {
-	if t == nil {
-		return
-	}
-	t.clearFontCache()
-	t.clearItalicCache()
-	t.fontPath, t.hasFont = "", false
-	t.italicPath, t.hasItalic = "", false
-}
-
-// clearFontCache releases rasterized widget-text atlases, keeping the path.
-func (t *Theme) clearFontCache() {
-	for _, font := range t.fonts {
-		rl.UnloadFont(font)
-	}
-	t.fonts = nil
-}
-
-// clearItalicCache releases rasterized accent atlases, keeping the path.
-func (t *Theme) clearItalicCache() {
-	for _, font := range t.italics {
-		rl.UnloadFont(font)
-	}
-	t.italics = nil
-}
-
-// SetTexture stores a raylib texture handle in a skin descriptor. Raylib is
-// intentionally confined to this render package.
-func (t *Theme) SetTexture(key skin.SkinKey, texture rl.Texture2D, region core.Rect, tint core.Color) error {
-	return t.SetSkinPart(key, skin.SkinDescriptor{
-		Texture:     fromRaylibTexture(texture),
-		AtlasRegion: region,
-		Tint:        tint,
-		Alpha:       1,
-		HasTexture:  true,
-	})
-}
-
-func (t *Theme) Transform() *transform.Transform {
-	if t == nil {
-		return nil
-	}
-	return t.ensureTransform()
-}
-
+// ensureTransform creates the transform lazily for a zero-value theme.
 func (t *Theme) ensureTransform() *transform.Transform {
 	if t.transform == nil {
 		t.transform = transform.New(core.Viewport{})
@@ -254,26 +332,7 @@ func (t *Theme) ensureTransform() *transform.Transform {
 	return t.transform
 }
 
-func (t *Theme) ClearDrawLog() {
-	if t != nil {
-		t.drawLog = nil
-	}
-}
-
-func (t *Theme) DrawLog() []DrawCall {
-	if t == nil {
-		return nil
-	}
-	return append([]DrawCall(nil), t.drawLog...)
-}
-
-func (t *Theme) LastWidgetInfo() core.WidgetInfo {
-	if t == nil {
-		return core.WidgetInfo{}
-	}
-	return t.lastWidgetInfo
-}
-
+// fromRaylibTexture converts a raylib handle to skin's renderer-free value.
 func fromRaylibTexture(texture rl.Texture2D) skin.Texture {
 	return skin.Texture{ID: texture.ID, Width: texture.Width, Height: texture.Height, Mipmaps: texture.Mipmaps, Format: int32(texture.Format)}
 }

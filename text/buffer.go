@@ -3,56 +3,109 @@ package text
 
 import "unicode/utf8"
 
-// Buffer stores a NUL-terminated UTF-8 string. Cap includes the terminator.
+// Buffer stores a bounded UTF-8 value. Its slice capacity is the maximum byte
+// length, and the slice is reused by normal editing operations.
 type Buffer struct {
-	Buf []byte
-	Cap int
+	bytes []byte
 }
 
+// NewBuffer returns a buffer whose limit is capacity bytes. Invalid initial
+// text is discarded, and valid text is truncated at a rune boundary.
 func NewBuffer(capacity int, initial string) *Buffer {
-	if capacity <= len(initial) {
-		capacity = len(initial) + 1
+	if capacity < 0 {
+		capacity = 0
 	}
-	if capacity < 1 {
-		capacity = 1
-	}
-	initial = truncateUTF8(initial, capacity-1)
-	b := make([]byte, capacity)
-	copy(b, initial)
-	b[len(initial)] = 0
-	return &Buffer{Buf: b, Cap: capacity}
+	b := &Buffer{bytes: make([]byte, 0, capacity)}
+	b.Set(initial)
+	return b
 }
 
+// String returns the buffer's current immutable string value.
 func (b *Buffer) String() string {
-	n := 0
-	for n < len(b.Buf) && b.Buf[n] != 0 {
-		n++
-	}
-	return string(b.Buf[:n])
-}
-
-func (b *Buffer) Set(s string) {
-	if b.Cap < 1 {
-		b.Cap = 1
-	}
-	s = truncateUTF8(s, b.Cap-1)
-	b.Buf = make([]byte, b.Cap)
-	copy(b.Buf, s)
-	b.Buf[len(s)] = 0
-}
-
-func (b *Buffer) Bytes() []byte { return b.Buf }
-
-func truncateUTF8(s string, maxBytes int) string {
-	if maxBytes <= 0 {
+	if b == nil {
 		return ""
 	}
-	if len(s) <= maxBytes {
-		return s
+	return string(b.bytes)
+}
+
+// Set replaces the value with valid UTF-8 truncated to the buffer limit. It
+// reports whether the stored value changed.
+func (b *Buffer) Set(value string) bool {
+	if b == nil || !utf8.ValidString(value) {
+		return false
 	}
-	s = s[:maxBytes]
-	for len(s) > 0 && !utf8.ValidString(s) {
-		s = s[:len(s)-1]
+	value = truncateUTF8(value, b.Limit())
+	if len(value) == len(b.bytes) {
+		unchanged := true
+		for i := range b.bytes {
+			if b.bytes[i] != value[i] {
+				unchanged = false
+				break
+			}
+		}
+		if unchanged {
+			return false
+		}
 	}
-	return s
+	b.bytes = append(b.bytes[:0], value...)
+	return true
+}
+
+// AppendRune appends r when its UTF-8 encoding fits in the buffer. It reports
+// whether the stored value changed.
+func (b *Buffer) AppendRune(r rune) bool {
+	if b == nil || !utf8.ValidRune(r) {
+		return false
+	}
+	var encoded [utf8.UTFMax]byte
+	size := utf8.EncodeRune(encoded[:], r)
+	if b.Len()+size > b.Limit() {
+		return false
+	}
+	b.bytes = append(b.bytes, encoded[:size]...)
+	return true
+}
+
+// Backspace removes the final UTF-8 rune. It reports whether the stored value
+// changed.
+func (b *Buffer) Backspace() bool {
+	if b == nil || len(b.bytes) == 0 {
+		return false
+	}
+	_, size := utf8.DecodeLastRune(b.bytes)
+	if size <= 0 {
+		return false
+	}
+	b.bytes = b.bytes[:len(b.bytes)-size]
+	return true
+}
+
+// Len returns the current byte length.
+func (b *Buffer) Len() int {
+	if b == nil {
+		return 0
+	}
+	return len(b.bytes)
+}
+
+// Limit returns the maximum byte length.
+func (b *Buffer) Limit() int {
+	if b == nil {
+		return 0
+	}
+	return cap(b.bytes)
+}
+
+// truncateUTF8 keeps the largest valid rune prefix that fits in limit bytes.
+func truncateUTF8(value string, limit int) string {
+	if limit <= 0 {
+		return ""
+	}
+	if len(value) <= limit {
+		return value
+	}
+	for limit > 0 && !utf8.RuneStart(value[limit]) {
+		limit--
+	}
+	return value[:limit]
 }

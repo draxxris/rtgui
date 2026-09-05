@@ -8,16 +8,21 @@ package transform
 import (
 	"math"
 
-	"rtgui/core"
+	"github.com/draxxris/rtgui/core"
 )
 
+// Transform stores the fixed logical-to-physical viewport mapping.
 type Transform struct {
-	Viewport  core.Viewport
+	// Viewport contains the physical rectangle and logical design size.
+	Viewport core.Viewport
+	// PixelSnap rounds logical positions and sizes when enabled.
 	PixelSnap bool
 }
 
+// New returns a transform initialized with viewport.
 func New(viewport core.Viewport) *Transform { return &Transform{Viewport: viewport} }
 
+// SetViewport validates and replaces the physical and logical dimensions.
 func (t *Transform) SetViewport(viewport core.Viewport) error {
 	if viewport.Viewport.W <= 0 || viewport.Viewport.H <= 0 {
 		return core.StatusInvalidArg
@@ -41,12 +46,14 @@ func (t Transform) Scale() (sx, sy float32) {
 	return viewport.W / logical.X, viewport.H / logical.Y
 }
 
+// ViewportToPhysical maps a logical point into the physical window rectangle.
 func (t Transform) ViewportToPhysical(p core.Vec2) core.Vec2 {
 	sx, sy := t.Scale()
 	viewport := t.Viewport.Viewport
 	return core.Vec2{X: p.X*sx + viewport.X, Y: p.Y*sy + viewport.Y}
 }
 
+// PhysicalToViewport maps a physical window point into logical coordinates.
 func (t Transform) PhysicalToViewport(p core.Vec2) core.Vec2 {
 	sx, sy := t.Scale()
 	viewport := t.Viewport.Viewport
@@ -62,10 +69,12 @@ func (t Transform) HitTestPhysical(input core.Vec2, bounds core.Rect) bool {
 // HitTest tests a point already expressed in logical coordinates.
 func HitTest(input core.Vec2, bounds core.Rect) bool { return bounds.Contains(input) }
 
+// HitTestPhysicalPoint maps a physical point before testing logical bounds.
 func (t Transform) HitTestPhysicalPoint(input core.Vec2, bounds core.Rect) bool {
 	return HitTest(t.PhysicalToViewport(input), bounds)
 }
 
+// Snap rounds v when pixel snapping is enabled.
 func (t Transform) Snap(v float32) float32 {
 	if !t.PixelSnap {
 		return v
@@ -73,14 +82,17 @@ func (t Transform) Snap(v float32) float32 {
 	return float32(math.Round(float64(v)))
 }
 
+// SnapVec2 rounds both components according to PixelSnap.
 func (t Transform) SnapVec2(v core.Vec2) core.Vec2 {
 	return core.Vec2{X: t.Snap(v.X), Y: t.Snap(v.Y)}
 }
 
+// SnapRect rounds the origin and size according to PixelSnap.
 func (t Transform) SnapRect(r core.Rect) core.Rect {
 	return core.Rect{X: t.Snap(r.X), Y: t.Snap(r.Y), W: t.Snap(r.W), H: t.Snap(r.H)}
 }
 
+// Intersect returns the positive-area intersection of a and b.
 func Intersect(a, b core.Rect) (core.Rect, bool) {
 	x1 := max(a.X, b.X)
 	y1 := max(a.Y, b.Y)

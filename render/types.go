@@ -1,25 +1,28 @@
+// Package render draws widget snapshots with raylib and owns skin, font, and
+// optional bounded diagnostic-recording state.
 package render
 
 import (
-	"rtgui/core"
-	"rtgui/skin"
+	"github.com/draxxris/rtgui/core"
+	"github.com/draxxris/rtgui/skin"
 )
 
+// DrawCall is one recorded render operation.
 type DrawCall struct {
-	Kind     core.WidgetKind
-	Part     skin.SkinPart
-	State    core.WidgetState
-	Bounds   core.Rect
-	Src      core.Rect
-	Dest     core.Rect
-	Tint     core.Color
-	Alpha    float32
+	// Kind identifies the widget that produced the operation.
+	Kind core.WidgetKind
+	// Part identifies the rendered skin component.
+	Part skin.SkinPart
+	// State is the visual state used for lookup.
+	State core.WidgetState
+	// Bounds are the widget or part's logical bounds before snapping.
+	Bounds core.Rect
+	// Src is the selected atlas source rectangle.
+	Src core.Rect
+	// Dest is the logical destination rectangle after snapping.
+	Dest core.Rect
+	// Tint is the exact RGBA color passed to raylib.
+	Tint core.Color
+	// Fallback reports that no matching skin descriptor was found.
 	Fallback bool
-}
-
-type DebugInfo struct {
-	Bounds       core.Rect
-	PatchBorders NinePatchConfig
-	SkinKey      skin.SkinKey
-	Fallback     bool
 }

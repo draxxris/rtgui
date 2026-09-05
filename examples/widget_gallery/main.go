@@ -1,9 +1,9 @@
-// widget_gallery is the single runnable demo proving the pure-Go rtgui library end-to-end.
+// widget_gallery is the runnable demo proving the textured rtgui library end-to-end.
 //
-// It uses stock Go + github.com/gen2brain/raylib-go/raylib plus the rtgui/ui
-// facade. The UI owns transform, capture, theme, registry, focus, and
+// It uses stock Go + github.com/gen2brain/raylib-go/raylib plus the github.com/draxxris/rtgui/ui
+// facade. The UI owns transform, theme, registry, focus, and
 // callbacks; the gallery only polls raylib, forwards to the facade, and draws
-// app-specific layers (scroll contents, dropdown popup, state samples).
+// app-specific layers (scroll contents and state samples).
 // There is no package-global UI state.
 //
 // Gallery typography uses the Grenze family (SIL OFL, see
@@ -25,8 +25,8 @@
 //     prepends GetWorkingDirectory).
 //   - Without a display (no WAYLAND_DISPLAY / DISPLAY) raylib fails to init;
 //     the gallery does NOT crash: it runs a headless smoke path that exercises
-//     the facade dispatch and draw log and writes a placeholder PNG via the
-//     stdlib image/png if -screenshot was requested.
+//     the facade dispatch and bounded draw recorder and writes a placeholder
+//     PNG via the stdlib image/png if -screenshot was requested.
 //     The window path requires a display — use xvfb-run on headless CI.
 //     `go run ./examples/widget_gallery -frames 3 -screenshot out.png` therefore
 //     never crashes; under xvfb it produces a real framebuffer screenshot.
@@ -43,13 +43,13 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/draxxris/rtgui/core"
+	"github.com/draxxris/rtgui/layout"
+	"github.com/draxxris/rtgui/render"
+	"github.com/draxxris/rtgui/skin"
+	"github.com/draxxris/rtgui/ui"
+	"github.com/draxxris/rtgui/widgets"
 	rl "github.com/gen2brain/raylib-go/raylib"
-	"rtgui/core"
-	"rtgui/layout"
-	"rtgui/render"
-	"rtgui/skin"
-	"rtgui/ui"
-	"rtgui/widgets"
 )
 
 const (
@@ -91,17 +91,14 @@ type gallery struct {
 	frameButton *widgets.Widget
 	scroll      *widgets.Widget
 
-	// layout nodes to demonstrate MoveFrame (relative-move child)
-	frameNode      *layout.Node
-	frameChildNode *layout.Node
-
-	dropdownOpen bool
 	status       string
 	designWidth  float32
 	designHeight float32
 	layout       galleryLayout
 }
 
+// main opens the gallery when a display is available and otherwise runs the
+// headless interaction smoke.
 func main() {
 	flag.Parse()
 
@@ -119,13 +116,11 @@ func main() {
 	rl.SetWindowMinSize(1100, 720)
 	rl.SetTargetFPS(60)
 
-	// Pure-Go path: textures loaded directly via raylib, no loader shim.
+	// Native raylib path: procedural textures are created directly by the gallery.
 	auxAtlas := makeAuxAtlas()
 	defer rl.UnloadTexture(auxAtlas)
 	facade := ui.New(int(windowWidth), int(windowHeight))
-	if err := registerTheme(facade.Theme(), auxAtlas); err != nil {
-		log.Fatal(err)
-	}
+	registerTheme(facade.Theme(), auxAtlas)
 	// File-driven LOOK layers on top of the programmatic aux base: every key
 	// gallery.css authors wins, everything else keeps its registered art.
 	cssPath := findGalleryCSS()
@@ -135,6 +130,13 @@ func main() {
 	if err := facade.Theme().LoadCSSFile(cssPath, ""); err != nil {
 		log.Fatal(err)
 	}
+	defer func() {
+		if err := facade.Theme().UnloadSkin(); err != nil {
+			log.Printf("skin texture cleanup failed: %v", err)
+			return
+		}
+		log.Printf("skin texture cleanup complete")
+	}()
 	loadGalleryFonts(facade.Theme())
 	defer facade.Theme().UnloadFonts()
 
@@ -167,15 +169,22 @@ func main() {
 // runHeadlessSmoke exercises the facade without a GL context.
 // It drives synthetic press/release, typing, and slider drag through
 // HandleMouse/HandleKey (guarded by IsWindowReady in draw.go, so no GL is
-// touched, but the DrawCall log still runs), and writes a placeholder PNG if
+// touched) through a bounded recorder, and writes a placeholder PNG if
 // requested.
 func runHeadlessSmoke() {
 	facade := ui.New(800, 600)
+	recorder, err := render.NewDrawRecorder(64)
+	if err != nil {
+		log.Fatal(err)
+	}
+	facade.Theme().SetDrawRecorder(recorder)
 	button := widgets.NewButton("smokeButton", core.Rect{X: 10, Y: 10, W: 100, H: 40}, "OK")
 	checkbox := widgets.NewCheckbox("smokeCheckbox", core.Rect{X: 10, Y: 60, W: 120, H: 40}, true)
 	slider := widgets.NewSlider("smokeSlider", core.Rect{X: 10, Y: 110, W: 120, H: 40}, 0.5)
 	field := widgets.NewTextbox("smokeField", core.Rect{X: 10, Y: 160, W: 200, H: 30}, 64)
-	facade.Add(button, checkbox, slider, field)
+	if err := facade.Add(button, checkbox, slider, field); err != nil {
+		log.Fatal(err)
+	}
 	clicks := 0
 	facade.OnClick("smokeButton", func() { clicks++ })
 	center := core.Vec2{X: 60, Y: 30}
@@ -183,7 +192,7 @@ func runHeadlessSmoke() {
 	facade.HandleMouse(ui.MouseEvent{Pos: center, Released: true})
 	facade.HandleKey(ui.KeyEvent{Chars: []rune("hi")})
 	facade.Draw()
-	calls := facade.Theme().DrawLog()
+	calls := recorder.Calls()
 	log.Printf("headless smoke: %d draw calls logged (clicks=%d fallback=%v)", len(calls), clicks, len(calls) > 0 && calls[0].Fallback)
 
 	if *screenshot != "" {
@@ -262,6 +271,7 @@ func createPlaceholderScreenshot(path string) error {
 	return png.Encode(f, img)
 }
 
+// drawRect fills a bounded rectangle in a placeholder screenshot.
 func drawRect(img *image.RGBA, x, y, w, h int, c color.RGBA) {
 	bounds := img.Bounds()
 	for yy := y; yy < y+h; yy++ {
@@ -353,6 +363,7 @@ func appendGalleryCSSCandidates(candidates []string, root string) []string {
 	return candidates
 }
 
+// firstExistingFile returns the first regular file in candidates.
 func firstExistingFile(candidates []string) string {
 	for _, candidate := range candidates {
 		info, err := os.Stat(candidate)
@@ -363,9 +374,9 @@ func firstExistingFile(candidates []string) string {
 	return ""
 }
 
+// makeAuxAtlas builds and uploads the gallery's procedural borrowed atlas.
 func makeAuxAtlas() rl.Texture2D {
-	// Procedural atlas via GenImageColor + ImageDraw* + LoadTextureFromImage
-	// as required by the pure-Go task.
+	// Build a procedural atlas directly with raylib image helpers.
 	img := rl.GenImageColor(auxAtlasWidth, auxAtlasHeight, rl.Blank)
 	if img == nil {
 		log.Fatal("could not allocate the procedural skin atlas")
@@ -421,21 +432,21 @@ func textureOf(tex rl.Texture2D) skin.Texture {
 func patchDescriptor(tex skin.Texture, region core.Rect, tint core.Color, border int32, center bool) skin.SkinDescriptor {
 	return skin.SkinDescriptor{
 		Texture: tex, AtlasRegion: region,
-		NinePatch: skin.NinePatch{Source: region, Left: border, Top: border, Right: border, Bottom: border},
-		Tint:      tint, Alpha: 1, HasTexture: true, HasNinePatch: border > 0, CenterFill: center,
+		NinePatch: skin.NinePatch{Left: border, Top: border, Right: border, Bottom: border},
+		Tint:      tint, HasTexture: true, HasNinePatch: border > 0, CenterFill: center,
 		PaddingLeft: float32(border), PaddingTop: float32(border), PaddingRight: float32(border), PaddingBottom: float32(border),
 	}
 }
 
 func iconDescriptor(tex skin.Texture, region core.Rect, tint core.Color) skin.SkinDescriptor {
-	return skin.SkinDescriptor{Texture: tex, AtlasRegion: region, Tint: tint, Alpha: 1, HasTexture: true}
+	return skin.SkinDescriptor{Texture: tex, AtlasRegion: region, Tint: tint, HasTexture: true}
 }
 
 // registerTheme skins every widget kind from the procedural atlas: state fills
 // for backgrounds plus tracks, progress fills, and borders. File-driven LOOK
 // from gallery.css layers on top afterwards (see main): every key the file
 // authors wins, aux art stays underneath the rest.
-func registerTheme(theme *render.Theme, auxAtlas rl.Texture2D) error {
+func registerTheme(theme *render.Theme, auxAtlas rl.Texture2D) {
 	auxTex := textureOf(auxAtlas)
 	states := []core.WidgetState{core.StateNormal, core.StateFocused, core.StateHovered, core.StatePressed, core.StateDisabled, core.StateSelected}
 	stateTints := []core.Color{
@@ -450,29 +461,22 @@ func registerTheme(theme *render.Theme, auxAtlas rl.Texture2D) error {
 	}
 	for _, kind := range backgroundKinds {
 		for i, state := range states {
-			if err := registerBackground(theme, kind, state, stateTints[i], auxTex, i); err != nil {
-				return err
-			}
+			registerBackground(theme, kind, state, stateTints[i], auxTex, i)
 		}
 	}
 
 	for i, state := range states {
-		if err := registerStateParts(theme, state, stateTints[i], auxTex); err != nil {
-			return err
-		}
+		registerStateParts(theme, state, stateTints[i], auxTex)
 	}
-	return nil
 }
 
-func registerBackground(theme *render.Theme, kind core.WidgetKind, state core.WidgetState, tint core.Color, auxTex skin.Texture, stateIndex int) error {
+func registerBackground(theme *render.Theme, kind core.WidgetKind, state core.WidgetState, tint core.Color, auxTex skin.Texture, stateIndex int) {
 	backgroundTexture, backgroundRegion := backgroundSource(stateIndex, auxTex)
 	background := patchDescriptor(backgroundTexture, backgroundRegion, tint, 8, true)
-	if err := theme.SetSkinPart(skin.SkinKey{Widget: kind, Part: skin.PartBackground, State: state}, background); err != nil {
-		return err
-	}
+	theme.SetSkinPart(skin.SkinKey{Widget: kind, Part: skin.PartBackground, State: state}, background)
 	borderTexture, borderRegion := borderSource(auxTex)
 	border := patchDescriptor(borderTexture, borderRegion, tint, 8, false)
-	return theme.SetSkinPart(skin.SkinKey{Widget: kind, Part: skin.PartBorder, State: state}, border)
+	theme.SetSkinPart(skin.SkinKey{Widget: kind, Part: skin.PartBorder, State: state}, border)
 }
 
 func backgroundSource(stateIndex int, auxTex skin.Texture) (skin.Texture, core.Rect) {
@@ -486,7 +490,7 @@ func borderSource(auxTex skin.Texture) (skin.Texture, core.Rect) {
 // registerStateParts skins aux tracks, fills, and fallback icons per state.
 // File-driven icons (slider handle, dropdown arrow, checkbox art) arrive via
 // gallery.css afterwards; the aux versions below stay underneath unauthored keys.
-func registerStateParts(theme *render.Theme, state core.WidgetState, tint core.Color, atlas skin.Texture) error {
+func registerStateParts(theme *render.Theme, state core.WidgetState, tint core.Color, atlas skin.Texture) {
 	thumb := iconDescriptor(atlas, core.Rect{X: 312, Y: 48, W: 28, H: 28}, tint)
 	arrow := iconDescriptor(atlas, core.Rect{X: 376, Y: 48, W: 28, H: 28}, tint)
 	cross := iconDescriptor(atlas, core.Rect{X: 344, Y: 48, W: 28, H: 28}, tint)
@@ -507,18 +511,16 @@ func registerStateParts(theme *render.Theme, state core.WidgetState, tint core.C
 	}
 	for i, registration := range parts {
 		key := skin.SkinKey{Widget: kinds[i], Part: registration.part, State: state}
-		if err := theme.SetSkinPart(key, registration.descriptor); err != nil {
-			return err
-		}
+		theme.SetSkinPart(key, registration.descriptor)
 	}
 	empty := iconDescriptor(atlas, core.Rect{X: 312, Y: 48, W: 28, H: 28}, tint)
-	return theme.SetSkinPart(skin.SkinKey{Widget: core.WidgetCheckbox, Part: skin.PartIcon, State: state}, empty)
+	theme.SetSkinPart(skin.SkinKey{Widget: core.WidgetCheckbox, Part: skin.PartIcon, State: state}, empty)
 }
 
 // newGallery builds the widget set, registers it with the facade in draw
-// order, and wires the gallery callbacks. All hover/press/focus/capture
-// state lives in the facade; the gallery keeps only app concerns (popup open,
-// frame nodes, status text, layout cache).
+// order, and wires the gallery callbacks. All hover, press, focus, and
+// dropdown-popup state lives in the facade; the gallery keeps status and its
+// fixed design-resolution layout.
 func newGallery(facade *ui.UI) *gallery {
 	g := &gallery{
 		facade:      facade,
@@ -537,31 +539,31 @@ func newGallery(facade *ui.UI) *gallery {
 		scroll:      widgets.NewScrollPanel("scrollPanel", core.Rect{}),
 		status:      "Click a widget to interact with it — press R to MoveFrame",
 	}
-	g.textbox.TextBuf.Set("Type here")
-	facade.Add(g.leftPanel, g.rightPanel, g.button, g.checkbox, g.textbox, g.dropdown, g.slider, g.progress, g.panel, g.label, g.frame, g.frameButton, g.scroll)
+	g.textbox.SetText("Type here")
+	if err := facade.Add(g.leftPanel, g.rightPanel, g.button, g.checkbox, g.textbox, g.dropdown, g.slider, g.progress, g.panel, g.label, g.frame, g.frameButton, g.scroll); err != nil {
+		panic(err)
+	}
 	facade.OnClick("primaryButton", func() {
 		g.status = "Primary button clicked"
 	})
 	facade.OnClick("enableCheckbox", func() {
-		g.button.Enabled = g.checkbox.Checked
-		g.status = fmt.Sprintf("Checkbox is %v; primary button enabled=%v", g.checkbox.Checked, g.button.Enabled)
+		g.button.SetEnabled(g.checkbox.Checked())
+		g.status = fmt.Sprintf("Checkbox is %v; primary button enabled=%v", g.checkbox.Checked(), g.button.Enabled())
 	})
 	facade.OnClick("frameChildButton", func() {
 		g.status = "Frame child button clicked"
 	})
-	facade.OnClick("classDropdown", func() {
-		g.dropdownOpen = !g.dropdownOpen
-	})
 	facade.OnChange("valueSlider", func(v float32) {
-		g.progress.Value = v
+		g.progress.SetValue(v)
 		g.status = fmt.Sprintf("Slider value %.0f%%", v*100)
 	})
-	// Layout nodes for relative-move child demo (layout.MoveFrame semantics)
-	g.frameNode = layout.New("frame", core.Rect{})
-	g.frameChildNode = layout.New("frameChild", core.Rect{})
-	g.frameChildNode.SetAnchor(layout.AnchorTopLeft)
-	g.frameChildNode.SetFixedSize(core.Vec2{X: 120, Y: 40})
-	g.frameNode.AddChild(g.frameChildNode)
+	// The visual widgets own the layout nodes used by the MoveFrame demo.
+	if err := g.frame.Frame().AddChild(g.frameButton.Frame()); err != nil {
+		panic(err)
+	}
+	if err := g.frameButton.SetPoint(layout.AnchorTopLeft, nil, layout.AnchorTopLeft, core.Vec2{X: 24, Y: 74}); err != nil {
+		panic(err)
+	}
 	// Layout is computed once from the fixed design resolution; later window
 	// resizes rescale around these bounds instead of reflowing them.
 	logical := facade.Transform().Viewport.LogicalSize
@@ -571,26 +573,28 @@ func newGallery(facade *ui.UI) *gallery {
 	return g
 }
 
-// applyLayout assigns the cached design-resolution bounds to widgets and
-// syncs the frame layout nodes. It runs once at startup; bounds never follow
-// the live window size after that.
+// applyLayout assigns cached design-resolution bounds and arranges the frame
+// widget's owned child. Bounds never follow the live window size after this.
 func (g *gallery) applyLayout() {
-	g.leftPanel.Bounds, g.rightPanel.Bounds = g.layout.leftPanel, g.layout.rightPanel
-	g.button.Bounds, g.checkbox.Bounds = g.layout.button, g.layout.checkbox
-	g.textbox.Bounds, g.dropdown.Bounds = g.layout.textbox, g.layout.dropdown
-	g.slider.Bounds, g.progress.Bounds = g.layout.slider, g.layout.progress
-	g.panel.Bounds, g.label.Bounds = g.layout.panel, g.layout.label
-	g.frame.Bounds, g.frameButton.Bounds = g.layout.frame, g.layout.frameButton
-	g.scroll.Bounds = g.layout.scroll
-	// Sync layout nodes with new viewport arrangement
-	if g.frameNode != nil {
-		g.frameNode.Rect = g.frame.Bounds
-		g.frameNode.Resolved = g.frame.Bounds
-		g.frameChildNode.Rect = core.Rect{X: 24, Y: 74, W: g.frameButton.Bounds.W, H: g.frameButton.Bounds.H}
-		layout.Arrange(g.frameNode, g.frame.Bounds)
+	g.leftPanel.SetBounds(g.layout.leftPanel)
+	g.rightPanel.SetBounds(g.layout.rightPanel)
+	g.button.SetBounds(g.layout.button)
+	g.checkbox.SetBounds(g.layout.checkbox)
+	g.textbox.SetBounds(g.layout.textbox)
+	g.dropdown.SetBounds(g.layout.dropdown)
+	g.slider.SetBounds(g.layout.slider)
+	g.progress.SetBounds(g.layout.progress)
+	g.panel.SetBounds(g.layout.panel)
+	g.label.SetBounds(g.layout.label)
+	g.frame.SetBounds(g.layout.frame)
+	g.frameButton.SetBounds(core.Rect{W: g.layout.frameButton.W, H: g.layout.frameButton.H})
+	g.scroll.SetBounds(g.layout.scroll)
+	if err := layout.Arrange(g.frame.Frame(), core.Rect{}); err != nil {
+		panic(err)
 	}
 }
 
+// calculateLayout returns fixed logical design bounds for the gallery widgets.
 func calculateLayout(width, height float32) galleryLayout {
 	margin, gap := float32(28), float32(24)
 	panelWidth := (width - 2*margin - gap) / 2
@@ -613,29 +617,12 @@ func calculateLayout(width, height float32) galleryLayout {
 	}
 }
 
-// handleInput polls raylib once per frame and forwards to the facade.
-// The dropdown popup gets first refusal on left-press; everything else flows
-// through ui.HandleMouse/HandleKey, which report handled for game gating.
-// Frame-move (R) and the idle sine animation mutate frame bounds directly.
+// handleInput polls raylib once per frame and forwards to the facade. The UI
+// owns dropdown popup input; frame movement and animation remain gallery work.
 func (g *gallery) handleInput() {
 	physical := rl.GetMousePosition()
 	mouse := g.facade.ToLogical(core.Vec2{X: physical.X, Y: physical.Y})
 	pressedEdge := rl.IsMouseButtonPressed(rl.MouseButtonLeft)
-	if g.dropdownOpen && pressedEdge {
-		if g.handleDropdownClick(mouse) {
-			// Popup consumed this press (row selection or outside close):
-			// still pump keys so Escape works, but skip mouse dispatch to
-			// avoid opening a second gesture underneath.
-			g.facade.HandleMouse(ui.MouseEvent{Pos: mouse, Down: rl.IsMouseButtonDown(rl.MouseButtonLeft), Wheel: rl.GetMouseWheelMove()})
-			g.handleKeys()
-			g.handleFrameMove()
-			g.animateFrame()
-			return
-		}
-		// else: the press landed on the dropdown widget itself — fall through
-		// to normal dispatch so press/release fires OnClick and toggles the
-		// popup closed.
-	}
 	mouseHandled := g.facade.HandleMouse(ui.MouseEvent{
 		Pos:      mouse,
 		Pressed:  pressedEdge,
@@ -645,19 +632,17 @@ func (g *gallery) handleInput() {
 	})
 	_ = mouseHandled
 	// The facade scrolls unclamped; the gallery bounds its demo list.
-	g.scroll.Scroll.Y = clamp(g.scroll.Scroll.Y, 0, 170)
+	scroll := g.scroll.Scroll()
+	scroll.Y = clamp(scroll.Y, 0, 170)
+	g.scroll.SetScroll(scroll)
 	g.handleKeys()
 	g.handleFrameMove()
 	g.animateFrame()
 }
 
 // handleKeys forwards chars, backspace, and escape to the facade.
-// Escape also closes the dropdown popup when it is open.
 func (g *gallery) handleKeys() {
 	escape := rl.IsKeyPressed(rl.KeyEscape)
-	if escape && g.dropdownOpen {
-		g.dropdownOpen = false
-	}
 	chars := drainGalleryChars()
 	backspace := rl.IsKeyPressed(rl.KeyBackspace) || rl.IsKeyPressedRepeat(rl.KeyBackspace)
 	_ = g.facade.HandleKey(ui.KeyEvent{Chars: chars, Backspace: backspace, Escape: escape})
@@ -680,19 +665,21 @@ func (g *gallery) handleFrameMove() {
 		return
 	}
 	delta := core.Vec2{X: 12, Y: 8}
-	if g.frame.Bounds.X+delta.X+g.frame.Bounds.W > g.designWidth-20 {
+	frameBounds := g.frame.Bounds()
+	if frameBounds.X+delta.X+frameBounds.W > g.designWidth-20 {
 		delta.X = -40
 	}
-	if g.frame.Bounds.Y+delta.Y+g.frame.Bounds.H > g.designHeight-20 {
+	if frameBounds.Y+delta.Y+frameBounds.H > g.designHeight-20 {
 		delta.Y = -30
 	}
 	g.applyFrameMove(delta)
-	g.status = fmt.Sprintf("MoveFrame %+v — child follows (%.0f,%.0f)", delta, g.frameButton.Bounds.X, g.frameButton.Bounds.Y)
+	childBounds := g.frameButton.Bounds()
+	g.status = fmt.Sprintf("MoveFrame %+v — child follows (%.0f,%.0f)", delta, childBounds.X, childBounds.Y)
 }
 
 // animateFrame drifts the demo frame on a sine wave.
 func (g *gallery) animateFrame() {
-	if g.frameNode == nil || rl.IsKeyDown(rl.KeyR) {
+	if g.frame == nil || rl.IsKeyDown(rl.KeyR) {
 		return
 	}
 	t := float32(rl.GetTime())
@@ -702,44 +689,20 @@ func (g *gallery) animateFrame() {
 		W: g.layout.frame.W,
 		H: g.layout.frame.H,
 	}
-	delta := core.Vec2{X: target.X - g.frame.Bounds.X, Y: target.Y - g.frame.Bounds.Y}
+	frameBounds := g.frame.Bounds()
+	delta := core.Vec2{X: target.X - frameBounds.X, Y: target.Y - frameBounds.Y}
 	if math.Abs(float64(delta.X)) <= 0.1 && math.Abs(float64(delta.Y)) <= 0.1 {
 		return
 	}
 	g.applyFrameMove(delta)
 }
 
-// applyFrameMove moves the frame node and syncs widget bounds to it.
+// applyFrameMove authors movement and performs the required arrangement.
 func (g *gallery) applyFrameMove(delta core.Vec2) {
-	layout.MoveFrame(g.frameNode, delta)
-	g.frame.Bounds = g.frameNode.Resolved
-	g.frameButton.Bounds = g.frameChildNode.Resolved
-}
-
-// handleDropdownClick selects a popup row or closes on outside click.
-// It reports true when the press was consumed by the popup.
-func (g *gallery) handleDropdownClick(mouse core.Vec2) bool {
-	popup := g.dropdownPopup()
-	if popup.Contains(mouse) {
-		row := int((mouse.Y - popup.Y) / 36)
-		if row >= 0 && row < len(g.dropdown.DropdownItems) {
-			g.dropdown.DropdownIndex = row
-			g.dropdownOpen = false
-			g.dropdown.State = core.StateHovered
-			g.status = "Dropdown selected: " + g.dropdown.DropdownItems[row]
-		}
-		return true
+	layout.MoveFrame(g.frame.Frame(), delta)
+	if err := layout.Arrange(g.frame.Frame(), core.Rect{}); err != nil {
+		panic(err)
 	}
-	if !g.dropdown.HitTest(mouse) {
-		g.dropdownOpen = false
-		return true
-	}
-	return false
-}
-
-// dropdownPopup returns the popup bounds below the dropdown widget.
-func (g *gallery) dropdownPopup() core.Rect {
-	return core.Rect{X: g.dropdown.Bounds.X, Y: g.dropdown.Bounds.Y + g.dropdown.Bounds.H + 4, W: g.dropdown.Bounds.W, H: float32(len(g.dropdown.DropdownItems) * 36)}
 }
 
 // draw renders the facade widgets plus app-specific layers. Everything is
@@ -760,19 +723,23 @@ func (g *gallery) draw() {
 
 	g.facade.Draw()
 
-	g.drawText("Enable primary button", int32(g.checkbox.Bounds.X+40), int32(g.checkbox.Bounds.Y+8), 18, color.RGBA{R: 205, G: 218, B: 238, A: 255})
-	g.drawItalic("Textbox (click, type, backspace — UTF-8)", int32(g.textbox.Bounds.X), int32(g.textbox.Bounds.Y-23), 15, color.RGBA{R: 153, G: 174, B: 202, A: 255})
-	g.drawItalic("Dropdown (click to open)", int32(g.dropdown.Bounds.X), int32(g.dropdown.Bounds.Y-23), 15, color.RGBA{R: 153, G: 174, B: 202, A: 255})
-	g.drawItalic("Slider drives the progress bar", int32(g.slider.Bounds.X), int32(g.slider.Bounds.Y-23), 15, color.RGBA{R: 153, G: 174, B: 202, A: 255})
-	g.drawText(fmt.Sprintf("%.0f%%", g.slider.Value*100), int32(g.slider.Bounds.X+g.slider.Bounds.W-48), int32(g.slider.Bounds.Y+13), 16, color.RGBA{R: 230, G: 242, B: 255, A: 255})
-	g.drawText(fmt.Sprintf("Progress: %.0f%%", g.progress.Value*100), int32(g.progress.Bounds.X+12), int32(g.progress.Bounds.Y+13), 16, color.RGBA{R: 235, G: 255, B: 240, A: 255})
-	g.drawText("Panel frame decoration", int32(g.panel.Bounds.X+14), int32(g.panel.Bounds.Y+38), 17, color.RGBA{R: 218, G: 230, B: 248, A: 255})
-	g.drawText("Frame child moves with its parent (R / sine)", int32(g.frame.Bounds.X+18), int32(g.frame.Bounds.Y+20), 15, color.RGBA{R: 153, G: 174, B: 202, A: 255})
+	checkboxBounds := g.checkbox.Bounds()
+	textboxBounds := g.textbox.Bounds()
+	dropdownBounds := g.dropdown.Bounds()
+	sliderBounds := g.slider.Bounds()
+	progressBounds := g.progress.Bounds()
+	panelBounds := g.panel.Bounds()
+	frameBounds := g.frame.Bounds()
+	g.drawText("Enable primary button", int32(checkboxBounds.X+40), int32(checkboxBounds.Y+8), 18, color.RGBA{R: 205, G: 218, B: 238, A: 255})
+	g.drawItalic("Textbox (click, type, backspace — UTF-8)", int32(textboxBounds.X), int32(textboxBounds.Y-23), 15, color.RGBA{R: 153, G: 174, B: 202, A: 255})
+	g.drawItalic("Dropdown (click to open)", int32(dropdownBounds.X), int32(dropdownBounds.Y-23), 15, color.RGBA{R: 153, G: 174, B: 202, A: 255})
+	g.drawItalic("Slider drives the progress bar", int32(sliderBounds.X), int32(sliderBounds.Y-23), 15, color.RGBA{R: 153, G: 174, B: 202, A: 255})
+	g.drawText(fmt.Sprintf("%.0f%%", g.slider.Value()*100), int32(sliderBounds.X+sliderBounds.W-48), int32(sliderBounds.Y+13), 16, color.RGBA{R: 230, G: 242, B: 255, A: 255})
+	g.drawText(fmt.Sprintf("Progress: %.0f%%", g.progress.Value()*100), int32(progressBounds.X+12), int32(progressBounds.Y+13), 16, color.RGBA{R: 235, G: 255, B: 240, A: 255})
+	g.drawText("Panel frame decoration", int32(panelBounds.X+14), int32(panelBounds.Y+38), 17, color.RGBA{R: 218, G: 230, B: 248, A: 255})
+	g.drawText("Frame child moves with its parent (R / sine)", int32(frameBounds.X+18), int32(frameBounds.Y+20), 15, color.RGBA{R: 153, G: 174, B: 202, A: 255})
 
 	g.drawScrollContents()
-	if g.dropdownOpen {
-		g.drawDropdownPopup()
-	}
 	g.drawStateSamples()
 	g.drawItalic(g.status, 30, int32(g.designHeight-18), 15, color.RGBA{R: 161, G: 192, B: 224, A: 255})
 
@@ -811,59 +778,38 @@ func (g *gallery) panelTitle(bounds core.Rect, title string) {
 func (g *gallery) drawScrollContents() {
 	// Scissor is left to the app (draw.go never calls BeginScissorMode)
 	sx, sy := g.facade.Scale()
-	rl.BeginScissorMode(int32(g.scroll.Bounds.X*sx), int32(g.scroll.Bounds.Y*sy), int32(g.scroll.Bounds.W*sx), int32(g.scroll.Bounds.H*sy))
-	start := g.scroll.Bounds.Y + 12 - g.scroll.Scroll.Y
+	bounds := g.scroll.Bounds()
+	scroll := g.scroll.Scroll()
+	rl.BeginScissorMode(int32(bounds.X*sx), int32(bounds.Y*sy), int32(bounds.W*sx), int32(bounds.H*sy))
+	start := bounds.Y + 12 - scroll.Y
 	for i := 0; i < 10; i++ {
 		y := start + float32(i*34)
 		fill := color.RGBA{R: 35, G: 48, B: 70, A: 255}
 		if i%2 == 1 {
 			fill = color.RGBA{R: 29, G: 40, B: 59, A: 255}
 		}
-		rl.DrawRectangleRec(rl.Rectangle{X: g.scroll.Bounds.X + 10, Y: y, Width: g.scroll.Bounds.W - 20, Height: 28}, fill)
-		g.drawText(fmt.Sprintf("Clipped row %02d  •  scroll offset %.0f", i+1, g.scroll.Scroll.Y), int32(g.scroll.Bounds.X+20), int32(y+6), 14, color.RGBA{R: 194, G: 211, B: 235, A: 255})
+		rl.DrawRectangleRec(rl.Rectangle{X: bounds.X + 10, Y: y, Width: bounds.W - 20, Height: 28}, fill)
+		g.drawText(fmt.Sprintf("Clipped row %02d  •  scroll offset %.0f", i+1, scroll.Y), int32(bounds.X+20), int32(y+6), 14, color.RGBA{R: 194, G: 211, B: 235, A: 255})
 	}
 	rl.EndScissorMode()
-	g.drawItalic("Scroll panel — wheel over this area", int32(g.scroll.Bounds.X+12), int32(g.scroll.Bounds.Y-22), 15, color.RGBA{R: 153, G: 174, B: 202, A: 255})
-}
-
-// drawDropdownPopup renders the open popup and its hover highlight.
-func (g *gallery) drawDropdownPopup() {
-	theme := g.facade.Theme()
-	popup := g.dropdownPopup()
-	info := core.WidgetInfo{ID: 1001, Name: "dropdownPopup", Bounds: popup, Kind: core.WidgetDropdown, State: core.StatePressed}
-	if err := theme.DrawWidget(info, "", 0, false); err != nil {
-		log.Fatal(err)
-	}
-	if err := theme.DrawWidgetPart(core.WidgetDropdown, skin.PartBorder, popup, core.StatePressed); err != nil {
-		log.Fatal(err)
-	}
-	physical := rl.GetMousePosition()
-	mouse := g.facade.ToLogical(core.Vec2{X: physical.X, Y: physical.Y})
-	for i, item := range g.dropdown.DropdownItems {
-		y := popup.Y + float32(i*36)
-		rowBounds := core.Rect{X: popup.X, Y: y, W: popup.W, H: 36}
-		if rowBounds.Contains(mouse) {
-			rl.DrawRectangle(int32(popup.X+4), int32(y+3), int32(popup.W-8), 30, color.RGBA{R: 67, G: 97, B: 139, A: 255})
-		}
-		g.drawText(item, int32(popup.X+16), int32(y+8), 16, color.RGBA{R: 230, G: 240, B: 255, A: 255})
-	}
+	g.drawItalic("Scroll panel — wheel over this area", int32(bounds.X+12), int32(bounds.Y-22), 15, color.RGBA{R: 153, G: 174, B: 202, A: 255})
 }
 
 // drawStateSamples renders the six state swatches.
 func (g *gallery) drawStateSamples() {
 	theme := g.facade.Theme()
 	names := []string{"normal", "focus", "hover", "press", "disabled", "selected"}
-	startX := g.rightPanel.Bounds.X + 20
-	y := g.rightPanel.Bounds.Y + g.rightPanel.Bounds.H - 66
+	panelBounds := g.rightPanel.Bounds()
+	startX := panelBounds.X + 20
+	y := panelBounds.Y + panelBounds.H - 66
 	for i, state := range []core.WidgetState{core.StateNormal, core.StateFocused, core.StateHovered, core.StatePressed, core.StateDisabled, core.StateSelected} {
-		bounds := core.Rect{X: startX + float32(i)*((g.rightPanel.Bounds.W-40)/6), Y: y, W: (g.rightPanel.Bounds.W - 52) / 6, H: 34}
-		if err := theme.DrawWidgetPart(core.WidgetButton, skin.PartBackground, bounds, state); err != nil {
-			log.Fatal(err)
-		}
+		bounds := core.Rect{X: startX + float32(i)*((panelBounds.W-40)/6), Y: y, W: (panelBounds.W - 52) / 6, H: 34}
+		theme.DrawWidgetPart(core.WidgetButton, skin.PartBackground, bounds, state)
 		g.drawText(names[i], int32(bounds.X+5), int32(bounds.Y+10), 11, color.RGBA{R: 228, G: 239, B: 255, A: 255})
 	}
 }
 
+// clamp confines value to the inclusive low/high interval.
 func clamp(value, low, high float32) float32 {
 	if value < low {
 		return low

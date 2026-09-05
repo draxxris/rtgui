@@ -3,9 +3,10 @@ package transform
 import (
 	"testing"
 
-	"rtgui/core"
+	"github.com/draxxris/rtgui/core"
 )
 
+// TestViewportMapping checks logical and physical coordinate round trips.
 func TestViewportMapping(t *testing.T) {
 	vp := core.Viewport{Viewport: core.Rect{X: 10, Y: 20, W: 800, H: 600}, LogicalSize: core.Vec2{X: 800, Y: 600}}
 	transform := New(vp)
@@ -20,6 +21,7 @@ func TestViewportMapping(t *testing.T) {
 	}
 }
 
+// TestPixelSnapAndIntersection checks rounding and rectangle intersection.
 func TestPixelSnapAndIntersection(t *testing.T) {
 	transform := New(core.Viewport{})
 	transform.PixelSnap = true

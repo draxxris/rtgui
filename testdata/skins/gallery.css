@@ -4,63 +4,66 @@
    authors (text inputs keep their contrast-tested fills). */
 
 Button {
-  border-image-source: url("kenney/blue/button_rectangle_line.png");
-  border-image-slice: 8;
-  padding: 8;
+    border-image-source: url("kenney/blue/button_rectangle_line.png");
+    border-image-slice: 8;
+    padding: 8;
 }
 Button:hover {
-  border-image-source: url("kenney/blue/button_rectangle_border.png");
+    border-image-source: url("kenney/blue/button_rectangle_border.png");
+    background-image: url("kenney/background.png");
+    background-image-tint: #ff0000;
+    border-image-source-tint: #00ff00;
 }
 Button:active {
-  border-image-source: url("kenney/red/button_rectangle_border.png");
+    border-image-source: url("kenney/red/button_rectangle_border.png");
 }
 Button:focus {
-  border-image-source: url("kenney/blue/button_rectangle_border.png");
-  border-image-source-tint: #e1f2ff;
+    border-image-source: url("kenney/blue/button_rectangle_border.png");
+    border-image-source-tint: #e1f2ff;
 }
 Button:disabled {
-  border-image-source-tint: #b9b9c3;
+    border-image-source-tint: #b9b9c3;
 }
 Button:selected {
-  border-image-source: url("kenney/blue/button_rectangle_border.png");
-  border-image-source-tint: #f5fff5;
+    border-image-source: url("kenney/blue/button_rectangle_border.png");
+    border-image-source-tint: #00ff00;
 }
 
 Frame {
-  background-image: url("kenney/background.png");
-  background-image-tint: #34435e;
-  border-image-source: url("kenney/panel_border_grey.png");
-  border-image-slice: 8;
-  padding: 8;
+    background-image: url("kenney/background.png");
+    background-image-tint: #34435e;
+    border-image-source: url("kenney/panel_border_grey.png");
+    border-image-slice: 8;
+    padding: 8;
 }
 Frame:disabled {
-  background-image-tint: #565b66;
-  border-image-source-tint: #b9b9c3;
+    background-image-tint: #565b66;
+    border-image-source-tint: #b9b9c3;
 }
 
 Checkbox::box {
-  background-image: url("kenney/blue/check_square_grey.png");
+    background-image: url("kenney/blue/check_square_grey.png");
 }
 Checkbox::checkmark {
-  background-image: url("kenney/blue/check_square_grey_cross.png");
+    background-image: url("kenney/blue/check_square_grey_cross.png");
 }
 Checkbox::box:disabled {
-  background-image-tint: #b9b9c3;
+    background-image-tint: #b9b9c3;
 }
 Checkbox::checkmark:disabled {
-  background-image-tint: #b9b9c3;
+    background-image-tint: #b9b9c3;
 }
 
 Slider::thumb {
-  background-image: url("kenney/blue/slide_hangle.png");
+    background-image: url("kenney/blue/slide_hangle.png");
 }
 Slider::thumb:disabled {
-  background-image-tint: #b9b9c3;
+    background-image-tint: #b9b9c3;
 }
 
 Dropdown::arrow {
-  background-image: url("kenney/blue/arrow_basic_s_small.png");
+    background-image: url("kenney/blue/arrow_basic_s_small.png");
 }
 Dropdown::arrow:disabled {
-  background-image-tint: #b9b9c3;
+    background-image-tint: #b9b9c3;
 }
