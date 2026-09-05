@@ -29,6 +29,10 @@ records draw calls and skips raylib drawing when no window is ready.
   cancellation, and ghosts.
 - `sim/`: string-ID registry, center `Click`, and focus-first-append `Type`,
   including duplicate/empty-name, unknown-ID, disabled, and wrong-kind paths.
+- `skin/`: CSS selector/property parsing, cascade order, strict errors, and
+  headless tint math (`skin/css.go`).
+- `render/`: CSS merge/inheritance, headless loader errors, and real-PNG decode
+  (`render/css.go`, decode only — upload needs a window).
 - `ui/`: facade registry, `HandleMouse`/`HandleKey` dispatch with handled-bool
   game pass-through, `OnClick`/`OnChange`/`OnText` firing, UTF-8 typing, focus
   and capture lifecycle, and headless `Draw` logging.

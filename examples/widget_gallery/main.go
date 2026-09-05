@@ -120,12 +120,19 @@ func main() {
 	rl.SetTargetFPS(60)
 
 	// Pure-Go path: textures loaded directly via raylib, no loader shim.
-	kenney := loadKenneyTextures()
-	defer kenney.unload()
 	auxAtlas := makeAuxAtlas()
 	defer rl.UnloadTexture(auxAtlas)
 	facade := ui.New(int(windowWidth), int(windowHeight))
-	if err := registerTheme(facade.Theme(), auxAtlas, kenney); err != nil {
+	if err := registerTheme(facade.Theme(), auxAtlas); err != nil {
+		log.Fatal(err)
+	}
+	// File-driven LOOK layers on top of the programmatic aux base: every key
+	// gallery.css authors wins, everything else keeps its registered art.
+	cssPath := findGalleryCSS()
+	if cssPath == "" {
+		log.Fatal("gallery css not found; expected testdata/skins/gallery.css (searched cwd and exe parents)")
+	}
+	if err := facade.Theme().LoadCSSFile(cssPath, ""); err != nil {
 		log.Fatal(err)
 	}
 	loadGalleryFonts(facade.Theme())
@@ -320,84 +327,27 @@ func appendParentFontCandidates(candidates []string, root, name string) []string
 	return candidates
 }
 
-// kenneySet holds the Kenney UI textures (testdata/skins/kenney) that give
-// the gallery its button states, checkbox icons, slider handle, and arrow.
-type kenneySet struct {
-	button, buttonHover, buttonPressed rl.Texture2D
-	checkEmpty, checkCross             rl.Texture2D
-	sliderHandle, arrow                rl.Texture2D
-	panelBorder                        rl.Texture2D
-}
-
-// loadKenneyTextures loads every Kenney file the gallery needs.
-func loadKenneyTextures() kenneySet {
-	return kenneySet{
-		button:        loadSkinTexture("kenney/blue/button_rectangle_line.png"),
-		buttonHover:   loadSkinTexture("kenney/blue/button_rectangle_border.png"),
-		buttonPressed: loadSkinTexture("kenney/red/button_rectangle_border.png"),
-		checkEmpty:    loadSkinTexture("kenney/blue/check_square_grey.png"),
-		checkCross:    loadSkinTexture("kenney/blue/check_square_grey_cross.png"),
-		sliderHandle:  loadSkinTexture("kenney/blue/slide_hangle.png"),
-		arrow:         loadSkinTexture("kenney/blue/arrow_basic_s_small.png"),
-		panelBorder:   loadSkinTexture("kenney/panel_border_grey.png"),
-	}
-}
-
-// unload releases every Kenney texture.
-func (k kenneySet) unload() {
-	rl.UnloadTexture(k.button)
-	rl.UnloadTexture(k.buttonHover)
-	rl.UnloadTexture(k.buttonPressed)
-	rl.UnloadTexture(k.checkEmpty)
-	rl.UnloadTexture(k.checkCross)
-	rl.UnloadTexture(k.sliderHandle)
-	rl.UnloadTexture(k.arrow)
-	rl.UnloadTexture(k.panelBorder)
-}
-
-// loadSkinTexture loads one file below testdata/skins, fatal on failure.
-func loadSkinTexture(rel string) rl.Texture2D {
-	path := findSkinFile(rel)
-	if path == "" {
-		log.Fatalf("gallery skin not found; expected testdata/skins/%s (searched cwd and exe parents)", rel)
-	}
-	tex := rl.LoadTexture(path)
-	if tex.ID == 0 {
-		log.Fatalf("could not load gallery skin %q", path)
-	}
-	rl.SetTextureFilter(tex, rl.FilterPoint)
-	return tex
-}
-
-// findSkinFile locates a file below testdata/skins, mirroring font lookup.
-func findSkinFile(rel string) string {
-	return firstExistingFile(skinCandidates(rel))
-}
-
-// skinCandidates searches RTG_SKIN_DIR, then cwd and exe parents.
-func skinCandidates(rel string) []string {
+// findGalleryCSS locates testdata/skins/gallery.css, mirroring font lookup.
+func findGalleryCSS() string {
 	candidates := []string{}
-	if configured := os.Getenv("RTG_SKIN_DIR"); configured != "" {
-		candidates = append(candidates, filepath.Join(configured, rel))
-	}
 	if cwd, err := os.Getwd(); err == nil {
-		candidates = appendParentSkinCandidates(candidates, cwd, rel)
+		candidates = appendGalleryCSSCandidates(candidates, cwd)
 	}
 	if exe, err := os.Executable(); err == nil {
-		candidates = appendParentSkinCandidates(candidates, filepath.Dir(exe), rel)
+		candidates = appendGalleryCSSCandidates(candidates, filepath.Dir(exe))
 	}
-	return candidates
+	return firstExistingFile(candidates)
 }
 
-// appendParentSkinCandidates walks up to 5 parents for testdata/skins/rel.
-func appendParentSkinCandidates(candidates []string, root, rel string) []string {
+// appendGalleryCSSCandidates walks up to 5 parents for the gallery skin file.
+func appendGalleryCSSCandidates(candidates []string, root string) []string {
 	for dir, depth := root, 0; dir != filepath.Dir(dir) && depth < 5; dir, depth = filepath.Dir(dir), depth+1 {
 		if dir == "" {
 			continue
 		}
 		candidates = append(candidates,
-			filepath.Join(dir, "testdata", "skins", rel),
-			filepath.Join(dir, "rtgui", "testdata", "skins", rel),
+			filepath.Join(dir, "testdata", "skins", "gallery.css"),
+			filepath.Join(dir, "rtgui", "testdata", "skins", "gallery.css"),
 		)
 	}
 	return candidates
@@ -477,19 +427,15 @@ func patchDescriptor(tex skin.Texture, region core.Rect, tint core.Color, border
 	}
 }
 
-// fullIconDescriptor wraps a whole texture as an icon descriptor.
-func fullIconDescriptor(tex skin.Texture, tint core.Color) skin.SkinDescriptor {
-	return iconDescriptor(tex, core.Rect{W: float32(tex.Width), H: float32(tex.Height)}, tint)
-}
-
 func iconDescriptor(tex skin.Texture, region core.Rect, tint core.Color) skin.SkinDescriptor {
 	return skin.SkinDescriptor{Texture: tex, AtlasRegion: region, Tint: tint, Alpha: 1, HasTexture: true}
 }
 
-// registerTheme skins every widget kind. Panel fills, tracks, and progress
-// come from the procedural atlas; buttons, checkbox icons, slider handle,
-// and dropdown arrow come from the Kenney set (testdata/skins/kenney).
-func registerTheme(theme *render.Theme, auxAtlas rl.Texture2D, kenney kenneySet) error {
+// registerTheme skins every widget kind from the procedural atlas: state fills
+// for backgrounds plus tracks, progress fills, and borders. File-driven LOOK
+// from gallery.css layers on top afterwards (see main): every key the file
+// authors wins, aux art stays underneath the rest.
+func registerTheme(theme *render.Theme, auxAtlas rl.Texture2D) error {
 	auxTex := textureOf(auxAtlas)
 	states := []core.WidgetState{core.StateNormal, core.StateFocused, core.StateHovered, core.StatePressed, core.StateDisabled, core.StateSelected}
 	stateTints := []core.Color{
@@ -511,69 +457,7 @@ func registerTheme(theme *render.Theme, auxAtlas rl.Texture2D, kenney kenneySet)
 	}
 
 	for i, state := range states {
-		if err := registerStateParts(theme, state, stateTints[i], auxTex, kenney); err != nil {
-			return err
-		}
-	}
-	if err := registerKenneyButtons(theme, states, stateTints, kenney); err != nil {
-		return err
-	}
-	if err := registerPanelBorder(theme, states, stateTints, kenney); err != nil {
-		return err
-	}
-	return registerFrameBackground(theme, states, stateTints, auxTex)
-}
-
-// registerPanelBorder skins frame borders from the Kenney grey panel
-// ring (64x64, 8px edges, empty center) as an 8-patch: nine-patch insets with
-// CenterFill false so the transparent middle is never drawn.
-func registerPanelBorder(theme *render.Theme, states []core.WidgetState, tints []core.Color, kenney kenneySet) error {
-	tex := textureOf(kenney.panelBorder)
-	region := core.Rect{W: float32(tex.Width), H: float32(tex.Height)}
-	for i, state := range states {
-		border := patchDescriptor(tex, region, tints[i], 8, false)
-		if err := theme.SetSkinPart(skin.SkinKey{Widget: core.WidgetFrame, Part: skin.PartBorder, State: state}, border); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// registerFrameBackground gives frames a flat fill.
-// The aux state patches carry a painted 2px outline that would read as a
-// second border behind the Kenney ring, so the region is cropped 3px on each
-// side to cut the outline off and drawn unstretched (no nine-patch).
-func registerFrameBackground(theme *render.Theme, states []core.WidgetState, tints []core.Color, auxTex skin.Texture) error {
-	for i, state := range states {
-		region := core.Rect{X: float32(i*68 + 3), Y: 3, W: 54, H: 30}
-		background := patchDescriptor(auxTex, region, tints[i], 0, true)
-		if err := theme.SetSkinPart(skin.SkinKey{Widget: core.WidgetFrame, Part: skin.PartBackground, State: state}, background); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// blue border for focus/hover/selected, red border for pressed. All are
-// 192x64 with an 8-pixel nine-patch border, like the retired button image.
-func registerKenneyButtons(theme *render.Theme, states []core.WidgetState, tints []core.Color, kenney kenneySet) error {
-	byState := map[core.WidgetState]skin.Texture{
-		core.StateNormal:   textureOf(kenney.button),
-		core.StateFocused:  textureOf(kenney.buttonHover),
-		core.StateHovered:  textureOf(kenney.buttonHover),
-		core.StatePressed:  textureOf(kenney.buttonPressed),
-		core.StateDisabled: textureOf(kenney.button),
-		core.StateSelected: textureOf(kenney.buttonHover),
-	}
-	for i, state := range states {
-		tex := byState[state]
-		region := core.Rect{W: float32(tex.Width), H: float32(tex.Height)}
-		background := patchDescriptor(tex, region, tints[i], 8, true)
-		if err := theme.SetSkinPart(skin.SkinKey{Widget: core.WidgetButton, Part: skin.PartBackground, State: state}, background); err != nil {
-			return err
-		}
-		border := patchDescriptor(tex, region, tints[i], 8, false)
-		if err := theme.SetSkinPart(skin.SkinKey{Widget: core.WidgetButton, Part: skin.PartBorder, State: state}, border); err != nil {
+		if err := registerStateParts(theme, state, stateTints[i], auxTex); err != nil {
 			return err
 		}
 	}
@@ -599,20 +483,19 @@ func borderSource(auxTex skin.Texture) (skin.Texture, core.Rect) {
 	return auxTex, core.Rect{X: 168, Y: 104, W: 96, H: 42}
 }
 
-// registerStateParts skins tracks, fills, and icons per state. The slider
-// handle, dropdown arrow, and checkbox icons come from the Kenney set; the
-// checkbox empty box rides PartIcon so unchecked boxes render without touching
-// the checkmark path.
-func registerStateParts(theme *render.Theme, state core.WidgetState, tint core.Color, atlas skin.Texture, kenney kenneySet) error {
-	handle := fullIconDescriptor(textureOf(kenney.sliderHandle), tint)
-	arrow := fullIconDescriptor(textureOf(kenney.arrow), tint)
-	cross := fullIconDescriptor(textureOf(kenney.checkCross), tint)
+// registerStateParts skins aux tracks, fills, and fallback icons per state.
+// File-driven icons (slider handle, dropdown arrow, checkbox art) arrive via
+// gallery.css afterwards; the aux versions below stay underneath unauthored keys.
+func registerStateParts(theme *render.Theme, state core.WidgetState, tint core.Color, atlas skin.Texture) error {
+	thumb := iconDescriptor(atlas, core.Rect{X: 312, Y: 48, W: 28, H: 28}, tint)
+	arrow := iconDescriptor(atlas, core.Rect{X: 376, Y: 48, W: 28, H: 28}, tint)
+	cross := iconDescriptor(atlas, core.Rect{X: 344, Y: 48, W: 28, H: 28}, tint)
 	parts := []struct {
 		part       skin.SkinPart
 		descriptor skin.SkinDescriptor
 	}{
 		{skin.PartTrack, patchDescriptor(atlas, core.Rect{X: 208, Y: 48, W: 96, H: 20}, tint, 6, true)},
-		{skin.PartThumb, handle},
+		{skin.PartThumb, thumb},
 		{skin.PartTrack, patchDescriptor(atlas, core.Rect{X: 208, Y: 48, W: 96, H: 20}, tint, 6, true)},
 		{skin.PartOverlay, patchDescriptor(atlas, core.Rect{X: 408, Y: 48, W: 96, H: 20}, tint, 6, true)},
 		{skin.PartArrow, arrow},
@@ -628,7 +511,7 @@ func registerStateParts(theme *render.Theme, state core.WidgetState, tint core.C
 			return err
 		}
 	}
-	empty := fullIconDescriptor(textureOf(kenney.checkEmpty), tint)
+	empty := iconDescriptor(atlas, core.Rect{X: 312, Y: 48, W: 28, H: 28}, tint)
 	return theme.SetSkinPart(skin.SkinKey{Widget: core.WidgetCheckbox, Part: skin.PartIcon, State: state}, empty)
 }
 

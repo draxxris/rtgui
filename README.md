@@ -164,8 +164,11 @@ Widget art comes from two checked-in sources: the procedural atlas for panel
 fills, tracks, and progress, and the Kenney set under `testdata/skins/kenney/`
 for button states (blue line rest, blue border hover, red border press),
 checkbox empty/cross icons, the slider handle, the dropdown arrow, and the
-grey 8-patch panel ring on frames.
-Gallery typography uses the Grenze family (SIL OFL,
+grey 8-patch panel ring on frames. File-driven LOOK lives in
+`testdata/skins/gallery.css` (`Kind[::part][:pseudo]` selectors with
+`border-image-source`, `border-image-slice`, `background-image`, `*-tint`,
+and `padding`); it layers over the programmatic aux base, so every key the
+file authors wins. Gallery typography uses the Grenze family (SIL OFL,
 `testdata/fonts/Grenze-OFL.txt`): `Grenze-Light.ttf` for titles, values,
 and widget text, `Grenze-LightItalic.ttf` for captions and the status line.
 
