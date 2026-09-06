@@ -13,7 +13,9 @@
 //
 // Gallery contract: two panels, button, checkbox (toggles button enabled),
 // textbox (typing + backspace including multi-byte UTF-8),
-// dropdown popup, slider driving progress, scroll panel with wheel + scissor,
+// dropdown popup, slider driving progress, tab bar switching the demo label,
+// right-click context menu, hover tooltips plus a T-pinned tooltip,
+// scroll panel with wheel + scissor,
 // frame with relative-move child (layout.MoveFrame), state-sample strip,
 // status line; flags -frames / -screenshot for headless smoke.
 //
@@ -68,6 +70,7 @@ type galleryLayout struct {
 	textbox, dropdown     core.Rect
 	slider, progress      core.Rect
 	panel, label          core.Rect
+	tabbar                core.Rect
 	frame, frameButton    core.Rect
 	scroll                core.Rect
 }
@@ -85,6 +88,7 @@ type gallery struct {
 	progress    *widgets.Widget
 	panel       *widgets.Widget
 	label       *widgets.Widget
+	tabbar      *widgets.Widget
 	frame       *widgets.Widget
 	frameButton *widgets.Widget
 	scroll      *widgets.Widget
@@ -177,18 +181,26 @@ func runHeadlessSmoke() {
 	checkbox := widgets.NewCheckbox("smokeCheckbox", core.Rect{X: 10, Y: 60, W: 120, H: 40}, true)
 	slider := widgets.NewSlider("smokeSlider", core.Rect{X: 10, Y: 110, W: 120, H: 40}, 0.5)
 	field := widgets.NewTextbox("smokeField", core.Rect{X: 10, Y: 160, W: 200, H: 30}, 64)
-	if err := facade.Add(button, checkbox, slider, field); err != nil {
+	tabs := widgets.NewTabBar("smokeTabs", core.Rect{X: 10, Y: 210, W: 200, H: 36}, []string{"A", "B"}, 0)
+	if err := facade.Add(button, checkbox, slider, field, tabs); err != nil {
 		log.Fatal(err)
 	}
 	clicks := 0
 	facade.OnClick("smokeButton", func() { clicks++ })
+	tabSelected := -1
+	facade.OnTabSelect("smokeTabs", func(index int) { tabSelected = index })
+	facade.SelectTab("smokeTabs", 1)
+	facade.SetTooltip("smokeButton", "headless tip")
 	center := core.Vec2{X: 60, Y: 30}
 	facade.HandleMouse(ui.MouseEvent{Pos: center, Pressed: true})
 	facade.HandleMouse(ui.MouseEvent{Pos: center, Released: true})
 	facade.HandleKey(ui.KeyEvent{Chars: []rune("hi")})
+	facade.ShowContextMenu([]ui.MenuItem{{ID: "a", Label: "Alpha"}}, core.Vec2{X: 50, Y: 50}, nil)
+	facade.Draw()
+	facade.CloseMenu()
 	facade.Draw()
 	calls := recorder.Calls()
-	log.Printf("headless smoke: %d draw calls logged (clicks=%d fallback=%v)", len(calls), clicks, len(calls) > 0 && calls[0].Fallback)
+	log.Printf("headless smoke: %d draw calls logged (clicks=%d tab=%d fallback=%v)", len(calls), clicks, tabSelected, len(calls) > 0 && calls[0].Fallback)
 
 	if *screenshot != "" {
 		// Create a placeholder image that documents headless mode.
@@ -386,13 +398,14 @@ func newGallery(facade *ui.UI) *gallery {
 		progress:    widgets.NewProgressBar("valueProgress", core.Rect{}, 0.35),
 		panel:       widgets.NewFrame("demoPanel", core.Rect{}),
 		label:       widgets.NewLabel("demoLabel", core.Rect{}, "Textured label"),
+		tabbar:      widgets.NewTabBar("demoTabs", core.Rect{}, []string{"Widgets", "Style", "About"}, 0),
 		frame:       widgets.NewFrame("demoFrame", core.Rect{}),
 		frameButton: widgets.NewButton("frameChildButton", core.Rect{}, "Frame child"),
 		scroll:      widgets.NewScrollPanel("scrollPanel", core.Rect{}),
 		status:      "Click a widget to interact with it — press R to MoveFrame",
 	}
 	g.textbox.SetText("Type here")
-	if err := facade.Add(g.leftPanel, g.rightPanel, g.button, g.checkbox, g.textbox, g.dropdown, g.slider, g.progress, g.panel, g.label, g.frame, g.frameButton, g.scroll); err != nil {
+	if err := facade.Add(g.leftPanel, g.rightPanel, g.button, g.checkbox, g.textbox, g.dropdown, g.slider, g.progress, g.panel, g.label, g.tabbar, g.frame, g.frameButton, g.scroll); err != nil {
 		panic(err)
 	}
 	facade.OnClick("primaryButton", func() {
@@ -409,6 +422,18 @@ func newGallery(facade *ui.UI) *gallery {
 		g.progress.SetValue(v)
 		g.status = fmt.Sprintf("Slider value %.0f%%", v*100)
 	})
+	facade.OnTabSelect("demoTabs", func(index int) {
+		if label, ok := g.tabbar.TabSelection(); ok {
+			g.label.SetText("Tab: " + label)
+			g.status = fmt.Sprintf("Tab %q selected (index %d)", label, index)
+			return
+		}
+		g.status = fmt.Sprintf("Tab index %d selected", index)
+	})
+	facade.SetTooltip("primaryButton", "Primary action — fires OnClick")
+	facade.SetTooltip("valueSlider", "Drag to drive the progress bar")
+	facade.SetTooltip("demoTabs", "TabBar — click a tab to switch")
+	facade.SetTooltip("classDropdown", "Dropdown — click to open")
 	// The visual widgets own the layout nodes used by the MoveFrame demo.
 	if err := g.frame.Frame().AddChild(g.frameButton.Frame()); err != nil {
 		panic(err)
@@ -438,6 +463,7 @@ func (g *gallery) applyLayout() {
 	g.progress.SetBounds(g.layout.progress)
 	g.panel.SetBounds(g.layout.panel)
 	g.label.SetBounds(g.layout.label)
+	g.tabbar.SetBounds(g.layout.tabbar)
 	g.frame.SetBounds(g.layout.frame)
 	g.frameButton.SetBounds(core.Rect{W: g.layout.frameButton.W, H: g.layout.frameButton.H})
 	g.scroll.SetBounds(g.layout.scroll)
@@ -462,6 +488,7 @@ func calculateLayout(width, height float32) galleryLayout {
 		slider:      core.Rect{X: widgetX, Y: left.Y + 304, W: widgetW, H: 42},
 		progress:    core.Rect{X: widgetX, Y: left.Y + 368, W: widgetW, H: 42},
 		panel:       core.Rect{X: widgetX, Y: left.Y + 440, W: widgetW, H: 94},
+		tabbar:      core.Rect{X: widgetX, Y: left.Y + 560, W: widgetW, H: 36},
 		label:       core.Rect{X: right.X + 24, Y: right.Y + 40, W: right.W - 48, H: 32},
 		frame:       core.Rect{X: right.X + 24, Y: right.Y + 92, W: right.W - 48, H: 164},
 		frameButton: core.Rect{X: right.X + 48, Y: right.Y + 166, W: right.W - 96, H: 42},
@@ -470,7 +497,8 @@ func calculateLayout(width, height float32) galleryLayout {
 }
 
 // handleInput polls raylib once per frame and forwards to the facade. The UI
-// owns dropdown popup input; frame movement and animation remain gallery work.
+// owns dropdown, menu, and tooltip input; right-click menu requests, the
+// T-pinned tooltip, frame movement, and animation remain gallery work.
 func (g *gallery) handleInput() {
 	physical := rl.GetMousePosition()
 	mouse := g.facade.ToLogical(core.Vec2{X: physical.X, Y: physical.Y})
@@ -483,6 +511,12 @@ func (g *gallery) handleInput() {
 		Wheel:    rl.GetMouseWheelMove(),
 	})
 	_ = mouseHandled
+	if rl.IsMouseButtonPressed(rl.MouseButtonRight) {
+		g.showGalleryMenu(mouse)
+	}
+	if rl.IsKeyPressed(rl.KeyT) {
+		g.facade.ShowTooltip("Pinned tooltip — Esc dismisses it", mouse)
+	}
 	// The facade scrolls unclamped; the gallery bounds its demo list.
 	scroll := g.scroll.Scroll()
 	scroll.Y = clamp(scroll.Y, 0, 170)
@@ -490,6 +524,19 @@ func (g *gallery) handleInput() {
 	g.handleKeys()
 	g.handleFrameMove()
 	g.animateFrame()
+}
+
+// showGalleryMenu opens the demo context menu at a logical point. The
+// selection callback reports into the gallery status line.
+func (g *gallery) showGalleryMenu(pos core.Vec2) {
+	g.facade.ShowContextMenu([]ui.MenuItem{
+		{ID: "inspect", Label: "Inspect widget"},
+		{ID: "edit", Label: "Edit (locked)", Disabled: true},
+		{Separator: true},
+		{ID: "about", Label: "About gallery"},
+	}, pos, func(id string) {
+		g.status = fmt.Sprintf("Menu selected %q", id)
+	})
 }
 
 // handleKeys forwards chars, backspace, and escape to the facade.
@@ -583,7 +630,9 @@ func (g *gallery) draw() {
 	sliderBounds := g.slider.Bounds()
 	progressBounds := g.progress.Bounds()
 	panelBounds := g.panel.Bounds()
+	tabbarBounds := g.tabbar.Bounds()
 	frameBounds := g.frame.Bounds()
+	scrollBounds := g.scroll.Bounds()
 	g.drawText("Enable primary button", int32(checkboxBounds.X+40), int32(checkboxBounds.Y+8), 18, color.RGBA{R: 205, G: 218, B: 238, A: 255})
 	g.drawItalic("Textbox (click, type, backspace — UTF-8)", int32(textboxBounds.X), int32(textboxBounds.Y-23), 15, color.RGBA{R: 153, G: 174, B: 202, A: 255})
 	g.drawItalic("Dropdown (click to open)", int32(dropdownBounds.X), int32(dropdownBounds.Y-23), 15, color.RGBA{R: 153, G: 174, B: 202, A: 255})
@@ -591,6 +640,9 @@ func (g *gallery) draw() {
 	g.drawText(fmt.Sprintf("%.0f%%", g.slider.Value()*100), int32(sliderBounds.X+sliderBounds.W-48), int32(sliderBounds.Y+13), 16, color.RGBA{R: 230, G: 242, B: 255, A: 255})
 	g.drawText(fmt.Sprintf("Progress: %.0f%%", g.progress.Value()*100), int32(progressBounds.X+12), int32(progressBounds.Y+13), 16, color.RGBA{R: 235, G: 255, B: 240, A: 255})
 	g.drawText("Panel frame decoration", int32(panelBounds.X+14), int32(panelBounds.Y+38), 17, color.RGBA{R: 218, G: 230, B: 248, A: 255})
+	g.drawItalic("Tab bar — click to switch tabs", int32(tabbarBounds.X), int32(tabbarBounds.Y-23), 15, color.RGBA{R: 153, G: 174, B: 202, A: 255})
+	g.drawItalic("Right-click anywhere for the context menu", int32(scrollBounds.X+12), int32(scrollBounds.Y+scrollBounds.H+10), 15, color.RGBA{R: 153, G: 174, B: 202, A: 255})
+	g.drawItalic("Press T for a pinned tooltip (Esc dismisses)", int32(scrollBounds.X+12), int32(scrollBounds.Y+scrollBounds.H+28), 15, color.RGBA{R: 153, G: 174, B: 202, A: 255})
 	g.drawText("Frame child moves with its parent (R / sine)", int32(frameBounds.X+18), int32(frameBounds.Y+20), 15, color.RGBA{R: 153, G: 174, B: 202, A: 255})
 
 	g.drawScrollContents()

@@ -201,11 +201,7 @@ func (t *Theme) DrawDropdownPopup(info core.WidgetInfo, items []string, hovered 
 	if t == nil || len(items) == 0 || info.Bounds.H <= 0 {
 		return
 	}
-	t.DrawWidgetPart(info.Kind, skin.PartPopup, info.Bounds, info.State)
-	t.DrawWidgetPart(info.Kind, skin.PartPopupBorder, info.Bounds, info.State)
-	if t.recorder != nil {
-		t.recorder.setLastWidgetInfo(info)
-	}
+	t.drawPopupShell(info)
 	content := t.DropdownPopupContent(info.Bounds, info.State)
 	for index, item := range items {
 		row, ok := DropdownPopupRow(content, len(items), index)
@@ -213,30 +209,9 @@ func (t *Theme) DrawDropdownPopup(info core.WidgetInfo, items []string, hovered 
 			continue
 		}
 		if index == hovered {
-			t.drawDropdownHighlight(info, row)
+			t.drawPopupRowHighlight(info, row)
 		}
 		t.drawDropdownText(info, row, item)
-	}
-}
-
-// drawDropdownHighlight records and draws one popup row highlight.
-// A textured Dropdown::highlight replaces the fixed gallery fill; without
-// one the fixed fill draws so unskinned popups keep their hover feedback.
-func (t *Theme) drawDropdownHighlight(info core.WidgetInfo, row core.Rect) {
-	destination := t.snap(core.Rect{X: row.X + 4, Y: row.Y + 3, W: row.W - 8, H: row.H - 6})
-	descriptor, fallback := t.resolveDescriptor(info.Kind, skin.PartOverlay, core.StateHovered)
-	if hasTexture(descriptor, fallback) {
-		tint := effectiveTint(descriptor, false)
-		t.logDrawCall(info.Kind, skin.PartOverlay, core.StateHovered, row, destination, descriptor, tint, false)
-		if rl.IsWindowReady() {
-			drawTexturedPart(descriptor, destination, tint)
-		}
-		return
-	}
-	tint := color.RGBA{R: 67, G: 97, B: 139, A: 255}
-	t.logDrawCall(info.Kind, skin.PartOverlay, core.StateHovered, row, destination, skin.SkinDescriptor{}, tint, false)
-	if rl.IsWindowReady() {
-		drawFallbackPart(destination, tint)
 	}
 }
 

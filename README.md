@@ -185,7 +185,8 @@ and later rasterization strategy.
 ## Gallery contract and test assets
 
 The gallery demonstrates textured buttons, checkbox state, bounded UTF-8 editing,
-a UI-owned dropdown popup, slider/progress interaction, scrolling, nine-patch
+a UI-owned dropdown popup, tab-bar selection, right-click context menus, hover and
+pinned tooltips, slider/progress interaction, scrolling, nine-patch
 borders, CSS tinting, layout movement, and visual state samples.
 
 The Kenney PNGs under `testdata/skins/kenney/` are ignored local fixtures. They

@@ -62,6 +62,9 @@ var kindSelectors = map[string]core.WidgetKind{
 	"Frame":       core.WidgetFrame,
 	"Label":       core.WidgetLabel,
 	"ScrollPanel": core.WidgetScrollPanel,
+	"TabBar":      core.WidgetTabBar,
+	"Menu":        core.WidgetMenu,
+	"Tooltip":     core.WidgetTooltip,
 }
 
 // pseudoSelectors maps pseudo-classes to widget states. "" is normal.
@@ -85,6 +88,7 @@ var partSelectors = map[string]SkinPart{
 	"highlight": PartOverlay,
 	"fill":      PartOverlay,
 	"spark":     PartSpark,
+	"tab":       PartTab,
 }
 
 // partAllowlist restricts which parts each kind accepts. Pairings outside it
@@ -94,6 +98,8 @@ var partAllowlist = map[core.WidgetKind]map[string]bool{
 	core.WidgetDropdown:    {"arrow": true, "popup": true, "highlight": true},
 	core.WidgetCheckbox:    {"checkmark": true, "box": true},
 	core.WidgetProgressBar: {"track": true, "fill": true, "spark": true},
+	core.WidgetTabBar:      {"tab": true},
+	core.WidgetMenu:        {"popup": true, "highlight": true},
 }
 
 // ParseCSS parses LOOK-only CSS text into SkinRules in source order.
@@ -161,9 +167,10 @@ func parseSelector(selector string) (core.WidgetKind, string, SkinPart, core.Wid
 
 // parseBlock converts one rule block's declarations into per-part entries.
 // Whole-widget rules split into PartBackground and PartBorder entries.
-// Dropdown::popup is the single exception that accepts both looks and fans
-// out to PartPopup and PartPopupBorder entries; other parts take only
-// background-image declarations, and only whole widgets and ::popup take padding.
+// Popup parts (Dropdown::popup, Menu::popup) are the exceptions that accept
+// both looks and fan out to PartPopup and PartPopupBorder entries; other parts
+// take only background-image declarations, and only whole widgets and popup
+// parts take padding.
 func parseBlock(selector string, kind core.WidgetKind, part SkinPart, hasPart bool, state core.WidgetState, styles []*css.CSSStyleDeclaration) ([]SkinRule, error) {
 	byPart := map[SkinPart]*SkinRule{}
 	order := []SkinPart{}
@@ -196,14 +203,14 @@ func parseBlock(selector string, kind core.WidgetKind, part SkinPart, hasPart bo
 			}
 		case "border-image-source", "border-image-source-tint", "border-image-slice":
 			if !allowBorder {
-				return nil, fmt.Errorf("skin: %s in %q applies to widgets and Dropdown::popup, not parts", property, selector)
+				return nil, fmt.Errorf("skin: %s in %q applies to widgets and ::popup parts, not other parts", property, selector)
 			}
 			if err := applyBorderProp(take(borderTarget), selector, property, value); err != nil {
 				return nil, err
 			}
 		case "padding":
 			if !allowPadding {
-				return nil, fmt.Errorf("skin: padding in %q applies to widgets and Dropdown::popup, not parts", selector)
+				return nil, fmt.Errorf("skin: padding in %q applies to widgets and ::popup parts, not other parts", selector)
 			}
 			padding, err := expandPadding(selector, value)
 			if err != nil {

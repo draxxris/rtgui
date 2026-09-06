@@ -4,6 +4,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/draxxris/rtgui/core"
+	"github.com/draxxris/rtgui/render"
 	"github.com/draxxris/rtgui/widgets"
 )
 
@@ -32,15 +33,23 @@ type KeyEvent struct {
 }
 
 // HandleMouse reconciles disabled owners, then routes one physical pointer
-// frame. Hover alone and misses remain available to application input.
+// frame. An open context menu has exclusive routing; hover alone and misses
+// remain available to application input. Any press or wheel hides an
+// explicitly shown tooltip.
 func (u *UI) HandleMouse(event MouseEvent) bool {
 	if u == nil {
 		return false
 	}
 	u.reconcileInteraction()
 	u.pointer = event.Pos
+	if event.Pressed || event.Wheel != 0 {
+		u.tooltipText = ""
+	}
 	if event.Pressed && u.pressed != nil {
 		return true
+	}
+	if u.HasOpenMenu() {
+		return u.handleOpenMenu(event)
 	}
 	if u.openDropdown() != nil {
 		return u.handleOpenDropdown(event)
@@ -53,21 +62,34 @@ func (u *UI) HandleMouse(event MouseEvent) bool {
 	return handled
 }
 
-// HandleKey routes one physical keyboard frame to the focused textbox. It
-// reports edits only when text changes; Escape reports a real focus clear.
+// HandleKey routes one physical keyboard frame. Escape closes an open menu
+// first, then hides an explicit tooltip, then clears focus; text routes to
+// the focused textbox. It reports edits only when text changes.
 func (u *UI) HandleKey(event KeyEvent) bool {
 	if u == nil {
 		return false
 	}
 	u.reconcileInteraction()
-	if event.Escape && u.clearFocus() {
-		return true
+	if event.Escape {
+		if u.HasOpenMenu() {
+			u.closeMenuState()
+			return true
+		}
+		if u.tooltipText != "" {
+			u.tooltipText = ""
+			return true
+		}
+		if u.clearFocus() {
+			return true
+		}
+		return false
 	}
 	return u.handleText(event)
 }
 
 // Activate performs the same kind-specific activation and callbacks as a
 // successful physical click without manufacturing a pointer or hover state.
+// Tab bars re-fire for the current selection; use SelectTab to change it.
 func (u *UI) Activate(name string) bool {
 	if u == nil {
 		return false
@@ -84,10 +106,33 @@ func (u *UI) Activate(name string) bool {
 		} else {
 			u.setFocus(target)
 		}
+	case core.WidgetTabBar:
+		if target.TabCount() == 0 || target.SelectedTab() < 0 {
+			return false
+		}
 	case core.WidgetTextbox:
 		u.setFocus(target)
 	}
 	return u.activateWidget(target)
+}
+
+// SelectTab changes a tab bar selection through the shared callback path
+// without manufacturing pointer or hover state. It fires OnTabSelect only
+// after a real index change and always fires OnClick on a valid selection.
+func (u *UI) SelectTab(name string, index int) bool {
+	if u == nil {
+		return false
+	}
+	u.reconcileInteraction()
+	target := u.Lookup(name)
+	if target == nil || !target.Enabled() || target.Kind() != core.WidgetTabBar {
+		return false
+	}
+	if index < 0 || index >= target.TabCount() {
+		return false
+	}
+	u.commitTabSelection(target, index)
+	return true
 }
 
 // TypeText focuses a valid textbox and appends printable runes through the
@@ -241,16 +286,109 @@ func (u *UI) handleDrag(event MouseEvent) bool {
 	return true
 }
 
-// handleRelease ends an active gesture. Release outside consumes without activation.
+// handleRelease ends an active gesture. Tab bars resolve the released tab
+// cell before firing selection callbacks; other releases outside consume
+// without activation.
 func (u *UI) handleRelease(event MouseEvent) bool {
 	if !event.Released || u.pressed == nil {
 		return false
 	}
 	active := u.pressed
 	u.pressed = nil
-	if active.Enabled() && active.HitTest(event.Pos) {
+	if !active.Enabled() {
+		return true
+	}
+	if active.Kind() == core.WidgetTabBar {
+		return u.releaseTabBar(active, event.Pos)
+	}
+	if active.HitTest(event.Pos) {
 		u.activateWidget(active)
 	}
+	return true
+}
+
+// releaseTabBar commits a released tab cell and closes the gesture.
+// Releasing outside any cell consumes without activation. Committing the
+// already-selected tab still fires OnClick but not OnTabSelect.
+func (u *UI) releaseTabBar(bar *widgets.Widget, pos core.Vec2) bool {
+	index := u.tabIndexAt(bar, pos)
+	if index < 0 {
+		return true
+	}
+	u.commitTabSelection(bar, index)
+	return true
+}
+
+// commitTabSelection records index on bar and fires selection callbacks.
+// OnTabSelect runs only after a real index change; OnClick always runs.
+func (u *UI) commitTabSelection(bar *widgets.Widget, index int) {
+	if bar.SetSelectedTab(index) {
+		u.fireOnTabSelect(bar.Name(), index)
+	}
+	u.fireOnClick(bar.Name())
+}
+
+// tabIndexAt resolves the skin-aware tab cell under pos, or -1.
+func (u *UI) tabIndexAt(bar *widgets.Widget, pos core.Vec2) int {
+	if bar == nil || u.theme == nil {
+		return -1
+	}
+	content := u.theme.TabContent(bar.Bounds(), core.StateNormal)
+	return render.TabIndexAt(content, bar.TabCount(), pos)
+}
+
+// handleOpenMenu gives a visible context menu exclusive press routing while
+// retaining library ownership of row hit testing and selection. Hover motion
+// alone stays available to application input; wheel is consumed.
+func (u *UI) handleOpenMenu(event MouseEvent) bool {
+	u.hovered = nil
+	if event.Wheel != 0 {
+		return true
+	}
+	if event.Pressed {
+		return u.pressOpenMenu(event.Pos)
+	}
+	if event.Released && u.menuDown {
+		return u.releaseOpenMenu(event.Pos)
+	}
+	if event.Released {
+		return true
+	}
+	return event.Down && u.menuDown
+}
+
+// pressOpenMenu arms a selectable row or dismisses on an outside press.
+// Pressing a disabled row or separator keeps the menu open with no arm.
+func (u *UI) pressOpenMenu(pos core.Vec2) bool {
+	index := u.menuRowAt(pos)
+	if index < 0 {
+		u.closeMenuState()
+		return true
+	}
+	if u.menuSelectable(index) {
+		u.menuArmed = index
+		u.menuDown = true
+		return true
+	}
+	u.menuArmed = -1
+	u.menuDown = true
+	return true
+}
+
+// releaseOpenMenu commits the armed row on a matching release. Releasing
+// outside dismisses; releasing on another row keeps the menu open.
+func (u *UI) releaseOpenMenu(pos core.Vec2) bool {
+	u.menuDown = false
+	index := u.menuRowAt(pos)
+	if index < 0 {
+		u.closeMenuState()
+		return true
+	}
+	if index == u.menuArmed && u.menuSelectable(index) {
+		u.commitMenuRow(index)
+		return true
+	}
+	u.menuArmed = -1
 	return true
 }
 
@@ -328,7 +466,7 @@ func (u *UI) topmostAt(pos core.Vec2, kind core.WidgetKind) *widgets.Widget {
 // isPressable reports the kinds that can own a UI press gesture.
 func isPressable(kind core.WidgetKind) bool {
 	switch kind {
-	case core.WidgetButton, core.WidgetCheckbox, core.WidgetTextbox, core.WidgetSlider, core.WidgetDropdown:
+	case core.WidgetButton, core.WidgetCheckbox, core.WidgetTextbox, core.WidgetSlider, core.WidgetDropdown, core.WidgetTabBar:
 		return true
 	default:
 		return false

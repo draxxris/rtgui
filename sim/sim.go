@@ -36,3 +36,9 @@ func (s *Stage) Type(name, value string) bool {
 func (s *Stage) Focus(name string) bool {
 	return s != nil && s.ui != nil && s.ui.Focus(name)
 }
+
+// SelectTab changes a named tab bar selection through the UI's normal
+// mutation and callback path without manufacturing pointer state.
+func (s *Stage) SelectTab(name string, index int) bool {
+	return s != nil && s.ui != nil && s.ui.SelectTab(name, index)
+}

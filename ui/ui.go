@@ -27,9 +27,10 @@ var (
 )
 
 type callbackRecord struct {
-	onClick  func()
-	onChange func(float32)
-	onText   func(string)
+	onClick     func()
+	onChange    func(float32)
+	onText      func(string)
+	onTabSelect func(int)
 }
 
 // UI owns one interface instance. Hover, press, and focus have exactly one
@@ -47,6 +48,16 @@ type UI struct {
 	pointer core.Vec2
 
 	callbacks map[string]callbackRecord
+
+	menuItems    []core.MenuItem
+	menuBounds   core.Rect
+	menuOnSelect func(string)
+	menuArmed    int
+	menuDown     bool
+
+	tooltips      map[string]string
+	tooltipText   string
+	tooltipAnchor core.Vec2
 }
 
 // New returns a UI with a fixed logical design resolution. Non-positive
@@ -151,6 +162,8 @@ func (u *UI) ClearWidgets() {
 	u.hovered = nil
 	u.pressed = nil
 	u.focused = nil
+	u.closeMenuState()
+	u.tooltipText = ""
 }
 
 // Resize updates physical dimensions while retaining the fixed logical size.

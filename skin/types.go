@@ -44,17 +44,19 @@ const (
 	// PartCheckmark identifies a checked checkbox icon.
 	PartCheckmark
 	// PartOverlay identifies a progress-bar fill (ProgressBar::fill) or a
-	// dropdown popup row highlight (Dropdown::highlight). Keys are scoped
-	// by widget kind, so the two roles never share a registry entry.
+	// popup row highlight (Dropdown::highlight, Menu::highlight). Keys are
+	// scoped by widget kind, so the roles never share a registry entry.
 	PartOverlay
 	// PartText identifies text-oriented draw records.
 	PartText
 	// PartSpark identifies a progress-bar edge marker at the fill boundary.
 	PartSpark
-	// PartPopup identifies a dropdown popup background.
+	// PartPopup identifies a popup background (Dropdown::popup, Menu::popup).
 	PartPopup
-	// PartPopupBorder identifies a dropdown popup border.
+	// PartPopupBorder identifies a popup border (Dropdown::popup, Menu::popup).
 	PartPopupBorder
+	// PartTab identifies one tab button inside a tab bar.
+	PartTab
 )
 
 // SkinKey selects a descriptor by widget kind, part, and visual state.

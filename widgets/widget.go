@@ -20,6 +20,8 @@ type Widget struct {
 	scroll        core.Vec2
 	dropdownIndex int
 	dropdownItems []string
+	tabSelected   int
+	tabLabels     []string
 	textBuf       *text.Buffer
 }
 
@@ -74,6 +76,15 @@ func NewDropdown(name string, bounds core.Rect, items []string, index int) *Widg
 // NewFrame returns an enabled visual frame with immutable name and kind.
 func NewFrame(name string, bounds core.Rect) *Widget {
 	return &Widget{name: name, kind: core.WidgetFrame, frame: layout.New(name, bounds), enabled: true}
+}
+
+// NewTabBar returns an enabled tab bar and copies labels so caller mutation
+// cannot change widget configuration. An invalid selection becomes -1.
+func NewTabBar(name string, bounds core.Rect, labels []string, selected int) *Widget {
+	widget := &Widget{name: name, kind: core.WidgetTabBar, frame: layout.New(name, bounds), enabled: true, tabSelected: -1}
+	widget.SetTabLabels(labels)
+	widget.SetSelectedTab(selected)
+	return widget
 }
 
 // Name returns the widget's immutable external registry identity.
@@ -302,6 +313,64 @@ func (w *Widget) DropdownItemCount() int {
 		return 0
 	}
 	return len(w.dropdownItems)
+}
+
+// TabCount returns the number of tab labels without exposing label storage.
+func (w *Widget) TabCount() int {
+	if w == nil || w.kind != core.WidgetTabBar {
+		return 0
+	}
+	return len(w.tabLabels)
+}
+
+// TabLabels returns a snapshot that callers may mutate freely.
+func (w *Widget) TabLabels() []string {
+	if w == nil || w.kind != core.WidgetTabBar {
+		return nil
+	}
+	return append([]string(nil), w.tabLabels...)
+}
+
+// SetTabLabels copies tab labels and keeps the current selection only when
+// it remains valid. It reports whether label data or selection changed.
+func (w *Widget) SetTabLabels(labels []string) bool {
+	if w == nil || w.kind != core.WidgetTabBar {
+		return false
+	}
+	changed := !equalStrings(w.tabLabels, labels)
+	if changed {
+		w.tabLabels = append(w.tabLabels[:0], labels...)
+	}
+	if w.tabSelected >= len(w.tabLabels) {
+		w.tabSelected = -1
+		changed = true
+	}
+	return changed
+}
+
+// SelectedTab returns the selected tab index, or -1 when unset.
+func (w *Widget) SelectedTab() int {
+	if w == nil || w.kind != core.WidgetTabBar {
+		return -1
+	}
+	return w.tabSelected
+}
+
+// SetSelectedTab selects a valid tab and reports a real mutation.
+func (w *Widget) SetSelectedTab(index int) bool {
+	if w == nil || w.kind != core.WidgetTabBar || index < 0 || index >= len(w.tabLabels) || w.tabSelected == index {
+		return false
+	}
+	w.tabSelected = index
+	return true
+}
+
+// TabSelection returns the selected tab label without exposing storage.
+func (w *Widget) TabSelection() (string, bool) {
+	if w == nil || w.kind != core.WidgetTabBar || w.tabSelected < 0 || w.tabSelected >= len(w.tabLabels) {
+		return "", false
+	}
+	return w.tabLabels[w.tabSelected], true
 }
 
 // TypeChar appends ch to a textbox and reports whether its text changed.

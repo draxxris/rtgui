@@ -41,7 +41,7 @@ func (u *UI) callback(name string) callbackRecord {
 }
 
 func (u *UI) storeCallback(name string, record callbackRecord) {
-	if record.onClick == nil && record.onChange == nil && record.onText == nil {
+	if record.onClick == nil && record.onChange == nil && record.onText == nil && record.onTabSelect == nil {
 		delete(u.callbacks, name)
 		return
 	}
@@ -68,6 +68,25 @@ func (u *UI) fireOnText(name, value string) {
 	if u != nil {
 		if fn := u.callbacks[name].onText; fn != nil {
 			fn(value)
+		}
+	}
+}
+
+// OnTabSelect registers a synchronous tab-selection callback for name. It
+// runs only after the selected index really changes; nil removes this field.
+func (u *UI) OnTabSelect(name string, fn func(int)) {
+	if u == nil || name == "" {
+		return
+	}
+	record := u.callback(name)
+	record.onTabSelect = fn
+	u.storeCallback(name, record)
+}
+
+func (u *UI) fireOnTabSelect(name string, index int) {
+	if u != nil {
+		if fn := u.callbacks[name].onTabSelect; fn != nil {
+			fn(index)
 		}
 	}
 }

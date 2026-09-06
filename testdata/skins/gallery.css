@@ -85,3 +85,44 @@ Dropdown::arrow {
 Dropdown::arrow:disabled {
     background-image-tint: #b9b9c3;
 }
+
+TabBar {
+    border-image-source: url("kenney/panel_border_grey.png");
+    border-image-slice: 8;
+    padding: 4;
+}
+TabBar::tab {
+    background-image: url("kenney/blue/button_rectangle_line.png");
+}
+TabBar::tab:hover {
+    background-image-tint: #e1f2ff;
+}
+TabBar::tab:active {
+    background-image: url("kenney/red/button_rectangle_border.png");
+}
+TabBar::tab:selected {
+    background-image: url("kenney/blue/button_rectangle_border.png");
+}
+TabBar::tab:disabled {
+    background-image-tint: #b9b9c3;
+}
+
+Menu::popup {
+    background-image: url("kenney/background.png");
+    background-image-tint: #1c2740;
+    border-image-source: url("kenney/panel_border_grey.png");
+    border-image-slice: 8;
+    padding: 6;
+}
+Menu::highlight {
+    background-image: url("kenney/background.png");
+    background-image-tint: #43719b;
+}
+
+Tooltip {
+    background-image: url("kenney/background.png");
+    background-image-tint: #141c2e;
+    border-image-source: url("kenney/panel_border_grey.png");
+    border-image-slice: 6;
+    padding: 8;
+}

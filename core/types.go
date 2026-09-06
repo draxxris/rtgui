@@ -79,6 +79,12 @@ const (
 	WidgetProgressBar
 	// WidgetFrame is a non-interactive layout and decoration frame.
 	WidgetFrame
+	// WidgetTabBar displays and selects one tab.
+	WidgetTabBar
+	// WidgetMenu is an ephemeral context-menu popup owned by the UI.
+	WidgetMenu
+	// WidgetTooltip is a non-interactive hover popup owned by the UI.
+	WidgetTooltip
 )
 
 // WidgetState is the visual state selected by UI interaction ownership.
@@ -117,4 +123,18 @@ type Viewport struct {
 	Viewport Rect
 	// LogicalSize is the coordinate space used by layout and input.
 	LogicalSize Vec2
+}
+
+// MenuItem is one context-menu row shared by ui state and render drawing.
+// Core owns the shape so render never imports ui and ui never imports render
+// for menu data.
+type MenuItem struct {
+	// ID is the selection value passed to the menu callback.
+	ID string
+	// Label is the displayed row text; ignored for separators.
+	Label string
+	// Disabled marks a visible but unselectable row.
+	Disabled bool
+	// Separator marks a non-selectable rule row.
+	Separator bool
 }
