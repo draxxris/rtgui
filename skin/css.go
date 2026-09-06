@@ -81,14 +81,19 @@ var partSelectors = map[string]SkinPart{
 	"arrow":     PartArrow,
 	"checkmark": PartCheckmark,
 	"box":       PartIcon,
+	"popup":     PartPopup,
+	"highlight": PartOverlay,
+	"fill":      PartOverlay,
+	"spark":     PartSpark,
 }
 
 // partAllowlist restricts which parts each kind accepts. Pairings outside it
 // are hard errors; plain kind rules keep their whole-widget meaning.
 var partAllowlist = map[core.WidgetKind]map[string]bool{
-	core.WidgetSlider:   {"track": true, "thumb": true},
-	core.WidgetDropdown: {"arrow": true},
-	core.WidgetCheckbox: {"checkmark": true, "box": true},
+	core.WidgetSlider:      {"track": true, "thumb": true},
+	core.WidgetDropdown:    {"arrow": true, "popup": true, "highlight": true},
+	core.WidgetCheckbox:    {"checkmark": true, "box": true},
+	core.WidgetProgressBar: {"track": true, "fill": true, "spark": true},
 }
 
 // ParseCSS parses LOOK-only CSS text into SkinRules in source order.
@@ -155,7 +160,10 @@ func parseSelector(selector string) (core.WidgetKind, string, SkinPart, core.Wid
 }
 
 // parseBlock converts one rule block's declarations into per-part entries.
-// See the SkinRule docs for routing.
+// Whole-widget rules split into PartBackground and PartBorder entries.
+// Dropdown::popup is the single exception that accepts both looks and fans
+// out to PartPopup and PartPopupBorder entries; other parts take only
+// background-image declarations, and only whole widgets and ::popup take padding.
 func parseBlock(selector string, kind core.WidgetKind, part SkinPart, hasPart bool, state core.WidgetState, styles []*css.CSSStyleDeclaration) ([]SkinRule, error) {
 	byPart := map[SkinPart]*SkinRule{}
 	order := []SkinPart{}
@@ -168,15 +176,15 @@ func parseBlock(selector string, kind core.WidgetKind, part SkinPart, hasPart bo
 		order = append(order, part)
 		return entry
 	}
-	imageTarget := PartBackground
+	imageTarget, borderTarget, paddingTarget := PartBackground, PartBorder, PartBackground
+	allowBorder, allowPadding := true, true
 	if hasPart {
-		imageTarget = part
-	}
-	borderGuard := func(property string) error {
-		if hasPart {
-			return fmt.Errorf("skin: %s in %q applies to widgets, not parts", property, selector)
+		if part == PartPopup {
+			imageTarget, borderTarget, paddingTarget = PartPopup, PartPopupBorder, PartPopup
+		} else {
+			imageTarget = part
+			allowBorder, allowPadding = false, false
 		}
-		return nil
 	}
 	for _, style := range styles {
 		property := strings.TrimSpace(style.Property)
@@ -187,21 +195,21 @@ func parseBlock(selector string, kind core.WidgetKind, part SkinPart, hasPart bo
 				return nil, err
 			}
 		case "border-image-source", "border-image-source-tint", "border-image-slice":
-			if err := borderGuard(property); err != nil {
-				return nil, err
+			if !allowBorder {
+				return nil, fmt.Errorf("skin: %s in %q applies to widgets and Dropdown::popup, not parts", property, selector)
 			}
-			if err := applyBorderProp(take(PartBorder), selector, property, value); err != nil {
+			if err := applyBorderProp(take(borderTarget), selector, property, value); err != nil {
 				return nil, err
 			}
 		case "padding":
-			if hasPart {
-				return nil, fmt.Errorf("skin: padding in %q applies to widgets, not parts", selector)
+			if !allowPadding {
+				return nil, fmt.Errorf("skin: padding in %q applies to widgets and Dropdown::popup, not parts", selector)
 			}
 			padding, err := expandPadding(selector, value)
 			if err != nil {
 				return nil, err
 			}
-			entry := take(PartBackground)
+			entry := take(paddingTarget)
 			entry.Padding, entry.HasPadding = padding, true
 		default:
 			return nil, fmt.Errorf("skin: unsupported property %q in %q (LOOK-only subset)", property, selector)

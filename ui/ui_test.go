@@ -333,7 +333,8 @@ func TestDropdownPopupSelectionAndRenderingRemainLibraryOwned(t *testing.T) {
 	if u.Focused() != dropdown {
 		t.Fatal("dropdown click did not open popup")
 	}
-	row, _ := dropdown.DropdownRowBounds(1)
+	content := u.Theme().DropdownPopupContent(dropdown.DropdownPopupBounds(), core.StatePressed)
+	row, _ := render.DropdownPopupRow(content, dropdown.DropdownItemCount(), 1)
 	point := core.Vec2{X: row.X + row.W/2, Y: row.Y + row.H/2}
 	if u.HandleMouse(MouseEvent{Pos: point}) {
 		t.Fatal("popup hover alone must not consume")
@@ -351,6 +352,42 @@ func TestDropdownPopupSelectionAndRenderingRemainLibraryOwned(t *testing.T) {
 	if selected != 1 || dropdown.DropdownIndex() != 1 || u.Focused() != nil {
 		t.Fatalf("dropdown selection=%d/%d focused=%v", selected, dropdown.DropdownIndex(), u.Focused())
 	}
+}
+
+// TestDrawWidgetsDefersPopupForAppLayers keeps the popup above app chrome.
+// DrawWidgets must render widgets without popup parts in the same frame
+// that a following DrawPopup extends, so apps can sandwich their own
+// layers between widgets and the popup.
+func TestDrawWidgetsDefersPopupForAppLayers(t *testing.T) {
+	u := New(200, 200)
+	dropdown := widgets.NewDropdown("class", core.Rect{X: 10, Y: 10, W: 100, H: 30}, []string{"A", "B"}, 0)
+	mustAdd(t, u, dropdown)
+	clickAt(u, centerOf(dropdown))
+	content := u.Theme().DropdownPopupContent(dropdown.DropdownPopupBounds(), core.StatePressed)
+	row, _ := render.DropdownPopupRow(content, dropdown.DropdownItemCount(), 1)
+	point := core.Vec2{X: row.X + row.W/2, Y: row.Y + row.H/2}
+	u.HandleMouse(MouseEvent{Pos: point})
+	recorder := attachDrawRecorder(t, u)
+	u.DrawWidgets()
+	for _, call := range recorder.Calls() {
+		if call.Part == skin.PartPopup || call.Part == skin.PartPopupBorder || call.Part == skin.PartOverlay {
+			t.Fatalf("DrawWidgets emitted popup part %v", call.Part)
+		}
+	}
+	if len(recorder.Calls()) == 0 {
+		t.Fatal("DrawWidgets rendered no widget calls")
+	}
+	u.DrawPopup()
+	calls := recorder.Calls()
+	if !hasDrawCall(calls, skin.PartPopup, dropdown.DropdownPopupBounds(), core.StatePressed) {
+		t.Fatal("DrawPopup did not render the popup above app layers")
+	}
+	if !hasDrawCall(calls, skin.PartOverlay, row, core.StateHovered) {
+		t.Fatal("DrawPopup did not render the hovered dropdown row")
+	}
+	var nilUI *UI
+	nilUI.DrawWidgets()
+	nilUI.DrawPopup()
 }
 
 // TestDrawUsesComputedStateAndResetsRecorderFrame checks snapshot drawing.

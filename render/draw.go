@@ -174,7 +174,8 @@ func (t *Theme) DrawWidget(info core.WidgetInfo, value string, amount float32, c
 		content = t.snap(info.Bounds)
 	} else {
 		background, _ := t.drawPart(info.Kind, skin.PartBackground, info.Bounds, info.State)
-		content = t.snap(ContentRect(info.Bounds, background))
+		border, _ := t.resolveDescriptor(info.Kind, skin.PartBorder, info.State)
+		content = t.snap(ContentRect(info.Bounds, background, border))
 	}
 	if t.recorder != nil {
 		t.recorder.setLastWidgetInfo(info)
@@ -192,17 +193,25 @@ func (t *Theme) DrawWidget(info core.WidgetInfo, value string, amount float32, c
 	}
 }
 
-// DrawDropdownPopup renders a dropdown list with the gallery's popup spacing,
-// hover highlight, and themed text. info.Bounds is the complete popup bounds.
+// DrawDropdownPopup renders a dropdown list with popup skin parts and
+// themed text. info.Bounds is the complete popup bounds. The popup fill is
+// Dropdown::popup and its ring is the same selector's border-image; rows lay
+// out inside their merged insets so the ring never overlaps row content.
 func (t *Theme) DrawDropdownPopup(info core.WidgetInfo, items []string, hovered int) {
 	if t == nil || len(items) == 0 || info.Bounds.H <= 0 {
 		return
 	}
-	t.DrawWidget(info, "", 0, false)
-	t.DrawWidgetPart(info.Kind, skin.PartBorder, info.Bounds, info.State)
-	rowHeight := info.Bounds.H / float32(len(items))
+	t.DrawWidgetPart(info.Kind, skin.PartPopup, info.Bounds, info.State)
+	t.DrawWidgetPart(info.Kind, skin.PartPopupBorder, info.Bounds, info.State)
+	if t.recorder != nil {
+		t.recorder.setLastWidgetInfo(info)
+	}
+	content := t.DropdownPopupContent(info.Bounds, info.State)
 	for index, item := range items {
-		row := core.Rect{X: info.Bounds.X, Y: info.Bounds.Y + float32(index)*rowHeight, W: info.Bounds.W, H: rowHeight}
+		row, ok := DropdownPopupRow(content, len(items), index)
+		if !ok {
+			continue
+		}
 		if index == hovered {
 			t.drawDropdownHighlight(info, row)
 		}
@@ -210,9 +219,20 @@ func (t *Theme) DrawDropdownPopup(info core.WidgetInfo, items []string, hovered 
 	}
 }
 
-// drawDropdownHighlight records and draws the fixed popup row highlight.
+// drawDropdownHighlight records and draws one popup row highlight.
+// A textured Dropdown::highlight replaces the fixed gallery fill; without
+// one the fixed fill draws so unskinned popups keep their hover feedback.
 func (t *Theme) drawDropdownHighlight(info core.WidgetInfo, row core.Rect) {
-	destination := core.Rect{X: row.X + 4, Y: row.Y + 3, W: row.W - 8, H: row.H - 6}
+	destination := t.snap(core.Rect{X: row.X + 4, Y: row.Y + 3, W: row.W - 8, H: row.H - 6})
+	descriptor, fallback := t.resolveDescriptor(info.Kind, skin.PartOverlay, core.StateHovered)
+	if hasTexture(descriptor, fallback) {
+		tint := effectiveTint(descriptor, false)
+		t.logDrawCall(info.Kind, skin.PartOverlay, core.StateHovered, row, destination, descriptor, tint, false)
+		if rl.IsWindowReady() {
+			drawTexturedPart(descriptor, destination, tint)
+		}
+		return
+	}
 	tint := color.RGBA{R: 67, G: 97, B: 139, A: 255}
 	t.logDrawCall(info.Kind, skin.PartOverlay, core.StateHovered, row, destination, skin.SkinDescriptor{}, tint, false)
 	if rl.IsWindowReady() {
@@ -381,7 +401,9 @@ func sliderThumbRect(t *Theme, track core.Rect, descriptor skin.SkinDescriptor, 
 	})
 }
 
-// drawProgressBar renders a track and a proportional overlay.
+// drawProgressBar renders a track, a proportional fill, and its spark.
+// The fill is ProgressBar::fill, which shares the PartOverlay key with
+// Dropdown::highlight; registry keys are widget-scoped so they never meet.
 func (t *Theme) drawProgressBar(info core.WidgetInfo, content core.Rect, amount float32) {
 	track, fallback := t.resolveDescriptor(info.Kind, skin.PartTrack, info.State)
 	trackTint := effectiveTint(track, fallback)
@@ -406,6 +428,51 @@ func (t *Theme) drawProgressBar(info core.WidgetInfo, content core.Rect, amount 
 	if rl.IsWindowReady() {
 		drawTexturedPart(fill, fillRect, fillTint)
 	}
+	t.drawProgressSpark(info, trackRect, fillWidth)
+}
+
+// drawProgressSpark renders the ::spark marker centered on the fill edge.
+// Without a spark descriptor it draws nothing, preserving unskinned bars.
+func (t *Theme) drawProgressSpark(info core.WidgetInfo, track core.Rect, fillWidth float32) {
+	spark, fallback := t.resolveDescriptor(info.Kind, skin.PartSpark, info.State)
+	if !hasTexture(spark, fallback) {
+		return
+	}
+	amount := fillWidth / track.W
+	if track.W <= 0 || amount <= 0 || amount >= 1 {
+		return
+	}
+	width, height := sparkSize(spark, track)
+	x := track.X + fillWidth - width/2
+	if x < track.X {
+		x = track.X
+	}
+	if x+width > track.X+track.W {
+		x = track.X + track.W - width
+	}
+	destination := t.snap(core.Rect{X: x, Y: track.Y + (track.H-height)/2, W: width, H: height})
+	tint := effectiveTint(spark, false)
+	t.logDrawCall(info.Kind, skin.PartSpark, info.State, destination, destination, spark, tint, false)
+	if rl.IsWindowReady() {
+		texture := toRaylibTexture(spark.Texture)
+		drawSingleTexture(texture, atlasRegion(spark, texture), destination, tint)
+	}
+}
+
+// sparkSize derives a marker size from its atlas region, defaulting to a
+// thin full-height bar when the region carries no size.
+func sparkSize(descriptor skin.SkinDescriptor, track core.Rect) (float32, float32) {
+	width, height := descriptor.AtlasRegion.W, descriptor.AtlasRegion.H
+	if width <= 0 {
+		width = 4
+	}
+	if height <= 0 {
+		height = track.H
+	}
+	if height > track.H && track.H > 0 {
+		height = track.H
+	}
+	return width, height
 }
 
 // clamp01 confines value to the unit interval.

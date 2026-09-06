@@ -573,7 +573,9 @@ func (g *gallery) draw() {
 	g.panelTitle(g.layout.leftPanel, "Widgets")
 	g.panelTitle(g.layout.rightPanel, "Containers, clipping, and states")
 
-	g.facade.Draw()
+	// Widgets first so app chrome can sit above them; the popup goes last
+	// so overlapping captions and values never paint over it.
+	g.facade.DrawWidgets()
 
 	checkboxBounds := g.checkbox.Bounds()
 	textboxBounds := g.textbox.Bounds()
@@ -594,6 +596,9 @@ func (g *gallery) draw() {
 	g.drawScrollContents()
 	g.drawStateSamples()
 	g.drawItalic(g.status, 30, int32(g.designHeight-18), 15, color.RGBA{R: 161, G: 192, B: 224, A: 255})
+
+	// Popup above every app layer: text under an open popup stays behind it.
+	g.facade.DrawPopup()
 
 	rl.PopMatrix()
 	rl.EndDrawing()

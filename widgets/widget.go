@@ -293,29 +293,15 @@ func (w *Widget) DropdownPopupBounds() core.Rect {
 	}
 }
 
-// DropdownRowBounds returns the bounds for one dropdown item.
-func (w *Widget) DropdownRowBounds(index int) (core.Rect, bool) {
-	if w == nil || w.kind != core.WidgetDropdown || index < 0 || index >= len(w.dropdownItems) {
-		return core.Rect{}, false
-	}
-	popup := w.DropdownPopupBounds()
-	return core.Rect{X: popup.X, Y: popup.Y + float32(index*36), W: popup.W, H: 36}, true
-}
-
-// DropdownIndexAt returns the item under pos, or -1 outside the popup.
-func (w *Widget) DropdownIndexAt(pos core.Vec2) int {
+// DropdownItemCount returns the number of dropdown items without exposing
+// item storage. Row hit testing is skin-aware and lives in render
+// (Theme.DropdownPopupContent with DropdownPopupIndex), so this package
+// keeps only the skin-free item count for input and draw call sites.
+func (w *Widget) DropdownItemCount() int {
 	if w == nil || w.kind != core.WidgetDropdown {
-		return -1
+		return 0
 	}
-	popup := w.DropdownPopupBounds()
-	if !popup.Contains(pos) {
-		return -1
-	}
-	index := int((pos.Y - popup.Y) / 36)
-	if index < 0 || index >= len(w.dropdownItems) {
-		return -1
-	}
-	return index
+	return len(w.dropdownItems)
 }
 
 // TypeChar appends ch to a textbox and reports whether its text changed.

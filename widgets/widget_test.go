@@ -95,18 +95,24 @@ func TestDropdownCopiesInputAndOutput(t *testing.T) {
 	}
 }
 
-// TestDropdownPopupGeometry checks library-owned popup row hit testing.
+// TestDropdownPopupGeometry checks popup outer bounds and item counts.
+// Row geometry is skin-aware and owned by render (DropdownPopupContent
+// with DropdownPopupRow/Index), so this package asserts only the
+// skin-free outer bounds and count used by those call sites.
 func TestDropdownPopupGeometry(t *testing.T) {
 	dropdown := widgets.NewDropdown("class", core.Rect{X: 10, Y: 20, W: 180, H: 42}, []string{"Warrior", "Ranger", "Mage"}, 0)
 	if popup := dropdown.DropdownPopupBounds(); popup != (core.Rect{X: 10, Y: 66, W: 180, H: 108}) {
 		t.Fatalf("popup bounds = %+v", popup)
 	}
-	row, ok := dropdown.DropdownRowBounds(1)
-	if !ok || row != (core.Rect{X: 10, Y: 102, W: 180, H: 36}) {
-		t.Fatalf("second row = %+v/%v", row, ok)
+	if got := dropdown.DropdownItemCount(); got != 3 {
+		t.Fatalf("item count = %d", got)
 	}
-	if got := dropdown.DropdownIndexAt(core.Vec2{X: 20, Y: 110}); got != 1 {
-		t.Fatalf("row index = %d", got)
+	if got := widgets.NewDropdown("empty", core.Rect{}, nil, 0).DropdownItemCount(); got != 0 {
+		t.Fatalf("empty item count = %d", got)
+	}
+	var nilWidget *widgets.Widget
+	if nilWidget.DropdownItemCount() != 0 {
+		t.Fatal("nil widget item count must be 0")
 	}
 }
 

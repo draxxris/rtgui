@@ -206,7 +206,7 @@ func (u *UI) pressOpenDropdown(dropdown *widgets.Widget, pos core.Vec2) bool {
 		u.pressed = dropdown
 		return true
 	}
-	if dropdown.DropdownIndexAt(pos) >= 0 {
+	if u.dropdownPopupIndex(dropdown, pos) >= 0 {
 		u.pressed = dropdown
 		return true
 	}
@@ -223,7 +223,7 @@ func (u *UI) releaseOpenDropdown(dropdown *widgets.Widget, pos core.Vec2) bool {
 		u.fireOnClick(dropdown.Name())
 		return true
 	}
-	index := dropdown.DropdownIndexAt(pos)
+	index := u.dropdownPopupIndex(dropdown, pos)
 	u.clearFocus()
 	if index >= 0 {
 		dropdown.SetDropdownIndex(index)

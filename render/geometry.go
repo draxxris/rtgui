@@ -82,18 +82,23 @@ func nonNegative(value float32) float32 {
 	return value
 }
 
-// ContentRect returns the area available to content. A nine-patch border is
-// the minimum inset; explicit padding may add to it.
-func ContentRect(bounds core.Rect, descriptor skin.SkinDescriptor) core.Rect {
-	left := maxFloat(0, descriptor.PaddingLeft)
-	top := maxFloat(0, descriptor.PaddingTop)
-	right := maxFloat(0, descriptor.PaddingRight)
-	bottom := maxFloat(0, descriptor.PaddingBottom)
-	if descriptor.HasNinePatch {
-		left = maxFloat(left, float32(descriptor.NinePatch.Left))
-		top = maxFloat(top, float32(descriptor.NinePatch.Top))
-		right = maxFloat(right, float32(descriptor.NinePatch.Right))
-		bottom = maxFloat(bottom, float32(descriptor.NinePatch.Bottom))
+// ContentRect returns the area available to content inside one or more
+// descriptors, typically a background and its border. Each side takes the
+// maximum inset across padding and nine-patch borders; a nine-patch border
+// is the minimum inset and explicit padding may add to it.
+func ContentRect(bounds core.Rect, descriptors ...skin.SkinDescriptor) core.Rect {
+	left, top, right, bottom := float32(0), float32(0), float32(0), float32(0)
+	for _, descriptor := range descriptors {
+		left = maxFloat(left, maxFloat(0, descriptor.PaddingLeft))
+		top = maxFloat(top, maxFloat(0, descriptor.PaddingTop))
+		right = maxFloat(right, maxFloat(0, descriptor.PaddingRight))
+		bottom = maxFloat(bottom, maxFloat(0, descriptor.PaddingBottom))
+		if descriptor.HasNinePatch {
+			left = maxFloat(left, float32(descriptor.NinePatch.Left))
+			top = maxFloat(top, float32(descriptor.NinePatch.Top))
+			right = maxFloat(right, float32(descriptor.NinePatch.Right))
+			bottom = maxFloat(bottom, float32(descriptor.NinePatch.Bottom))
+		}
 	}
 	bounds.W = nonNegative(bounds.W)
 	bounds.H = nonNegative(bounds.H)

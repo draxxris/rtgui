@@ -262,7 +262,7 @@ func (t *Theme) buildCSSDescriptor(key skin.SkinKey, entry mergedRule, base stri
 		descriptor.HasTexture = true
 		descriptor.Tint = cssTint(entry)
 	}
-	if key.Part == skin.PartBorder && entry.hasSlice {
+	if (key.Part == skin.PartBorder || key.Part == skin.PartPopupBorder) && entry.hasSlice {
 		descriptor.NinePatch.Left, descriptor.NinePatch.Top = entry.slice, entry.slice
 		descriptor.NinePatch.Right, descriptor.NinePatch.Bottom = entry.slice, entry.slice
 		descriptor.HasNinePatch = true

@@ -49,6 +49,8 @@ func TestParseCSSSelectors(t *testing.T) {
 		"Checkbox::box":          {"Checkbox", PartIcon},
 		"Slider::thumb:hover":    {"Slider", PartThumb},
 		"Checkbox::box:disabled": {"Checkbox", PartIcon},
+		"ProgressBar::fill":      {"ProgressBar", PartOverlay},
+		"Dropdown::highlight":    {"Dropdown", PartOverlay},
 	}
 	for selector, want := range parts {
 		rules, err := ParseCSS(selector + ` { background-image: url("a.png"); }`)
@@ -83,6 +85,8 @@ func TestParseCSSErrors(t *testing.T) {
 		`Slider::thumb { border-image-source: url("a.png"); }`,
 		`Slider::thumb { border-image-slice: 4; }`,
 		`Slider::thumb { padding: 2; }`,
+		`ProgressBar::fill { border-image-source: url("a.png"); }`,
+		`Dropdown::highlight { padding: 2; }`,
 	}
 	for _, text := range cases {
 		if _, err := ParseCSS(text); err == nil {

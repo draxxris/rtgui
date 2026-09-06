@@ -81,6 +81,14 @@ func TestContentRect(t *testing.T) {
 	if got := ContentRect(core.Rect{W: -1, H: -1}, descriptor); got.W != 0 || got.H != 0 {
 		t.Fatalf("negative bounds=%v", got)
 	}
+	background := skin.SkinDescriptor{PaddingLeft: 2, PaddingTop: 12, PaddingRight: 4, PaddingBottom: 3}
+	border := skin.SkinDescriptor{HasNinePatch: true, NinePatch: skin.NinePatch{Left: 8, Top: 6, Right: 10, Bottom: 7}}
+	if got := ContentRect(bounds, background, border); got != want {
+		t.Fatalf("merged content=%v want=%v", got, want)
+	}
+	if got := ContentRect(bounds); got != bounds {
+		t.Fatalf("empty content=%v want=%v", got, bounds)
+	}
 }
 
 // TestThemeDoesNotRecordWithoutRecorder verifies diagnostics are opt-in.

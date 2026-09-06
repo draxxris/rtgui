@@ -2,21 +2,56 @@ package ui
 
 import (
 	"github.com/draxxris/rtgui/core"
+	"github.com/draxxris/rtgui/render"
 	"github.com/draxxris/rtgui/skin"
 	"github.com/draxxris/rtgui/widgets"
 )
 
 // Draw reconciles disabled owners, starts one optional recorder frame, and
 // renders registered widgets plus the library-owned dropdown popup.
+// Apps that draw their own layers after Draw keep the popup covered; use
+// DrawWidgets, then app layers, then DrawPopup to keep the popup on top.
 func (u *UI) Draw() {
 	if u == nil || u.theme == nil {
 		return
 	}
 	u.reconcileInteraction()
 	u.theme.BeginFrame()
+	u.drawWidgets()
+	u.drawPopup()
+}
+
+// DrawWidgets reconciles disabled owners, starts one optional recorder
+// frame, and renders registered widgets without the dropdown popup.
+// Follow app-specific layers with DrawPopup so the popup stays on top.
+func (u *UI) DrawWidgets() {
+	if u == nil || u.theme == nil {
+		return
+	}
+	u.reconcileInteraction()
+	u.theme.BeginFrame()
+	u.drawWidgets()
+}
+
+// DrawPopup renders the library-owned dropdown popup into the current
+// recorder frame without starting a new one, so widget and app-layer calls
+// drawn since DrawWidgets are retained underneath the popup.
+func (u *UI) DrawPopup() {
+	if u == nil || u.theme == nil {
+		return
+	}
+	u.drawPopup()
+}
+
+// drawWidgets renders every registered widget in order without the popup.
+func (u *UI) drawWidgets() {
 	for _, name := range u.order {
 		u.drawOne(u.widgets[name])
 	}
+}
+
+// drawPopup renders the open dropdown popup above all registered widgets.
+func (u *UI) drawPopup() {
 	if dropdown := u.openDropdown(); dropdown != nil {
 		u.drawDropdownPopup(dropdown)
 	}
@@ -62,6 +97,17 @@ func (u *UI) drawDropdownArrow(widget *widgets.Widget, state core.WidgetState) {
 	u.theme.DrawWidgetPart(widget.Kind(), skin.PartArrow, arrow, state)
 }
 
+// dropdownPopupIndex resolves one skin-aware popup row under pos. The
+// content area comes from the theme so hit testing always matches the
+// drawn rows, including popup border and padding insets.
+func (u *UI) dropdownPopupIndex(dropdown *widgets.Widget, pos core.Vec2) int {
+	if dropdown == nil {
+		return -1
+	}
+	content := u.theme.DropdownPopupContent(dropdown.DropdownPopupBounds(), core.StatePressed)
+	return render.DropdownPopupIndex(content, dropdown.DropdownItemCount(), pos)
+}
+
 // drawDropdownPopup renders a copied item snapshot above all registered widgets.
 func (u *UI) drawDropdownPopup(widget *widgets.Widget) {
 	popup := widget.DropdownPopupBounds()
@@ -70,7 +116,7 @@ func (u *UI) drawDropdownPopup(widget *widgets.Widget) {
 	}
 	info := widget.Snapshot(core.StatePressed)
 	info.Bounds = popup
-	u.theme.DrawDropdownPopup(info, widget.DropdownItems(), widget.DropdownIndexAt(u.pointer))
+	u.theme.DrawDropdownPopup(info, widget.DropdownItems(), u.dropdownPopupIndex(widget, u.pointer))
 }
 
 // widgetText resolves plain, textbox, or selected dropdown display text.
@@ -95,6 +141,7 @@ func needsBorder(kind core.WidgetKind) bool {
 		core.WidgetTextbox,
 		core.WidgetScrollPanel,
 		core.WidgetDropdown,
+		core.WidgetProgressBar,
 		core.WidgetFrame:
 		return true
 	default:

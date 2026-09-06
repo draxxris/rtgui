@@ -62,6 +62,23 @@ Slider::thumb:disabled {
     background-image-tint: #b9b9c3;
 }
 
+Dropdown {
+    border-image-source: url("kenney/panel_border_grey.png");
+    border-image-slice: 8;
+    padding: 8;
+}
+Dropdown::popup {
+    background-image: url("kenney/background.png");
+    background-image-tint: #1111ff;
+    border-image-source: url("kenney/panel_border_grey.png");
+    border-image-slice: 8;
+    padding: 0;
+}
+Dropdown::highlight {
+    background-image: url("kenney/background.png");
+    background-image-tint: #ffff0066;
+}
+
 Dropdown::arrow {
     background-image: url("kenney/blue/arrow_basic_s_small.png");
 }
