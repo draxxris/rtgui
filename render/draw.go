@@ -115,15 +115,19 @@ func validPatch(destination, source core.Rect) bool {
 func skipCenter(centerFill bool, index int) bool { return !centerFill && index == 4 }
 
 // drawTextInContent lays out and draws text, recording its text operation when enabled.
+// Sizes are requested ~1.5x the nominal body size: raylib interprets TTF
+// sizes as pixel height (ascent+descent) rather than EM units, so common
+// faces render much smaller than requested (see the in-house renderer
+// roadmap entry). Sizes below target a true ~13-15px EM for body text.
 func (t *Theme) drawTextInContent(kind core.WidgetKind, value string, content core.Rect, state core.WidgetState) {
 	if value == "" || content.W <= 0 || content.H <= 0 {
 		return
 	}
-	fontSize := int32(16)
+	fontSize := int32(22)
 	if content.H < 20 {
-		fontSize = 10
-	} else if content.H < 28 {
 		fontSize = 14
+	} else if content.H < 28 {
+		fontSize = 20
 	}
 	textColor := color.RGBA{R: 20, G: 20, B: 20, A: 255}
 	if state == core.StateDisabled {
@@ -223,10 +227,10 @@ func (t *Theme) drawDropdownText(info core.WidgetInfo, row core.Rect, value stri
 		return
 	}
 	if t.HasFont() {
-		rl.DrawTextEx(t.FontForSize(16), value, rl.NewVector2(row.X+16, row.Y+8), 16, 1.6, tint)
+		rl.DrawTextEx(t.FontForSize(22), value, rl.NewVector2(row.X+16, row.Y+8), 22, 2.2, tint)
 		return
 	}
-	rl.DrawText(value, int32(row.X+16), int32(row.Y+8), 16, tint)
+	rl.DrawText(value, int32(row.X+16), int32(row.Y+8), 22, tint)
 }
 
 // drawCheckbox renders its icon state followed by its optional text.

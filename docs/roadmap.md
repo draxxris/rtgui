@@ -2,7 +2,8 @@
 
 This roadmap lists widgets `rtgui` should add to support an MMORPG client.
 It assumes the current set: `Button`, `Label`, `Checkbox`, `Textbox`,
-`ScrollPanel`, `Dropdown`, `Slider`, `ProgressBar`, `Frame`, `TabBar`, plus
+`ScrollPanel`, `Dropdown`, `Slider`, `ProgressBar`, `Frame`, `TabBar`,
+`RichText`, plus
 the ephemeral UI-owned `Menu` and plain-text `Tooltip`, and instance-owned
 `dragdrop.Controller` targets and payloads.
 
@@ -10,7 +11,10 @@ Shipped v1 foundations: `TabBar` ships fixed equal-width tabs without
 overflow scroll, closable tabs, or badges. `Menu` ships a flat list with
 separators and disabled rows without nested submenus, check items, or
 keyboard navigation. `Tooltip` ships single-style text without rarity
-colors, stat lines, icons, or item comparison. The P0 entries below keep
+colors, stat lines, icons, or item comparison. `RichText` ships one wrapped
+message with clickable item/player/URL links, link tooltips, and
+content-height measurement without text selection, inline images, markup
+parsing, or a virtualized log. The P0 entries below keep
 the remaining advanced requirements.
 
 ## Design Principles for New Widgets
@@ -65,7 +69,7 @@ the remaining advanced requirements.
     priority.
   - Used for player auras, target auras, and party raid buffs.
 
-- **ChatBox: Log, Tabs, and Input**
+- **ChatBox: Log, Tabs, and Input** (single-message v1 shipped as `RichText`; remaining work below)
   - Virtualized rich-text log with channels, filters, history limit, and
     clickable item links and player names.
   - Unread flashing tabs plus multi-line input with history, whisper
@@ -140,3 +144,37 @@ the remaining advanced requirements.
    playable combat and inventory loop.
 3. Virtualized `ListView`, `ChatBox`, `Toasts` — social and info loop.
 4. Minimap markers, `UnitFrames`, quest tracker — full MMO feel.
+
+## Future: In-House Text Renderer
+
+Background: raylib interprets TTF sizes as pixel height
+(`ascent + descent`) rather than EM units, so faces render much smaller
+than requested — measured per 56px EM: Grenze 0.67x, Open Sans 0.73x,
+Valley Sans 0.82x. At small UI sizes this pushes advances into heavy
+quantization, which reads as uneven spacing, and it punishes light
+weights. The current mitigations are request-side oversizing (see
+`drawTextInContent`) plus font-measured rich-text layout with an
+in-string space derivation (`richSpaceAdvance`) and estimation headless.
+Raylib also ignores GPOS kerning entirely, and headless versus windowed
+metrics remain two paths that merely agree.
+
+Goal: parse, shape, and rasterize glyphs in pure Go, own the texture
+atlas in `render`, and paint textured quads through raylib. That buys
+true EM sizing with no per-font fudge factors, real kerning and shaping,
+one metric path headless and windowed (exact hit-testing and layout in
+tests), and real headless screenshots with text instead of placeholder
+PNGs.
+
+Evaluation notes: `github.com/BaseMax/go-text-render` (MIT) is a
+character-cell layout engine for ASCII, SVG, and PNG output — it does no
+glyph rasterization, textureatlas ownership, or shaping, so on current
+evidence it does not fit this goal; verify before adopting. Better-fitting
+starting points to evaluate are `golang.org/x/image/font` with a
+TrueType rasterizer, plus established GPU glyph-cache patterns for atlas
+management.
+
+Scope warnings: atlas packing and texture uploads, cache invalidation,
+CJK coverage, and complex-script shaping if ever needed. This is a
+project, not a patch — sequence it after the widget loops above. Until
+then, keep the request-side oversizing and document per-face effective
+sizes when adding fonts.

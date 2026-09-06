@@ -12,9 +12,10 @@ const (
 	// TooltipMaxWidth caps tooltip content width in logical pixels.
 	TooltipMaxWidth = 280
 	// TooltipFontSize is the fixed tooltip text size in logical pixels.
-	TooltipFontSize = 14
+	// Requested ~1.5x nominal (see drawTextInContent) for a true ~13px EM.
+	TooltipFontSize = 20
 	// TooltipLineHeight is the fixed vertical advance per wrapped line.
-	TooltipLineHeight = 18
+	TooltipLineHeight = 24
 	// TooltipPadding is the fallback content inset when no skin padding exists.
 	TooltipPadding = 8
 	// TooltipCursorOffset positions the popup away from the pointer.

@@ -71,6 +71,10 @@ func (u *UI) drawOne(widget *widgets.Widget) {
 		u.drawTabBar(widget, state)
 		return
 	}
+	if widget.Kind() == core.WidgetRichText {
+		u.drawRichText(widget, state)
+		return
+	}
 	info := widget.Snapshot(state)
 	u.theme.DrawWidget(info, widgetText(widget), widget.Value(), widget.Checked())
 	if needsBorder(widget.Kind()) {
@@ -151,11 +155,39 @@ func needsBorder(kind core.WidgetKind) bool {
 		core.WidgetDropdown,
 		core.WidgetProgressBar,
 		core.WidgetFrame,
-		core.WidgetTabBar:
+		core.WidgetTabBar,
+		core.WidgetRichText:
 		return true
 	default:
 		return false
 	}
+}
+
+// drawRichText renders one message with hover-aware link highlighting.
+func (u *UI) drawRichText(message *widgets.Widget, state core.WidgetState) {
+	info := message.Snapshot(state)
+	segments := message.RichSegments()
+	if len(segments) == 0 {
+		u.theme.DrawWidget(info, "", message.Value(), message.Checked())
+		if needsBorder(message.Kind()) {
+			u.theme.DrawWidgetPart(message.Kind(), skin.PartBorder, message.Bounds(), state)
+		}
+		return
+	}
+	u.theme.DrawRichText(info, segments, u.richHoverSeg(message))
+	if needsBorder(message.Kind()) {
+		u.theme.DrawWidgetPart(message.Kind(), skin.PartBorder, message.Bounds(), state)
+	}
+}
+
+// richHoverSeg resolves the highlighted link segment for drawing, or -1.
+// The lookup is gated on hover-derived tip state so highlight, press arm,
+// and tooltip always agree on the same segment.
+func (u *UI) richHoverSeg(message *widgets.Widget) int {
+	if message == nil || u.tipWidget != message || u.tipSeg < 0 {
+		return -1
+	}
+	return u.tipSeg
 }
 
 // drawTabBar renders one tab strip with pointer-aware cell states.

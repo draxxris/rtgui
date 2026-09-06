@@ -1,5 +1,7 @@
 package ui
 
+import "github.com/draxxris/rtgui/core"
+
 // OnClick registers a synchronous activation callback for name. Unknown names
 // are retained across removal and later registration; nil removes this field.
 func (u *UI) OnClick(name string, fn func()) {
@@ -41,7 +43,7 @@ func (u *UI) callback(name string) callbackRecord {
 }
 
 func (u *UI) storeCallback(name string, record callbackRecord) {
-	if record.onClick == nil && record.onChange == nil && record.onText == nil && record.onTabSelect == nil {
+	if record.onClick == nil && record.onChange == nil && record.onText == nil && record.onTabSelect == nil && record.onLinkClick == nil && record.onLinkTooltip == nil {
 		delete(u.callbacks, name)
 		return
 	}
@@ -87,6 +89,38 @@ func (u *UI) fireOnTabSelect(name string, index int) {
 	if u != nil {
 		if fn := u.callbacks[name].onTabSelect; fn != nil {
 			fn(index)
+		}
+	}
+}
+
+// OnLinkClick registers a synchronous rich-text link activation callback
+// for name. Unknown names are retained across removal and later
+// registration; nil removes this field.
+func (u *UI) OnLinkClick(name string, fn func(core.Link)) {
+	if u == nil || name == "" {
+		return
+	}
+	record := u.callback(name)
+	record.onLinkClick = fn
+	u.storeCallback(name, record)
+}
+
+// OnLinkTooltipRequested registers the hover-text provider consulted once
+// per link hover change when the link carries no static tooltip. Returning
+// "" shows no tooltip; nil removes this field.
+func (u *UI) OnLinkTooltipRequested(name string, fn func(core.Link) string) {
+	if u == nil || name == "" {
+		return
+	}
+	record := u.callback(name)
+	record.onLinkTooltip = fn
+	u.storeCallback(name, record)
+}
+
+func (u *UI) fireOnLinkClick(name string, link core.Link) {
+	if u != nil {
+		if fn := u.callbacks[name].onLinkClick; fn != nil {
+			fn(link)
 		}
 	}
 }

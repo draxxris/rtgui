@@ -22,6 +22,7 @@ type Widget struct {
 	dropdownItems []string
 	tabSelected   int
 	tabLabels     []string
+	richSegments  []core.RichSegment
 	textBuf       *text.Buffer
 }
 
@@ -84,6 +85,14 @@ func NewTabBar(name string, bounds core.Rect, labels []string, selected int) *Wi
 	widget := &Widget{name: name, kind: core.WidgetTabBar, frame: layout.New(name, bounds), enabled: true, tabSelected: -1}
 	widget.SetTabLabels(labels)
 	widget.SetSelectedTab(selected)
+	return widget
+}
+
+// NewRichText returns an enabled rich-text message and copies segments so
+// caller mutation cannot change widget configuration.
+func NewRichText(name string, bounds core.Rect, segments []core.RichSegment) *Widget {
+	widget := &Widget{name: name, kind: core.WidgetRichText, frame: layout.New(name, bounds), enabled: true}
+	widget.SetRichSegments(segments)
 	return widget
 }
 
@@ -373,6 +382,70 @@ func (w *Widget) TabSelection() (string, bool) {
 	return w.tabLabels[w.tabSelected], true
 }
 
+// RichSegments returns a snapshot that callers may mutate freely.
+func (w *Widget) RichSegments() []core.RichSegment {
+	if w == nil || w.kind != core.WidgetRichText {
+		return nil
+	}
+	return append([]core.RichSegment(nil), w.richSegments...)
+}
+
+// SetRichSegments copies message segments and reports whether segment data
+// changed. Wrapping and link geometry derive from this data in render.
+func (w *Widget) SetRichSegments(segments []core.RichSegment) bool {
+	if w == nil || w.kind != core.WidgetRichText {
+		return false
+	}
+	if equalRichSegments(w.richSegments, segments) {
+		return false
+	}
+	w.richSegments = append(w.richSegments[:0], segments...)
+	return true
+}
+
+// RichPlainText concatenates segment text for search and copy support.
+func (w *Widget) RichPlainText() string {
+	if w == nil || w.kind != core.WidgetRichText {
+		return ""
+	}
+	text := ""
+	for _, segment := range w.richSegments {
+		text += segment.Text
+	}
+	return text
+}
+
+// LinkCount returns the number of linked segments without exposing storage.
+func (w *Widget) LinkCount() int {
+	if w == nil || w.kind != core.WidgetRichText {
+		return 0
+	}
+	count := 0
+	for _, segment := range w.richSegments {
+		if segment.Link.Kind != core.LinkNone {
+			count++
+		}
+	}
+	return count
+}
+
+// LinkAt returns the nth link in segment order, or false when out of range.
+func (w *Widget) LinkAt(index int) (core.Link, bool) {
+	if w == nil || w.kind != core.WidgetRichText || index < 0 {
+		return core.Link{}, false
+	}
+	for _, segment := range w.richSegments {
+		if segment.Link.Kind == core.LinkNone {
+			continue
+		}
+		if index == 0 {
+			return segment.Link, true
+		}
+		index--
+	}
+	return core.Link{}, false
+}
+
 // TypeChar appends ch to a textbox and reports whether its text changed.
 func (w *Widget) TypeChar(ch rune) bool {
 	if w == nil || w.kind != core.WidgetTextbox || w.textBuf == nil {
@@ -399,6 +472,19 @@ func (w *Widget) Snapshot(state core.WidgetState) core.WidgetInfo {
 
 // equalStrings compares dropdown item snapshots without allocating.
 func equalStrings(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for i := range left {
+		if left[i] != right[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// equalRichSegments compares message segment snapshots field by field.
+func equalRichSegments(left, right []core.RichSegment) bool {
 	if len(left) != len(right) {
 		return false
 	}

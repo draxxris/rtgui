@@ -7,13 +7,14 @@
 // There is no package-global UI state.
 //
 // Gallery typography uses the Grenze family (SIL OFL, see
-// testdata/fonts/Grenze-OFL.txt): Grenze-Light for titles, values, and rows,
-// Grenze-LightItalic for captions and the status line. Widget text rendered
-// through render.Theme uses Grenze-Light once the theme font loads.
+// testdata/fonts/Grenze-OFL.txt): Grenze-Regular for titles, values, and rows,
+// Grenze-Italic for captions and the status line. Widget text rendered
+// through render.Theme uses Grenze-Regular once the theme font loads.
 //
 // Gallery contract: two panels, button, checkbox (toggles button enabled),
 // textbox (typing + backspace including multi-byte UTF-8),
 // dropdown popup, slider driving progress, tab bar switching the demo label,
+// chat message with clickable item/player/URL links plus link tooltips,
 // right-click context menu, hover tooltips plus a T-pinned tooltip,
 // scroll panel with wheel + scissor,
 // frame with relative-move child (layout.MoveFrame), state-sample strip,
@@ -71,6 +72,7 @@ type galleryLayout struct {
 	slider, progress      core.Rect
 	panel, label          core.Rect
 	tabbar                core.Rect
+	chat                  core.Rect
 	frame, frameButton    core.Rect
 	scroll                core.Rect
 }
@@ -89,6 +91,7 @@ type gallery struct {
 	panel       *widgets.Widget
 	label       *widgets.Widget
 	tabbar      *widgets.Widget
+	chat        *widgets.Widget
 	frame       *widgets.Widget
 	frameButton *widgets.Widget
 	scroll      *widgets.Widget
@@ -182,7 +185,11 @@ func runHeadlessSmoke() {
 	slider := widgets.NewSlider("smokeSlider", core.Rect{X: 10, Y: 110, W: 120, H: 40}, 0.5)
 	field := widgets.NewTextbox("smokeField", core.Rect{X: 10, Y: 160, W: 200, H: 30}, 64)
 	tabs := widgets.NewTabBar("smokeTabs", core.Rect{X: 10, Y: 210, W: 200, H: 36}, []string{"A", "B"}, 0)
-	if err := facade.Add(button, checkbox, slider, field, tabs); err != nil {
+	chat := widgets.NewRichText("smokeChat", core.Rect{X: 230, Y: 10, W: 200, H: 60}, []core.RichSegment{
+		{Text: "hi "},
+		{Text: "item", Link: core.Link{Kind: core.LinkItem, Target: "item:1"}},
+	})
+	if err := facade.Add(button, checkbox, slider, field, tabs, chat); err != nil {
 		log.Fatal(err)
 	}
 	clicks := 0
@@ -190,6 +197,9 @@ func runHeadlessSmoke() {
 	tabSelected := -1
 	facade.OnTabSelect("smokeTabs", func(index int) { tabSelected = index })
 	facade.SelectTab("smokeTabs", 1)
+	linkClicked := ""
+	facade.OnLinkClick("smokeChat", func(link core.Link) { linkClicked = link.Target })
+	facade.ActivateLink("smokeChat", 0)
 	facade.SetTooltip("smokeButton", "headless tip")
 	center := core.Vec2{X: 60, Y: 30}
 	facade.HandleMouse(ui.MouseEvent{Pos: center, Pressed: true})
@@ -200,7 +210,7 @@ func runHeadlessSmoke() {
 	facade.CloseMenu()
 	facade.Draw()
 	calls := recorder.Calls()
-	log.Printf("headless smoke: %d draw calls logged (clicks=%d tab=%d fallback=%v)", len(calls), clicks, tabSelected, len(calls) > 0 && calls[0].Fallback)
+	log.Printf("headless smoke: %d draw calls logged (clicks=%d tab=%d link=%q fallback=%v)", len(calls), clicks, tabSelected, linkClicked, len(calls) > 0 && calls[0].Fallback)
 
 	if *screenshot != "" {
 		// Create a placeholder image that documents headless mode.
@@ -291,19 +301,19 @@ func drawRect(img *image.RGBA, x, y, w, h int, c color.RGBA) {
 }
 
 // loadGalleryFonts loads the checked-in Grenze TTFs into the theme.
-// Widget text uses Grenze-Light via drawTextInContent; captions and the
-// status line use Grenze-LightItalic through the gallery draw helpers.
+// Widget text uses Grenze-Regular via drawTextInContent; captions and the
+// status line use Grenze-Italic through the gallery draw helpers.
 func loadGalleryFonts(theme *render.Theme) {
-	regular := findFontFile("Grenze-Light.ttf")
+	regular := findFontFile("Grenze-Regular.ttf")
 	if regular == "" {
-		log.Fatalf("gallery font not found; expected testdata/fonts/Grenze-Light.ttf (searched cwd and exe parents)")
+		log.Fatalf("gallery font not found; expected testdata/fonts/Grenze-Regular.ttf (searched cwd and exe parents)")
 	}
 	if err := theme.LoadFont(regular); err != nil {
 		log.Fatalf("could not load gallery font %q: %v", regular, err)
 	}
-	italic := findFontFile("Grenze-LightItalic.ttf")
+	italic := findFontFile("Grenze-Italic.ttf")
 	if italic == "" {
-		log.Fatalf("gallery italic font not found; expected testdata/fonts/Grenze-LightItalic.ttf (searched cwd and exe parents)")
+		log.Fatalf("gallery italic font not found; expected testdata/fonts/Grenze-Italic.ttf (searched cwd and exe parents)")
 	}
 	if err := theme.LoadItalicFont(italic); err != nil {
 		log.Fatalf("could not load gallery italic font %q: %v", italic, err)
@@ -387,25 +397,36 @@ func firstExistingFile(candidates []string) string {
 // fixed design-resolution layout.
 func newGallery(facade *ui.UI) *gallery {
 	g := &gallery{
-		facade:      facade,
-		leftPanel:   widgets.NewFrame("leftPanel", core.Rect{}),
-		rightPanel:  widgets.NewFrame("rightPanel", core.Rect{}),
-		button:      widgets.NewButton("primaryButton", core.Rect{}, "Primary button"),
-		checkbox:    widgets.NewCheckbox("enableCheckbox", core.Rect{}, true),
-		textbox:     widgets.NewTextbox("inputTextbox", core.Rect{}, 128),
-		dropdown:    widgets.NewDropdown("classDropdown", core.Rect{}, []string{"Warrior", "Ranger", "Mage"}, 0),
-		slider:      widgets.NewSlider("valueSlider", core.Rect{}, 0.35),
-		progress:    widgets.NewProgressBar("valueProgress", core.Rect{}, 0.35),
-		panel:       widgets.NewFrame("demoPanel", core.Rect{}),
-		label:       widgets.NewLabel("demoLabel", core.Rect{}, "Textured label"),
-		tabbar:      widgets.NewTabBar("demoTabs", core.Rect{}, []string{"Widgets", "Style", "About"}, 0),
+		facade:     facade,
+		leftPanel:  widgets.NewFrame("leftPanel", core.Rect{}),
+		rightPanel: widgets.NewFrame("rightPanel", core.Rect{}),
+		button:     widgets.NewButton("primaryButton", core.Rect{}, "Primary button"),
+		checkbox:   widgets.NewCheckbox("enableCheckbox", core.Rect{}, true),
+		textbox:    widgets.NewTextbox("inputTextbox", core.Rect{}, 128),
+		dropdown:   widgets.NewDropdown("classDropdown", core.Rect{}, []string{"Warrior", "Ranger", "Mage"}, 0),
+		slider:     widgets.NewSlider("valueSlider", core.Rect{}, 0.35),
+		progress:   widgets.NewProgressBar("valueProgress", core.Rect{}, 0.35),
+		panel:      widgets.NewFrame("demoPanel", core.Rect{}),
+		label:      widgets.NewLabel("demoLabel", core.Rect{}, "Textured label"),
+		tabbar:     widgets.NewTabBar("demoTabs", core.Rect{}, []string{"Widgets", "Style", "About"}, 0),
+		chat: widgets.NewRichText("chatMessage", core.Rect{}, []core.RichSegment{
+			{Text: "Guild: need "},
+			{Text: "Thunderfury", Color: core.Color{R: 255, G: 140, B: 40, A: 255}, HasColor: true,
+				Link: core.Link{Kind: core.LinkItem, Target: "item:19019"}},
+			{Text: " for tonight — whisper "},
+			{Text: "Mor'nor", Color: core.Color{R: 120, G: 220, B: 120, A: 255}, HasColor: true,
+				Link: core.Link{Kind: core.LinkPlayer, Target: "Mor'nor"}},
+			{Text: " or see "},
+			{Text: "the wiki", Link: core.Link{Kind: core.LinkURL, Target: "https://example.com/guide"}},
+			{Text: "."},
+		}),
 		frame:       widgets.NewFrame("demoFrame", core.Rect{}),
 		frameButton: widgets.NewButton("frameChildButton", core.Rect{}, "Frame child"),
 		scroll:      widgets.NewScrollPanel("scrollPanel", core.Rect{}),
 		status:      "Click a widget to interact with it — press R to MoveFrame",
 	}
 	g.textbox.SetText("Type here")
-	if err := facade.Add(g.leftPanel, g.rightPanel, g.button, g.checkbox, g.textbox, g.dropdown, g.slider, g.progress, g.panel, g.label, g.tabbar, g.frame, g.frameButton, g.scroll); err != nil {
+	if err := facade.Add(g.leftPanel, g.rightPanel, g.button, g.checkbox, g.textbox, g.dropdown, g.slider, g.progress, g.panel, g.label, g.tabbar, g.chat, g.frame, g.frameButton, g.scroll); err != nil {
 		panic(err)
 	}
 	facade.OnClick("primaryButton", func() {
@@ -434,6 +455,22 @@ func newGallery(facade *ui.UI) *gallery {
 	facade.SetTooltip("valueSlider", "Drag to drive the progress bar")
 	facade.SetTooltip("demoTabs", "TabBar — click a tab to switch")
 	facade.SetTooltip("classDropdown", "Dropdown — click to open")
+	facade.SetTooltip("chatMessage", "Chat log — hover a link")
+	facade.OnLinkClick("chatMessage", func(link core.Link) {
+		g.status = fmt.Sprintf("Link clicked %s %q", link.Kind, link.Target)
+	})
+	facade.OnLinkTooltipRequested("chatMessage", func(link core.Link) string {
+		switch link.Kind {
+		case core.LinkItem:
+			return "Thunderfury — Legendary sword (ilvl 80)"
+		case core.LinkPlayer:
+			return "Mor'nor — Level 60 Warrior"
+		case core.LinkURL:
+			return "Open in browser"
+		default:
+			return ""
+		}
+	})
 	// The visual widgets own the layout nodes used by the MoveFrame demo.
 	if err := g.frame.Frame().AddChild(g.frameButton.Frame()); err != nil {
 		panic(err)
@@ -464,6 +501,7 @@ func (g *gallery) applyLayout() {
 	g.panel.SetBounds(g.layout.panel)
 	g.label.SetBounds(g.layout.label)
 	g.tabbar.SetBounds(g.layout.tabbar)
+	g.chat.SetBounds(g.layout.chat)
 	g.frame.SetBounds(g.layout.frame)
 	g.frameButton.SetBounds(core.Rect{W: g.layout.frameButton.W, H: g.layout.frameButton.H})
 	g.scroll.SetBounds(g.layout.scroll)
@@ -487,8 +525,9 @@ func calculateLayout(width, height float32) galleryLayout {
 		dropdown:    core.Rect{X: widgetX, Y: left.Y + 240, W: widgetW, H: 42},
 		slider:      core.Rect{X: widgetX, Y: left.Y + 304, W: widgetW, H: 42},
 		progress:    core.Rect{X: widgetX, Y: left.Y + 368, W: widgetW, H: 42},
-		panel:       core.Rect{X: widgetX, Y: left.Y + 440, W: widgetW, H: 94},
-		tabbar:      core.Rect{X: widgetX, Y: left.Y + 560, W: widgetW, H: 36},
+		panel:       core.Rect{X: widgetX, Y: left.Y + 440, W: widgetW, H: 70},
+		tabbar:      core.Rect{X: widgetX, Y: left.Y + 536, W: widgetW, H: 36},
+		chat:        core.Rect{X: widgetX, Y: left.Y + 600, W: widgetW, H: 68},
 		label:       core.Rect{X: right.X + 24, Y: right.Y + 40, W: right.W - 48, H: 32},
 		frame:       core.Rect{X: right.X + 24, Y: right.Y + 92, W: right.W - 48, H: 164},
 		frameButton: core.Rect{X: right.X + 48, Y: right.Y + 166, W: right.W - 96, H: 42},
@@ -511,6 +550,11 @@ func (g *gallery) handleInput() {
 		Wheel:    rl.GetMouseWheelMove(),
 	})
 	_ = mouseHandled
+	if _, _, _, ok := g.facade.HoveredLink(); ok {
+		rl.SetMouseCursor(rl.MouseCursorPointingHand)
+	} else {
+		rl.SetMouseCursor(rl.MouseCursorDefault)
+	}
 	if rl.IsMouseButtonPressed(rl.MouseButtonRight) {
 		g.showGalleryMenu(mouse)
 	}
@@ -616,7 +660,7 @@ func (g *gallery) draw() {
 	rl.Scalef(sx, sy, 1)
 
 	g.drawText("RTG textured widget gallery", 28, 24, 26, color.RGBA{R: 226, G: 239, B: 255, A: 255})
-	g.drawItalic("Every pixel needs a CSS texture; missing skins stay invisible and states inherit their base rule. Press R to MoveFrame.", 30, 51, 14, color.RGBA{R: 153, G: 174, B: 202, A: 255})
+	g.drawItalic("Every pixel needs a CSS texture; missing skins stay invisible and states inherit their base rule. Press R to MoveFrame.", 30, 51, 18, color.RGBA{R: 153, G: 174, B: 202, A: 255})
 	g.panelTitle(g.layout.leftPanel, "Widgets")
 	g.panelTitle(g.layout.rightPanel, "Containers, clipping, and states")
 
@@ -631,23 +675,25 @@ func (g *gallery) draw() {
 	progressBounds := g.progress.Bounds()
 	panelBounds := g.panel.Bounds()
 	tabbarBounds := g.tabbar.Bounds()
+	chatBounds := g.chat.Bounds()
 	frameBounds := g.frame.Bounds()
 	scrollBounds := g.scroll.Bounds()
-	g.drawText("Enable primary button", int32(checkboxBounds.X+40), int32(checkboxBounds.Y+8), 18, color.RGBA{R: 205, G: 218, B: 238, A: 255})
-	g.drawItalic("Textbox (click, type, backspace — UTF-8)", int32(textboxBounds.X), int32(textboxBounds.Y-23), 15, color.RGBA{R: 153, G: 174, B: 202, A: 255})
-	g.drawItalic("Dropdown (click to open)", int32(dropdownBounds.X), int32(dropdownBounds.Y-23), 15, color.RGBA{R: 153, G: 174, B: 202, A: 255})
-	g.drawItalic("Slider drives the progress bar", int32(sliderBounds.X), int32(sliderBounds.Y-23), 15, color.RGBA{R: 153, G: 174, B: 202, A: 255})
-	g.drawText(fmt.Sprintf("%.0f%%", g.slider.Value()*100), int32(sliderBounds.X+sliderBounds.W-48), int32(sliderBounds.Y+13), 16, color.RGBA{R: 230, G: 242, B: 255, A: 255})
-	g.drawText(fmt.Sprintf("Progress: %.0f%%", g.progress.Value()*100), int32(progressBounds.X+12), int32(progressBounds.Y+13), 16, color.RGBA{R: 235, G: 255, B: 240, A: 255})
-	g.drawText("Panel frame decoration", int32(panelBounds.X+14), int32(panelBounds.Y+38), 17, color.RGBA{R: 218, G: 230, B: 248, A: 255})
-	g.drawItalic("Tab bar — click to switch tabs", int32(tabbarBounds.X), int32(tabbarBounds.Y-23), 15, color.RGBA{R: 153, G: 174, B: 202, A: 255})
-	g.drawItalic("Right-click anywhere for the context menu", int32(scrollBounds.X+12), int32(scrollBounds.Y+scrollBounds.H+10), 15, color.RGBA{R: 153, G: 174, B: 202, A: 255})
-	g.drawItalic("Press T for a pinned tooltip (Esc dismisses)", int32(scrollBounds.X+12), int32(scrollBounds.Y+scrollBounds.H+28), 15, color.RGBA{R: 153, G: 174, B: 202, A: 255})
-	g.drawText("Frame child moves with its parent (R / sine)", int32(frameBounds.X+18), int32(frameBounds.Y+20), 15, color.RGBA{R: 153, G: 174, B: 202, A: 255})
+	g.drawText("Enable primary button", int32(checkboxBounds.X+40), int32(checkboxBounds.Y+8), 22, color.RGBA{R: 205, G: 218, B: 238, A: 255})
+	g.drawItalic("Textbox (click, type, backspace — UTF-8)", int32(textboxBounds.X), int32(textboxBounds.Y-23), 20, color.RGBA{R: 153, G: 174, B: 202, A: 255})
+	g.drawItalic("Dropdown (click to open)", int32(dropdownBounds.X), int32(dropdownBounds.Y-23), 20, color.RGBA{R: 153, G: 174, B: 202, A: 255})
+	g.drawItalic("Slider drives the progress bar", int32(sliderBounds.X), int32(sliderBounds.Y-23), 20, color.RGBA{R: 153, G: 174, B: 202, A: 255})
+	g.drawText(fmt.Sprintf("%.0f%%", g.slider.Value()*100), int32(sliderBounds.X+sliderBounds.W-48), int32(sliderBounds.Y+13), 20, color.RGBA{R: 230, G: 242, B: 255, A: 255})
+	g.drawText(fmt.Sprintf("Progress: %.0f%%", g.progress.Value()*100), int32(progressBounds.X+12), int32(progressBounds.Y+13), 20, color.RGBA{R: 235, G: 255, B: 240, A: 255})
+	g.drawText("Panel frame decoration", int32(panelBounds.X+14), int32(panelBounds.Y+30), 22, color.RGBA{R: 218, G: 230, B: 248, A: 255})
+	g.drawItalic("Tab bar — click to switch tabs", int32(tabbarBounds.X), int32(tabbarBounds.Y-23), 20, color.RGBA{R: 153, G: 174, B: 202, A: 255})
+	g.drawItalic("Chat message — links clickable", int32(chatBounds.X), int32(chatBounds.Y-23), 20, color.RGBA{R: 153, G: 174, B: 202, A: 255})
+	g.drawItalic("Right-click anywhere for the context menu", int32(scrollBounds.X+12), int32(scrollBounds.Y+scrollBounds.H+10), 20, color.RGBA{R: 153, G: 174, B: 202, A: 255})
+	g.drawItalic("Press T for a pinned tooltip (Esc dismisses)", int32(scrollBounds.X+12), int32(scrollBounds.Y+scrollBounds.H+28), 20, color.RGBA{R: 153, G: 174, B: 202, A: 255})
+	g.drawText("Frame child moves with its parent (R / sine)", int32(frameBounds.X+18), int32(frameBounds.Y+20), 20, color.RGBA{R: 153, G: 174, B: 202, A: 255})
 
 	g.drawScrollContents()
 	g.drawStateSamples()
-	g.drawItalic(g.status, 30, int32(g.designHeight-18), 15, color.RGBA{R: 161, G: 192, B: 224, A: 255})
+	g.drawItalic(g.status, 30, int32(g.designHeight-18), 18, color.RGBA{R: 161, G: 192, B: 224, A: 255})
 
 	// Popup above every app layer: text under an open popup stays behind it.
 	g.facade.DrawPopup()
@@ -656,7 +702,7 @@ func (g *gallery) draw() {
 	rl.EndDrawing()
 }
 
-// drawText renders gallery chrome with the Grenze-Light theme font.
+// drawText renders gallery chrome with the Grenze-Regular theme font.
 func (g *gallery) drawText(value string, x, y int32, size float32, tint color.RGBA) {
 	theme := g.facade.Theme()
 	if theme.HasFont() {
@@ -666,7 +712,7 @@ func (g *gallery) drawText(value string, x, y int32, size float32, tint color.RG
 	rl.DrawText(value, x, y, int32(size), tint)
 }
 
-// drawItalic renders captions and status with the Grenze-LightItalic font.
+// drawItalic renders captions and status with the Grenze-Italic font.
 func (g *gallery) drawItalic(value string, x, y int32, size float32, tint color.RGBA) {
 	theme := g.facade.Theme()
 	if theme.HasItalicFont() {
@@ -676,7 +722,7 @@ func (g *gallery) drawItalic(value string, x, y int32, size float32, tint color.
 	rl.DrawText(value, x, y, int32(size), tint)
 }
 
-// panelTitle renders a panel heading with the Grenze-Light theme font.
+// panelTitle renders a panel heading with the Grenze-Regular theme font.
 func (g *gallery) panelTitle(bounds core.Rect, title string) {
 	g.drawText(title, int32(bounds.X+24), int32(bounds.Y+15), 20, color.RGBA{R: 224, G: 235, B: 252, A: 255})
 }
@@ -698,10 +744,10 @@ func (g *gallery) drawScrollContents() {
 			fill = color.RGBA{R: 29, G: 40, B: 59, A: 255}
 		}
 		rl.DrawRectangleRec(rl.Rectangle{X: bounds.X + 10, Y: y, Width: bounds.W - 20, Height: 28}, fill)
-		g.drawText(fmt.Sprintf("Clipped row %02d  •  scroll offset %.0f", i+1, scroll.Y), int32(bounds.X+20), int32(y+6), 14, color.RGBA{R: 194, G: 211, B: 235, A: 255})
+		g.drawText(fmt.Sprintf("Clipped row %02d  •  scroll offset %.0f", i+1, scroll.Y), int32(bounds.X+20), int32(y+6), 18, color.RGBA{R: 194, G: 211, B: 235, A: 255})
 	}
 	rl.EndScissorMode()
-	g.drawItalic("Scroll panel — wheel over this area", int32(bounds.X+12), int32(bounds.Y-22), 15, color.RGBA{R: 153, G: 174, B: 202, A: 255})
+	g.drawItalic("Scroll panel — wheel over this area", int32(bounds.X+12), int32(bounds.Y-22), 20, color.RGBA{R: 153, G: 174, B: 202, A: 255})
 }
 
 // drawStateSamples renders the six state swatches.
@@ -714,7 +760,7 @@ func (g *gallery) drawStateSamples() {
 	for i, state := range []core.WidgetState{core.StateNormal, core.StateFocused, core.StateHovered, core.StatePressed, core.StateDisabled, core.StateSelected} {
 		bounds := core.Rect{X: startX + float32(i)*((panelBounds.W-40)/6), Y: y, W: (panelBounds.W - 52) / 6, H: 34}
 		theme.DrawWidgetPart(core.WidgetButton, skin.PartBackground, bounds, state)
-		g.drawText(names[i], int32(bounds.X+5), int32(bounds.Y+10), 11, color.RGBA{R: 228, G: 239, B: 255, A: 255})
+		g.drawText(names[i], int32(bounds.X+5), int32(bounds.Y+10), 14, color.RGBA{R: 228, G: 239, B: 255, A: 255})
 	}
 }
 

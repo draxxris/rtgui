@@ -185,7 +185,8 @@ and later rasterization strategy.
 ## Gallery contract and test assets
 
 The gallery demonstrates textured buttons, checkbox state, bounded UTF-8 editing,
-a UI-owned dropdown popup, tab-bar selection, right-click context menus, hover and
+a UI-owned dropdown popup, tab-bar selection, chat message with clickable links,
+right-click context menus, hover and
 pinned tooltips, slider/progress interaction, scrolling, nine-patch
 borders, CSS tinting, layout movement, and visual state samples.
 

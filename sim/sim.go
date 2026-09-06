@@ -37,6 +37,12 @@ func (s *Stage) Focus(name string) bool {
 	return s != nil && s.ui != nil && s.ui.Focus(name)
 }
 
+// ClickLink activates the nth link of a named rich-text widget in segment
+// order through the UI's normal mutation and callback path.
+func (s *Stage) ClickLink(name string, index int) bool {
+	return s != nil && s.ui != nil && s.ui.ActivateLink(name, index)
+}
+
 // SelectTab changes a named tab bar selection through the UI's normal
 // mutation and callback path without manufacturing pointer state.
 func (s *Stage) SelectTab(name string, index int) bool {

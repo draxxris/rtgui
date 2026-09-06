@@ -94,10 +94,10 @@ func (t *Theme) drawMenuText(info core.WidgetInfo, row core.Rect, item core.Menu
 		return
 	}
 	if t.HasFont() {
-		rl.DrawTextEx(t.FontForSize(16), item.Label, rl.NewVector2(row.X+16, row.Y+8), 16, 1.6, tint)
+		rl.DrawTextEx(t.FontForSize(22), item.Label, rl.NewVector2(row.X+16, row.Y+6), 22, 2.2, tint)
 		return
 	}
-	rl.DrawText(item.Label, int32(row.X+16), int32(row.Y+8), 16, tint)
+	rl.DrawText(item.Label, int32(row.X+16), int32(row.Y+6), 22, tint)
 }
 
 // DrawTooltip renders a plain-text tooltip shell with wrapped lines.
@@ -122,7 +122,7 @@ func (t *Theme) DrawTooltip(info core.WidgetInfo, text string) {
 			continue
 		}
 		if t.HasFont() {
-			rl.DrawTextEx(t.FontForSize(TooltipFontSize), line, rl.NewVector2(row.X, row.Y), TooltipFontSize, 1.4, tint)
+			rl.DrawTextEx(t.FontForSize(TooltipFontSize), line, rl.NewVector2(row.X, row.Y), TooltipFontSize, 2.0, tint)
 			continue
 		}
 		rl.DrawText(line, int32(row.X), int32(row.Y), TooltipFontSize, tint)

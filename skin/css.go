@@ -65,6 +65,7 @@ var kindSelectors = map[string]core.WidgetKind{
 	"TabBar":      core.WidgetTabBar,
 	"Menu":        core.WidgetMenu,
 	"Tooltip":     core.WidgetTooltip,
+	"RichText":    core.WidgetRichText,
 }
 
 // pseudoSelectors maps pseudo-classes to widget states. "" is normal.
@@ -100,6 +101,7 @@ var partAllowlist = map[core.WidgetKind]map[string]bool{
 	core.WidgetProgressBar: {"track": true, "fill": true, "spark": true},
 	core.WidgetTabBar:      {"tab": true},
 	core.WidgetMenu:        {"popup": true, "highlight": true},
+	core.WidgetRichText:    {"highlight": true},
 }
 
 // ParseCSS parses LOOK-only CSS text into SkinRules in source order.

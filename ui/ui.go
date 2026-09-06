@@ -27,10 +27,12 @@ var (
 )
 
 type callbackRecord struct {
-	onClick     func()
-	onChange    func(float32)
-	onText      func(string)
-	onTabSelect func(int)
+	onClick       func()
+	onChange      func(float32)
+	onText        func(string)
+	onTabSelect   func(int)
+	onLinkClick   func(core.Link)
+	onLinkTooltip func(core.Link) string
 }
 
 // UI owns one interface instance. Hover, press, and focus have exactly one
@@ -58,6 +60,11 @@ type UI struct {
 	tooltips      map[string]string
 	tooltipText   string
 	tooltipAnchor core.Vec2
+
+	linkArmedSeg int
+	tipWidget    *widgets.Widget
+	tipSeg       int
+	tipText      string
 }
 
 // New returns a UI with a fixed logical design resolution. Non-positive
@@ -87,10 +94,12 @@ func NewWith(t *transform.Transform, th *render.Theme) *UI {
 		th = render.NewTheme(t)
 	}
 	return &UI{
-		transform: t,
-		theme:     th,
-		widgets:   make(map[string]*widgets.Widget),
-		callbacks: make(map[string]callbackRecord),
+		transform:    t,
+		theme:        th,
+		widgets:      make(map[string]*widgets.Widget),
+		callbacks:    make(map[string]callbackRecord),
+		linkArmedSeg: -1,
+		tipSeg:       -1,
 	}
 }
 
@@ -164,6 +173,8 @@ func (u *UI) ClearWidgets() {
 	u.focused = nil
 	u.closeMenuState()
 	u.tooltipText = ""
+	u.linkArmedSeg = -1
+	u.clearLinkTip()
 }
 
 // Resize updates physical dimensions while retaining the fixed logical size.
@@ -259,8 +270,12 @@ func (u *UI) clearReferences(widget *widgets.Widget) {
 	}
 	if u.pressed == widget {
 		u.pressed = nil
+		u.linkArmedSeg = -1
 	}
 	if u.focused == widget {
 		u.focused = nil
+	}
+	if u.tipWidget == widget {
+		u.clearLinkTip()
 	}
 }

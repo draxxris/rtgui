@@ -85,6 +85,8 @@ const (
 	WidgetMenu
 	// WidgetTooltip is a non-interactive hover popup owned by the UI.
 	WidgetTooltip
+	// WidgetRichText displays wrapped multi-line segments with clickable links.
+	WidgetRichText
 )
 
 // WidgetState is the visual state selected by UI interaction ownership.
@@ -137,4 +139,68 @@ type MenuItem struct {
 	Disabled bool
 	// Separator marks a non-selectable rule row.
 	Separator bool
+}
+
+// LinkKind identifies the domain meaning of a rich-text link target.
+// Targets stay opaque strings; each game system interprets its own kinds.
+type LinkKind int32
+
+const (
+	// LinkNone marks plain text without a link.
+	LinkNone LinkKind = iota
+	// LinkURL opens an out-of-game address held in Target.
+	LinkURL
+	// LinkItem references an in-game inventory item held in Target.
+	LinkItem
+	// LinkLocation references an in-game position held in Target.
+	LinkLocation
+	// LinkQuest references an in-game quest held in Target.
+	LinkQuest
+	// LinkPlayer references an in-game character held in Target.
+	LinkPlayer
+	// LinkCustom carries an opaque app-defined payload held in Target.
+	LinkCustom
+)
+
+// String returns the stable display name of a link kind.
+func (k LinkKind) String() string {
+	switch k {
+	case LinkURL:
+		return "url"
+	case LinkItem:
+		return "item"
+	case LinkLocation:
+		return "location"
+	case LinkQuest:
+		return "quest"
+	case LinkPlayer:
+		return "player"
+	case LinkCustom:
+		return "custom"
+	default:
+		return "none"
+	}
+}
+
+// Link is one clickable rich-text reference. A zero Link is plain text.
+type Link struct {
+	// Kind identifies the domain meaning of Target.
+	Kind LinkKind
+	// Target is the opaque reference interpreted per Kind.
+	Target string
+	// Tooltip is static hover text; empty defers to OnLinkTooltipRequested.
+	Tooltip string
+}
+
+// RichSegment is one styled run inside a rich-text widget. Adjacent
+// segments flow without forced breaks; wrapping is word-based.
+type RichSegment struct {
+	// Text is the displayed run; newlines force breaks.
+	Text string
+	// Color is the run color used only when HasColor is true.
+	Color Color
+	// HasColor selects Color over theme defaults and link blue.
+	HasColor bool
+	// Link makes the run clickable; a zero Link is plain text.
+	Link Link
 }

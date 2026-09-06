@@ -25,6 +25,8 @@ func (u *UI) ShowContextMenu(items []MenuItem, pos core.Vec2, onSelect func(stri
 	u.menuArmed = -1
 	u.menuDown = false
 	u.tooltipText = ""
+	u.linkArmedSeg = -1
+	u.clearLinkTip()
 }
 
 // CloseMenu dismisses an open menu without selecting and reports a dismiss.
@@ -148,12 +150,16 @@ func (u *UI) commitMenuRow(index int) {
 }
 
 // derivedTooltip returns the currently visible tooltip text and anchor point.
+// Precedence is explicit tooltip, hovered link tip, then widget mapping.
 func (u *UI) derivedTooltip() (string, core.Vec2, bool) {
 	if u == nil || u.HasOpenMenu() || u.pressed != nil {
 		return "", core.Vec2{}, false
 	}
 	if u.tooltipText != "" {
 		return u.tooltipText, u.tooltipAnchor, true
+	}
+	if u.tipWidget != nil && u.tipWidget == u.hovered && u.tipText != "" {
+		return u.tipText, u.pointer, true
 	}
 	if u.hovered != nil && u.hovered.Enabled() {
 		if text, ok := u.TooltipText(u.hovered.Name()); ok {

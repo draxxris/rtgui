@@ -55,6 +55,7 @@ func (u *UI) HandleMouse(event MouseEvent) bool {
 		return u.handleOpenDropdown(event)
 	}
 	u.updateHover(event.Pos)
+	u.refreshLinkTip()
 	handled := u.handleWheel(event)
 	handled = u.handlePress(event) || handled
 	handled = u.handleDrag(event) || handled
@@ -71,6 +72,8 @@ func (u *UI) HandleKey(event KeyEvent) bool {
 	}
 	u.reconcileInteraction()
 	if event.Escape {
+		u.linkArmedSeg = -1
+		u.clearLinkTip()
 		if u.HasOpenMenu() {
 			u.closeMenuState()
 			return true
@@ -90,6 +93,7 @@ func (u *UI) HandleKey(event KeyEvent) bool {
 // Activate performs the same kind-specific activation and callbacks as a
 // successful physical click without manufacturing a pointer or hover state.
 // Tab bars re-fire for the current selection; use SelectTab to change it.
+// Rich text re-fires OnClick; use ActivateLink for a specific link.
 func (u *UI) Activate(name string) bool {
 	if u == nil {
 		return false
@@ -213,6 +217,9 @@ func (u *UI) handlePress(event MouseEvent) bool {
 	if target.Kind() == core.WidgetSlider {
 		u.setSliderFromX(target, event.Pos.X)
 	}
+	if target.Kind() == core.WidgetRichText {
+		u.linkArmedSeg = u.richLinkSegAt(target, event.Pos)
+	}
 	return true
 }
 
@@ -232,6 +239,7 @@ func (u *UI) handleOpenDropdown(event MouseEvent) bool {
 		return false
 	}
 	u.hovered = nil
+	u.clearLinkTip()
 	if dropdown.HitTest(event.Pos) {
 		u.hovered = dropdown
 	}
@@ -287,8 +295,8 @@ func (u *UI) handleDrag(event MouseEvent) bool {
 }
 
 // handleRelease ends an active gesture. Tab bars resolve the released tab
-// cell before firing selection callbacks; other releases outside consume
-// without activation.
+// cell and rich text resolves the released segment before firing
+// kind-specific callbacks; other releases outside consume without activation.
 func (u *UI) handleRelease(event MouseEvent) bool {
 	if !event.Released || u.pressed == nil {
 		return false
@@ -296,10 +304,14 @@ func (u *UI) handleRelease(event MouseEvent) bool {
 	active := u.pressed
 	u.pressed = nil
 	if !active.Enabled() {
+		u.linkArmedSeg = -1
 		return true
 	}
 	if active.Kind() == core.WidgetTabBar {
 		return u.releaseTabBar(active, event.Pos)
+	}
+	if active.Kind() == core.WidgetRichText {
+		return u.releaseRichText(active, event.Pos)
 	}
 	if active.HitTest(event.Pos) {
 		u.activateWidget(active)
@@ -342,6 +354,7 @@ func (u *UI) tabIndexAt(bar *widgets.Widget, pos core.Vec2) int {
 // alone stays available to application input; wheel is consumed.
 func (u *UI) handleOpenMenu(event MouseEvent) bool {
 	u.hovered = nil
+	u.clearLinkTip()
 	if event.Wheel != 0 {
 		return true
 	}
@@ -466,7 +479,7 @@ func (u *UI) topmostAt(pos core.Vec2, kind core.WidgetKind) *widgets.Widget {
 // isPressable reports the kinds that can own a UI press gesture.
 func isPressable(kind core.WidgetKind) bool {
 	switch kind {
-	case core.WidgetButton, core.WidgetCheckbox, core.WidgetTextbox, core.WidgetSlider, core.WidgetDropdown, core.WidgetTabBar:
+	case core.WidgetButton, core.WidgetCheckbox, core.WidgetTextbox, core.WidgetSlider, core.WidgetDropdown, core.WidgetTabBar, core.WidgetRichText:
 		return true
 	default:
 		return false
