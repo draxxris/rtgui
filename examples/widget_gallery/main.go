@@ -583,12 +583,52 @@ func (g *gallery) showGalleryMenu(pos core.Vec2) {
 	})
 }
 
-// handleKeys forwards chars, backspace, and escape to the facade.
+// handleKeys forwards chars, caret motion, selection, clipboard, and escape
+// to the facade. Control combos map to select-all and clipboard actions;
+// Shift extends the selection during arrow, Home, and End motion.
 func (g *gallery) handleKeys() {
-	escape := rl.IsKeyPressed(rl.KeyEscape)
 	chars := drainGalleryChars()
-	backspace := rl.IsKeyPressed(rl.KeyBackspace) || rl.IsKeyPressedRepeat(rl.KeyBackspace)
-	_ = g.facade.HandleKey(ui.KeyEvent{Chars: chars, Backspace: backspace, Escape: escape})
+	event := ui.KeyEvent{
+		Chars:     chars,
+		Backspace: galleryPressed(rl.KeyBackspace),
+		Delete:    galleryPressed(rl.KeyDelete),
+		Escape:    rl.IsKeyPressed(rl.KeyEscape),
+	}
+	event.Left, event.Right, event.Home, event.End, event.Shift = galleryNavKeys()
+	event.SelectAll, event.Copy, event.Cut, event.Paste = galleryClipboardKeys()
+	// Control combos own their letters so Ctrl-A/C/X/V never also type.
+	if event.SelectAll || event.Copy || event.Cut || event.Paste {
+		event.Chars = nil
+	}
+	_ = g.facade.HandleKey(event)
+}
+
+// galleryPressed reports press or repeat for editing keys with repeat.
+func galleryPressed(key int32) bool {
+	return rl.IsKeyPressed(key) || rl.IsKeyPressedRepeat(key)
+}
+
+// galleryNavKeys polls arrow, Home, End, and Shift for caret motion.
+func galleryNavKeys() (left, right, home, end, shift bool) {
+	left = galleryPressed(rl.KeyLeft)
+	right = galleryPressed(rl.KeyRight)
+	home = galleryPressed(rl.KeyHome)
+	end = galleryPressed(rl.KeyEnd)
+	shift = rl.IsKeyDown(rl.KeyLeftShift) || rl.IsKeyDown(rl.KeyRightShift)
+	return left, right, home, end, shift
+}
+
+// galleryClipboardKeys polls Ctrl-A/C/X/V for selection and clipboard.
+func galleryClipboardKeys() (selectAll, copyKey, cutKey, pasteKey bool) {
+	ctrl := rl.IsKeyDown(rl.KeyLeftControl) || rl.IsKeyDown(rl.KeyRightControl)
+	if !ctrl {
+		return false, false, false, false
+	}
+	selectAll = rl.IsKeyPressed(rl.KeyA)
+	copyKey = rl.IsKeyPressed(rl.KeyC)
+	cutKey = rl.IsKeyPressed(rl.KeyX)
+	pasteKey = rl.IsKeyPressed(rl.KeyV)
+	return selectAll, copyKey, cutKey, pasteKey
 }
 
 // drainGalleryChars collects pending raylib runes for this frame.
@@ -679,7 +719,7 @@ func (g *gallery) draw() {
 	frameBounds := g.frame.Bounds()
 	scrollBounds := g.scroll.Bounds()
 	g.drawText("Enable primary button", int32(checkboxBounds.X+40), int32(checkboxBounds.Y+8), 22, color.RGBA{R: 205, G: 218, B: 238, A: 255})
-	g.drawItalic("Textbox (click, type, backspace — UTF-8)", int32(textboxBounds.X), int32(textboxBounds.Y-23), 20, color.RGBA{R: 153, G: 174, B: 202, A: 255})
+	g.drawItalic("Textbox (arrows/Home/End, Shift-select, Ctrl-A/C/X/V, Del — UTF-8)", int32(textboxBounds.X), int32(textboxBounds.Y-23), 20, color.RGBA{R: 153, G: 174, B: 202, A: 255})
 	g.drawItalic("Dropdown (click to open)", int32(dropdownBounds.X), int32(dropdownBounds.Y-23), 20, color.RGBA{R: 153, G: 174, B: 202, A: 255})
 	g.drawItalic("Slider drives the progress bar", int32(sliderBounds.X), int32(sliderBounds.Y-23), 20, color.RGBA{R: 153, G: 174, B: 202, A: 255})
 	g.drawText(fmt.Sprintf("%.0f%%", g.slider.Value()*100), int32(sliderBounds.X+sliderBounds.W-48), int32(sliderBounds.Y+13), 20, color.RGBA{R: 230, G: 242, B: 255, A: 255})

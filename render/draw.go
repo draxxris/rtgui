@@ -114,29 +114,36 @@ func validPatch(destination, source core.Rect) bool {
 
 func skipCenter(centerFill bool, index int) bool { return !centerFill && index == 4 }
 
-// drawTextInContent lays out and draws text, recording its text operation when enabled.
+// widgetTextOrigin returns the font size and rounded text origin shared by
+// single-line widget text layout, including textbox selection and caret.
 // Sizes are requested ~1.5x the nominal body size: raylib interprets TTF
 // sizes as pixel height (ascent+descent) rather than EM units, so common
 // faces render much smaller than requested (see the in-house renderer
 // roadmap entry). Sizes below target a true ~13-15px EM for body text.
-func (t *Theme) drawTextInContent(kind core.WidgetKind, value string, content core.Rect, state core.WidgetState) {
-	if value == "" || content.W <= 0 || content.H <= 0 {
-		return
-	}
+func widgetTextOrigin(content core.Rect) (int32, float32, float32) {
 	fontSize := int32(22)
 	if content.H < 20 {
 		fontSize = 14
 	} else if content.H < 28 {
 		fontSize = 20
 	}
+	x := float32(math.Round(float64(content.X + 6)))
+	y := float32(math.Round(float64(content.Y + (content.H-float32(fontSize))/2)))
+	return fontSize, x, y
+}
+
+// drawTextInContent lays out and draws text, recording its text operation when enabled.
+func (t *Theme) drawTextInContent(kind core.WidgetKind, value string, content core.Rect, state core.WidgetState) {
+	if value == "" || content.W <= 0 || content.H <= 0 {
+		return
+	}
+	fontSize, x, y := widgetTextOrigin(content)
 	textColor := color.RGBA{R: 20, G: 20, B: 20, A: 255}
 	if state == core.StateDisabled {
 		textColor = color.RGBA{R: 130, G: 130, B: 130, A: 255}
 	} else if state == core.StatePressed {
 		textColor = color.RGBA{R: 30, G: 30, B: 30, A: 255}
 	}
-	x := float32(math.Round(float64(content.X + 6)))
-	y := float32(math.Round(float64(content.Y + (content.H-float32(fontSize))/2)))
 	t.logDrawCall(kind, skin.PartText, state, content, content, skin.SkinDescriptor{}, textColor, false)
 	if rl.IsWindowReady() {
 		if t != nil && t.HasFont() {

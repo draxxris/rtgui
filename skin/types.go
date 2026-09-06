@@ -57,6 +57,9 @@ const (
 	PartPopupBorder
 	// PartTab identifies one tab button inside a tab bar.
 	PartTab
+	// PartCaret identifies a textbox caret line. It is geometry-only and
+	// never authored through CSS; unauthored textboxes still show a caret.
+	PartCaret
 )
 
 // SkinKey selects a descriptor by widget kind, part, and visual state.

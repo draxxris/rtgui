@@ -86,6 +86,21 @@ Dropdown::arrow:disabled {
     background-image-tint: #b9b9c3;
 }
 
+Textbox {
+    background-image: url("kenney/background.png");
+    background-image-tint: #eef2f7;
+    border-image-source: url("kenney/panel_border_grey.png");
+    border-image-slice: 8;
+    padding: 8;
+}
+Textbox:focus {
+    border-image-source: url("kenney/blue/button_rectangle_border.png");
+}
+Textbox:disabled {
+    background-image-tint: #565b66;
+    border-image-source-tint: #b9b9c3;
+}
+
 TabBar {
     border-image-source: url("kenney/panel_border_grey.png");
     border-image-slice: 8;

@@ -446,7 +446,8 @@ func (w *Widget) LinkAt(index int) (core.Link, bool) {
 	return core.Link{}, false
 }
 
-// TypeChar appends ch to a textbox and reports whether its text changed.
+// TypeChar inserts ch at the textbox caret, replacing any selection, and
+// reports whether its text changed.
 func (w *Widget) TypeChar(ch rune) bool {
 	if w == nil || w.kind != core.WidgetTextbox || w.textBuf == nil {
 		return false
@@ -454,12 +455,122 @@ func (w *Widget) TypeChar(ch rune) bool {
 	return w.textBuf.AppendRune(ch)
 }
 
-// Backspace removes the final textbox rune and reports whether its text changed.
+// Backspace removes the textbox selection or the rune before the caret and
+// reports whether its text changed.
 func (w *Widget) Backspace() bool {
 	if w == nil || w.kind != core.WidgetTextbox || w.textBuf == nil {
 		return false
 	}
 	return w.textBuf.Backspace()
+}
+
+// Delete removes the textbox selection or the rune after the caret and
+// reports whether its text changed.
+func (w *Widget) Delete() bool {
+	if w == nil || w.kind != core.WidgetTextbox || w.textBuf == nil {
+		return false
+	}
+	return w.textBuf.Delete()
+}
+
+// DeleteSelection removes the selected textbox runes and reports whether
+// its text changed.
+func (w *Widget) DeleteSelection() bool {
+	if w == nil || w.kind != core.WidgetTextbox || w.textBuf == nil {
+		return false
+	}
+	return w.textBuf.DeleteSelection()
+}
+
+// InsertString inserts valid UTF-8 at the textbox caret, replacing any
+// selection with as many leading runes as fit. It reports whether its text
+// changed.
+func (w *Widget) InsertString(value string) bool {
+	if w == nil || w.kind != core.WidgetTextbox || w.textBuf == nil {
+		return false
+	}
+	return w.textBuf.InsertString(value)
+}
+
+// Caret returns the textbox caret as a rune index from 0 to RuneCount.
+func (w *Widget) Caret() int {
+	if w == nil || w.kind != core.WidgetTextbox || w.textBuf == nil {
+		return 0
+	}
+	return w.textBuf.Caret()
+}
+
+// SetCaret moves the textbox caret, clears any selection, and reports
+// whether the caret or selection changed.
+func (w *Widget) SetCaret(pos int) bool {
+	if w == nil || w.kind != core.WidgetTextbox || w.textBuf == nil {
+		return false
+	}
+	return w.textBuf.SetCaret(pos)
+}
+
+// MoveCaret moves the textbox caret by delta runes, extending the selection
+// when extend is true, and reports whether caret or selection changed.
+func (w *Widget) MoveCaret(delta int, extend bool) bool {
+	if w == nil || w.kind != core.WidgetTextbox || w.textBuf == nil {
+		return false
+	}
+	return w.textBuf.MoveCaret(delta, extend)
+}
+
+// MoveCaretTo moves the textbox caret to pos, extending the selection when
+// extend is true, and reports whether caret or selection changed.
+func (w *Widget) MoveCaretTo(pos int, extend bool) bool {
+	if w == nil || w.kind != core.WidgetTextbox || w.textBuf == nil {
+		return false
+	}
+	return w.textBuf.MoveCaretTo(pos, extend)
+}
+
+// SelectAll selects every textbox rune and reports whether selection changed.
+func (w *Widget) SelectAll() bool {
+	if w == nil || w.kind != core.WidgetTextbox || w.textBuf == nil {
+		return false
+	}
+	return w.textBuf.SelectAll()
+}
+
+// ClearSelection forgets any textbox selection without moving the caret. It
+// reports whether a selection was present.
+func (w *Widget) ClearSelection() bool {
+	if w == nil || w.kind != core.WidgetTextbox || w.textBuf == nil {
+		return false
+	}
+	return w.textBuf.ClearSelection()
+}
+
+// HasSelection reports whether the textbox holds a non-collapsed selection.
+func (w *Widget) HasSelection() bool {
+	return w != nil && w.kind == core.WidgetTextbox && w.textBuf != nil && w.textBuf.HasSelection()
+}
+
+// Selection returns the sorted textbox selection bounds as rune indices.
+func (w *Widget) Selection() (int, int) {
+	if w == nil || w.kind != core.WidgetTextbox || w.textBuf == nil {
+		return 0, 0
+	}
+	return w.textBuf.Selection()
+}
+
+// SelectedText returns the selected textbox substring, or "" when idle.
+func (w *Widget) SelectedText() string {
+	if w == nil || w.kind != core.WidgetTextbox || w.textBuf == nil {
+		return ""
+	}
+	return w.textBuf.SelectedText()
+}
+
+// RuneCount returns the number of runes in the textbox.
+func (w *Widget) RuneCount() int {
+	if w == nil || w.kind != core.WidgetTextbox || w.textBuf == nil {
+		return 0
+	}
+	return w.textBuf.RuneCount()
 }
 
 // Snapshot returns the one renderer-facing value, using UI-computed visual state.

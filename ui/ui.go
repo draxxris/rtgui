@@ -36,7 +36,10 @@ type callbackRecord struct {
 }
 
 // UI owns one interface instance. Hover, press, and focus have exactly one
-// owner each and are never mirrored into widgets.
+// owner each and are never mirrored into widgets. Textbox caret and
+// selection are the documented exception: they live in the widget's text
+// buffer as part of the editing model, while focus gates the caret display
+// and focus transfer or loss clears the selection.
 type UI struct {
 	transform *transform.Transform
 	theme     *render.Theme
@@ -48,6 +51,9 @@ type UI struct {
 	pressed *widgets.Widget
 	focused *widgets.Widget
 	pointer core.Vec2
+	// clipboard is the in-memory fallback used headless; windowed clipboard
+	// access goes through the system via render with this as mirror.
+	clipboard string
 
 	callbacks map[string]callbackRecord
 
@@ -166,6 +172,7 @@ func (u *UI) ClearWidgets() {
 	if u == nil {
 		return
 	}
+	u.clearFocus()
 	u.widgets = make(map[string]*widgets.Widget)
 	u.order = nil
 	u.hovered = nil
@@ -263,8 +270,12 @@ func (u *UI) Lookup(name string) *widgets.Widget {
 	return u.widgets[name]
 }
 
-// clearReferences removes widget from each transient owner slot.
+// clearReferences removes widget from each transient owner slot, forgetting
+// any textbox selection held by a focused removal.
 func (u *UI) clearReferences(widget *widgets.Widget) {
+	if u == nil || widget == nil {
+		return
+	}
 	if u.hovered == widget {
 		u.hovered = nil
 	}
@@ -273,7 +284,7 @@ func (u *UI) clearReferences(widget *widgets.Widget) {
 		u.linkArmedSeg = -1
 	}
 	if u.focused == widget {
-		u.focused = nil
+		u.clearFocus()
 	}
 	if u.tipWidget == widget {
 		u.clearLinkTip()

@@ -100,15 +100,21 @@ mouseHandled := u.HandleMouse(ui.MouseEvent{
 if !mouseHandled {
     // The application may process world input here.
 }
-u.HandleKey(ui.KeyEvent{Chars: runes, Backspace: backspace, Escape: escape})
+u.HandleKey(ui.KeyEvent{Chars: runes, Backspace: backspace, Delete: del, Escape: escape,
+    Left: left, Right: right, Home: home, End: end, Shift: shift,
+    SelectAll: selectAll, Copy: copy, Cut: cut, Paste: paste})
 u.Draw()
 ```
 
 `Add` rejects nil, empty-name, and duplicate widgets atomically. `Remove` and
 `ClearWidgets` clear active interaction owners. Text and slider callbacks run
 only after a real mutation; rejected full-buffer characters and empty backspace
-are silent. `sim.NewStage(u)` adapts the same activation, focus, text-edit, and
-callback path for headless tests without inventing pointer or hover state.
+are silent. Textboxes show a focus caret, move it with Left/Right/Home/End
+(Shift extends the selection), select all with Ctrl-A, and cut/copy/paste
+through the system clipboard windowed or an in-memory fallback headless.
+Clicking a textbox focuses it and places the caret. `sim.NewStage(u)` adapts
+the same activation, focus, text-edit, and callback path for headless tests
+without inventing pointer or hover state.
 
 ## Drag controllers
 

@@ -62,6 +62,8 @@ func (u *UI) drawPopup() {
 
 // drawOne creates the sole renderer-facing widget snapshot with UI state.
 // Tab bars render through the dedicated tab path so per-cell skins apply.
+// Textboxes render through the caret path so selection and caret draw with
+// the same content area used for click mapping.
 func (u *UI) drawOne(widget *widgets.Widget) {
 	if widget == nil {
 		return
@@ -75,6 +77,10 @@ func (u *UI) drawOne(widget *widgets.Widget) {
 		u.drawRichText(widget, state)
 		return
 	}
+	if widget.Kind() == core.WidgetTextbox {
+		u.drawTextbox(widget, state)
+		return
+	}
 	info := widget.Snapshot(state)
 	u.theme.DrawWidget(info, widgetText(widget), widget.Value(), widget.Checked())
 	if needsBorder(widget.Kind()) {
@@ -82,6 +88,23 @@ func (u *UI) drawOne(widget *widgets.Widget) {
 	}
 	if widget.Kind() == core.WidgetDropdown {
 		u.drawDropdownArrow(widget, state)
+	}
+}
+
+// drawTextbox renders one textbox with its selection and focus caret. The
+// caret shows only while focused and enabled; the selection shows whenever
+// the buffer holds one. Background comes from DrawTextbox and the border
+// draws here so textbox borders match every other widget.
+func (u *UI) drawTextbox(widget *widgets.Widget, state core.WidgetState) {
+	info := widget.Snapshot(state)
+	selStart, selEnd := -1, -1
+	if widget.HasSelection() {
+		selStart, selEnd = widget.Selection()
+	}
+	showCaret := u.focused == widget && widget.Enabled()
+	u.theme.DrawTextbox(info, widget.Text(), widget.Caret(), selStart, selEnd, showCaret)
+	if needsBorder(widget.Kind()) {
+		u.theme.DrawWidgetPart(widget.Kind(), skin.PartBorder, widget.Bounds(), state)
 	}
 }
 

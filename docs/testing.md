@@ -87,7 +87,9 @@ mouseHandled := u.HandleMouse(ui.MouseEvent{Pos: u.ToLogical(p), Pressed: presse
 if !mouseHandled {
     cameraZoom(wheel)
 }
-keyHandled := u.HandleKey(ui.KeyEvent{Chars: runes, Backspace: backspace, Escape: escape})
+keyHandled := u.HandleKey(ui.KeyEvent{Chars: runes, Backspace: backspace, Delete: del, Escape: escape,
+    Left: left, Right: right, Home: home, End: end, Shift: shift,
+    SelectAll: selectAll, Copy: copy, Cut: cut, Paste: paste})
 if !keyHandled {
     playerMove(keys)
 }
@@ -96,10 +98,14 @@ u.Draw()
 
 Hover alone and empty-space misses pass through. A press, drag, or release on a
 hit widget consumes the gesture; an active press remains owned until release.
-Wheel input is consumed only over a scroll panel. Character and backspace input
-is consumed only by a focused textbox. `Escape` is consumed only when it clears
-focus. Duplicate `Add` requests are rejected; use `Remove` before registering a
-replacement. Callback registrations remain available after widget removal.
+Wheel input is consumed only over a scroll panel. Textbox keys are consumed
+only by a focused textbox when they change caret, selection, clipboard, or
+text: Left/Right/Home/End move the caret (Shift extends), Ctrl-A selects all,
+Ctrl-C/X/V copy, cut, and paste, Delete removes forward, and typing or
+Backspace edits at the caret replacing any selection. `Escape` is consumed
+only when it clears focus. Duplicate `Add` requests are rejected; use `Remove`
+before registering a replacement. Callback registrations remain available
+after widget removal.
 
 ## Performance and race checks
 

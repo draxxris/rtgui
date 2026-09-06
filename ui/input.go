@@ -26,10 +26,30 @@ type MouseEvent struct {
 type KeyEvent struct {
 	// Chars contains runes read during this frame.
 	Chars []rune
-	// Backspace requests one final-rune deletion.
+	// Backspace requests deletion of the selection or rune before the caret.
 	Backspace bool
+	// Delete requests deletion of the selection or rune after the caret.
+	Delete bool
 	// Escape requests focus clearing.
 	Escape bool
+	// Left requests caret motion one rune left.
+	Left bool
+	// Right requests caret motion one rune right.
+	Right bool
+	// Home requests caret motion to the start of the text.
+	Home bool
+	// End requests caret motion to the end of the text.
+	End bool
+	// Shift extends the selection during Left/Right/Home/End motion.
+	Shift bool
+	// SelectAll requests full-text selection (Ctrl-A).
+	SelectAll bool
+	// Copy requests copying the selection to the clipboard (Ctrl-C).
+	Copy bool
+	// Cut requests cutting the selection to the clipboard (Ctrl-X).
+	Cut bool
+	// Paste requests inserting clipboard text at the caret (Ctrl-V).
+	Paste bool
 }
 
 // HandleMouse reconciles disabled owners, then routes one physical pointer
@@ -139,9 +159,9 @@ func (u *UI) SelectTab(name string, index int) bool {
 	return true
 }
 
-// TypeText focuses a valid textbox and appends printable runes through the
-// shared editing helper. Valid empty or full-buffer requests are handled but
-// callbacks run only when text changes.
+// TypeText focuses a valid textbox and inserts printable runes at the caret
+// through the shared editing helper. Valid empty or full-buffer requests are
+// handled but callbacks run only when text changes.
 func (u *UI) TypeText(name, value string) bool {
 	if u == nil {
 		return false
@@ -152,7 +172,9 @@ func (u *UI) TypeText(name, value string) bool {
 		return false
 	}
 	u.setFocus(target)
-	u.editText(target, []rune(value), false)
+	if u.editText(target, []rune(value), false, false) {
+		u.fireOnText(target.Name(), target.Text())
+	}
 	return true
 }
 
@@ -172,7 +194,12 @@ func (u *UI) Focus(name string) bool {
 }
 
 // reconcileInteraction clears transient owners whose widgets became disabled.
+// A disabled focused textbox also forgets its selection so it never
+// resurfaces on re-enable.
 func (u *UI) reconcileInteraction() {
+	if u == nil {
+		return
+	}
 	if u.hovered != nil && !u.hovered.Enabled() {
 		u.hovered = nil
 	}
@@ -180,7 +207,7 @@ func (u *UI) reconcileInteraction() {
 		u.pressed = nil
 	}
 	if u.focused != nil && !u.focused.Enabled() {
-		u.focused = nil
+		u.clearFocus()
 	}
 }
 
@@ -216,6 +243,9 @@ func (u *UI) handlePress(event MouseEvent) bool {
 	u.pressed = target
 	if target.Kind() == core.WidgetSlider {
 		u.setSliderFromX(target, event.Pos.X)
+	}
+	if target.Kind() == core.WidgetTextbox && u.theme != nil {
+		u.placeTextboxCaret(target, event.Pos.X)
 	}
 	if target.Kind() == core.WidgetRichText {
 		u.linkArmedSeg = u.richLinkSegAt(target, event.Pos)
@@ -417,18 +447,91 @@ func (u *UI) activateWidget(target *widgets.Widget) bool {
 	return true
 }
 
-// handleText edits the focused textbox and reports only a real mutation.
+// handleText edits the focused textbox and reports whether any caret,
+// selection, clipboard, or text state changed. Text callbacks fire once with
+// the final value after at least one real text mutation.
 func (u *UI) handleText(event KeyEvent) bool {
 	target := u.focused
 	if target == nil || target.Kind() != core.WidgetTextbox || !target.Enabled() {
 		return false
 	}
-	return u.editText(target, event.Chars, event.Backspace)
+	handled := false
+	mutated := false
+	if event.SelectAll && target.SelectAll() {
+		handled = true
+	}
+	clipboardHandled, clipboardTextMutated := u.handleTextboxClipboard(target, event)
+	if clipboardHandled {
+		handled = true
+	}
+	if clipboardTextMutated {
+		mutated = true
+	}
+	if u.handleTextboxNavigation(target, event) {
+		handled = true
+	}
+	if u.editText(target, event.Chars, event.Backspace, event.Delete) {
+		mutated = true
+		handled = true
+	}
+	if mutated {
+		u.fireOnText(target.Name(), target.Text())
+	}
+	return handled
 }
 
-// editText applies printable runes and optional backspace, firing one callback
-// with the final value only after at least one real mutation.
-func (u *UI) editText(target *widgets.Widget, chars []rune, backspace bool) bool {
+// handleTextboxClipboard applies copy, cut, and paste through the shared
+// clipboard. It reports handling when an action ran and mutation when text
+// changed (cut or paste insertion, including selection removal).
+func (u *UI) handleTextboxClipboard(target *widgets.Widget, event KeyEvent) (bool, bool) {
+	handled := false
+	mutated := false
+	if event.Copy && target.HasSelection() {
+		u.setClipboard(target.SelectedText())
+		handled = true
+	}
+	if event.Cut && target.HasSelection() {
+		u.setClipboard(target.SelectedText())
+		if target.DeleteSelection() {
+			mutated = true
+		}
+		handled = true
+	}
+	if event.Paste {
+		if text := u.getClipboard(); text != "" && utf8.ValidString(text) {
+			if target.InsertString(text) {
+				mutated = true
+				handled = true
+			}
+		}
+	}
+	return handled, mutated
+}
+
+// handleTextboxNavigation moves the textbox caret, extending the selection
+// while Shift is held. It reports whether caret or selection changed.
+func (u *UI) handleTextboxNavigation(target *widgets.Widget, event KeyEvent) bool {
+	handled := false
+	extend := event.Shift
+	if event.Left && target.MoveCaret(-1, extend) {
+		handled = true
+	}
+	if event.Right && target.MoveCaret(1, extend) {
+		handled = true
+	}
+	if event.Home && target.MoveCaretTo(0, extend) {
+		handled = true
+	}
+	if event.End && target.MoveCaretTo(target.RuneCount(), extend) {
+		handled = true
+	}
+	return handled
+}
+
+// editText applies printable runes plus backspace and delete, firing no
+// callback itself; handleText and TypeText own the single OnText fire after
+// at least one real mutation. It reports whether text changed.
+func (u *UI) editText(target *widgets.Widget, chars []rune, backspace, del bool) bool {
 	mutated := false
 	for _, char := range chars {
 		if char >= 32 && char != 127 {
@@ -438,17 +541,41 @@ func (u *UI) editText(target *widgets.Widget, chars []rune, backspace bool) bool
 	if backspace {
 		mutated = target.Backspace() || mutated
 	}
-	if mutated {
-		u.fireOnText(target.Name(), target.Text())
+	if del {
+		mutated = target.Delete() || mutated
 	}
 	return mutated
 }
 
-func (u *UI) setFocus(target *widgets.Widget) { u.focused = target }
+// placeTextboxCaret moves the caret to the click X and clears any selection.
+func (u *UI) placeTextboxCaret(target *widgets.Widget, x float32) {
+	if target == nil || u.theme == nil {
+		return
+	}
+	index := u.theme.TextboxCaretIndex(target.Bounds(), core.StateFocused, target.Text(), x)
+	target.SetCaret(index)
+}
 
+// setFocus switches focus, clearing any selection held by the previous
+// textbox so stale highlights never resurface.
+func (u *UI) setFocus(target *widgets.Widget) {
+	if u == nil {
+		return
+	}
+	if previous := u.focused; previous != nil && previous != target && previous.Kind() == core.WidgetTextbox {
+		previous.ClearSelection()
+	}
+	u.focused = target
+}
+
+// clearFocus releases focus, clearing any textbox selection first. It
+// reports whether focus was held.
 func (u *UI) clearFocus() bool {
-	if u.focused == nil {
+	if u == nil || u.focused == nil {
 		return false
+	}
+	if u.focused.Kind() == core.WidgetTextbox {
+		u.focused.ClearSelection()
 	}
 	u.focused = nil
 	return true
