@@ -81,7 +81,7 @@ Dropdown::popup {
 }
 Dropdown::highlight {
     background-image: url("kenney/background.png");
-    background-image-tint: #ffff0066;
+    background-image-tint: #ffff00;
 }
 
 Dropdown::arrow {

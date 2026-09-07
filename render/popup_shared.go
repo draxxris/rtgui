@@ -63,7 +63,7 @@ func (t *Theme) drawPopupShell(info core.WidgetInfo) {
 // A textured ::highlight replaces the fixed fill; without one the fixed fill
 // draws so unskinned popups keep their hover feedback.
 func (t *Theme) drawPopupRowHighlight(info core.WidgetInfo, row core.Rect) {
-	destination := t.snap(core.Rect{X: row.X + 4, Y: row.Y + 3, W: row.W - 8, H: row.H - 6})
+	destination := t.snap(row)
 	descriptor, fallback := t.resolveDescriptor(info.Kind, skin.PartOverlay, core.StateHovered)
 	if hasTexture(descriptor, fallback) {
 		tint := effectiveTint(descriptor, false)

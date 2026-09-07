@@ -227,17 +227,21 @@ func (t *Theme) DrawDropdownPopup(info core.WidgetInfo, items []string, hovered 
 }
 
 // drawDropdownText records and draws one popup label with the gallery colors.
+// The label keeps the popup row's +16 horizontal indent but centers
+// vertically with widgetTextOrigin so row text matches other widgets.
 func (t *Theme) drawDropdownText(info core.WidgetInfo, row core.Rect, value string) {
 	tint := color.RGBA{R: 230, G: 240, B: 255, A: 255}
 	t.logDrawCall(info.Kind, skin.PartText, info.State, row, row, skin.SkinDescriptor{}, tint, false)
 	if !rl.IsWindowReady() {
 		return
 	}
+	fontSize, _, y := widgetTextOrigin(row)
+	x := float32(math.Round(float64(row.X + 16)))
 	if t.HasFont() {
-		rl.DrawTextEx(t.FontForSize(22), value, rl.NewVector2(row.X+16, row.Y+8), 22, 2.2, tint)
+		rl.DrawTextEx(t.FontForSize(float32(fontSize)), value, rl.NewVector2(x, y), float32(fontSize), float32(fontSize)/10, tint)
 		return
 	}
-	rl.DrawText(value, int32(row.X+16), int32(row.Y+8), 22, tint)
+	rl.DrawText(value, int32(x), int32(y), fontSize, tint)
 }
 
 // drawCheckbox renders its icon state followed by its optional text.
