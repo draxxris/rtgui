@@ -42,11 +42,11 @@ func TestParseCSSSelectors(t *testing.T) {
 		kind string
 		part SkinPart
 	}{
-		"Slider::track":          {"Slider", PartTrack},
-		"Slider::thumb":          {"Slider", PartThumb},
-		"Dropdown::arrow":        {"Dropdown", PartArrow},
-		"Checkbox::checkmark":    {"Checkbox", PartCheckmark},
-		"Checkbox::box":          {"Checkbox", PartIcon},
+		"Slider::track":            {"Slider", PartTrack},
+		"Slider::thumb":            {"Slider", PartThumb},
+		"Dropdown::arrow":          {"Dropdown", PartArrow},
+		"Checkbox::checkmark":      {"Checkbox", PartCheckmark},
+		"Checkbox::box":            {"Checkbox", PartIcon},
 		"Slider::thumb:hover":      {"Slider", PartThumb},
 		"Checkbox::box:disabled":   {"Checkbox", PartIcon},
 		"ProgressBar::fill":        {"ProgressBar", PartOverlay},
@@ -144,9 +144,22 @@ func TestParseCSSOrder(t *testing.T) {
 	}
 }
 
+// assertSliceRule verifies a parsed SkinRule matches the expected kind, part, and slice.
+func assertSliceRule(t *testing.T, rule SkinRule, kind core.WidgetKind, part SkinPart, slice int32) {
+	t.Helper()
+	if rule.Kind != kind || rule.Part != part || rule.Slice != slice {
+		t.Fatalf("slice rule mismatch: %+v", rule)
+	}
+}
+
 // TestParseScrollbarCSS verifies ScrollPanel track and thumb declarations with slicing.
 func TestParseScrollbarCSS(t *testing.T) {
 	rules, err := ParseCSS(`
+		ScrollPanel {
+			border-image-source: url("panel.png");
+			border-image-slice: 8px;
+			padding: 8px;
+		}
 		ScrollPanel::track {
 			border-image-source: url("track.png");
 			border-image-slice: 8px;
@@ -162,16 +175,16 @@ func TestParseScrollbarCSS(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(rules) != 3 {
-		t.Fatalf("expected 3 rules, got %d", len(rules))
+	if len(rules) != 5 {
+		t.Fatalf("expected 5 rules, got %d", len(rules))
 	}
-	if rules[0].Kind != core.WidgetScrollPanel || rules[0].Part != PartTrack || rules[0].Slice != 8 {
-		t.Fatalf("track rule mismatch: %+v", rules[0])
+	assertSliceRule(t, rules[0], core.WidgetScrollPanel, PartBorder, 8)
+	if rules[1].Kind != core.WidgetScrollPanel || rules[1].Part != PartBackground || !rules[1].HasPadding || rules[1].Padding[0] != 8 {
+		t.Fatalf("padding rule mismatch: %+v", rules[1])
 	}
-	if rules[1].Kind != core.WidgetScrollPanel || rules[1].Part != PartThumb || rules[1].Slice != 8 {
-		t.Fatalf("thumb rule mismatch: %+v", rules[1])
-	}
-	if rules[2].Kind != core.WidgetScrollPanel || rules[2].Part != PartThumb || rules[2].State != core.StateHovered || !rules[2].HasTint {
-		t.Fatalf("thumb hover rule mismatch: %+v", rules[2])
+	assertSliceRule(t, rules[2], core.WidgetScrollPanel, PartTrack, 8)
+	assertSliceRule(t, rules[3], core.WidgetScrollPanel, PartThumb, 8)
+	if rules[4].Kind != core.WidgetScrollPanel || rules[4].Part != PartThumb || rules[4].State != core.StateHovered || !rules[4].HasTint {
+		t.Fatalf("thumb hover rule mismatch: %+v", rules[4])
 	}
 }

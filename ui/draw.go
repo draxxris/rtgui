@@ -118,26 +118,34 @@ func (u *UI) drawOne(widget widgets.Widget) {
 func (u *UI) drawScrollPanel(widget *widgets.ScrollPanel, state core.WidgetState) {
 	info := widget.Snapshot(state)
 	u.theme.DrawWidget(info, "", 0, false)
-	if needsBorder(widget.Kind()) {
-		u.theme.DrawWidgetPart(widget.Kind(), skin.PartBorder, widget.Bounds(), state)
-	}
 	drawer := widget.ScrollContentDrawer()
 	if drawer != nil {
-		bounds := widget.Bounds()
-		contentW := bounds.W
+		content := u.scrollContentRect(widget)
+		scissorW := content.W
 		if widget.MaxScroll().Y > 0 {
-			contentW -= 16
+			track := u.scrollTrackRect(widget)
+			scissorW = track.X - content.X
+			if scissorW < 0 {
+				scissorW = 0
+			}
+		}
+		scissorH := content.H
+		if scissorH < 0 {
+			scissorH = 0
 		}
 		sx, sy := u.Scale()
 		if rl.IsWindowReady() {
-			rl.BeginScissorMode(int32(bounds.X*sx), int32(bounds.Y*sy), int32(contentW*sx), int32(bounds.H*sy))
+			rl.BeginScissorMode(int32(content.X*sx), int32(content.Y*sy), int32(scissorW*sx), int32(scissorH*sy))
 		}
-		drawer(bounds, widget.Scroll())
+		drawer(widget.Bounds(), widget.Scroll())
 		if rl.IsWindowReady() {
 			rl.EndScissorMode()
 		}
 	}
 	u.drawScrollbar(widget)
+	if needsBorder(widget.Kind()) {
+		u.theme.DrawWidgetPart(widget.Kind(), skin.PartBorder, widget.Bounds(), state)
+	}
 }
 
 // drawTextbox renders one textbox with its selection and focus caret. The

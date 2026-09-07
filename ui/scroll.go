@@ -8,27 +8,47 @@ import (
 	"github.com/draxxris/rtgui/widgets"
 )
 
-// scrollTrackRect computes the vertical scrollbar track rectangle along the right edge.
-func scrollTrackRect(sp *widgets.ScrollPanel) core.Rect {
+// scrollContentRect returns the skin-aware content area inside the scroll panel's border and padding.
+func (u *UI) scrollContentRect(sp *widgets.ScrollPanel) core.Rect {
 	if sp == nil {
 		return core.Rect{}
 	}
-	bounds := sp.Bounds()
+	if u == nil || u.theme == nil {
+		return sp.Bounds()
+	}
+	return u.theme.ScrollContent(sp.Bounds(), u.visualState(sp))
+}
+
+// scrollTrackRect computes the vertical scrollbar track rectangle along the right edge.
+func (u *UI) scrollTrackRect(sp *widgets.ScrollPanel) core.Rect {
+	if sp == nil {
+		return core.Rect{}
+	}
+	content := u.scrollContentRect(sp)
 	trackWidth := float32(16)
+	if content.W < trackWidth || content.H <= 0 {
+		return core.Rect{}
+	}
 	return core.Rect{
-		X: bounds.X + bounds.W - trackWidth,
-		Y: bounds.Y,
+		X: content.X + content.W - trackWidth,
+		Y: content.Y,
 		W: trackWidth,
-		H: bounds.H,
+		H: content.H,
 	}
 }
 
+// scrollTrackRect computes the vertical scrollbar track rectangle for callers without a UI instance.
+func scrollTrackRect(sp *widgets.ScrollPanel) core.Rect {
+	var u *UI
+	return u.scrollTrackRect(sp)
+}
+
 // scrollThumbRect computes the vertical scrollbar thumb rectangle proportional to scroll offset.
-func scrollThumbRect(sp *widgets.ScrollPanel) core.Rect {
+func (u *UI) scrollThumbRect(sp *widgets.ScrollPanel) core.Rect {
 	if sp == nil {
 		return core.Rect{}
 	}
-	track := scrollTrackRect(sp)
+	track := u.scrollTrackRect(sp)
 	maxScroll := sp.MaxScroll()
 	if maxScroll.Y <= 0 || track.H <= 0 {
 		return core.Rect{}
@@ -56,6 +76,12 @@ func scrollThumbRect(sp *widgets.ScrollPanel) core.Rect {
 	}
 }
 
+// scrollThumbRect computes the vertical scrollbar thumb rectangle for callers without a UI instance.
+func scrollThumbRect(sp *widgets.ScrollPanel) core.Rect {
+	var u *UI
+	return u.scrollThumbRect(sp)
+}
+
 // updateScrollThumbHover updates which scroll panel thumb is hovered by pos.
 func (u *UI) updateScrollThumbHover(pos core.Vec2) {
 	if u == nil {
@@ -63,7 +89,7 @@ func (u *UI) updateScrollThumbHover(pos core.Vec2) {
 	}
 	target := u.topmostAt(pos, core.WidgetScrollPanel)
 	if sp, ok := target.(*widgets.ScrollPanel); ok && sp.Enabled() && sp.MaxScroll().Y > 0 {
-		if scrollThumbRect(sp).Contains(pos) {
+		if u.scrollThumbRect(sp).Contains(pos) {
 			u.scrollThumbHovered = sp
 			return
 		}
@@ -81,14 +107,14 @@ func (u *UI) handleScrollbarPress(pos core.Vec2) bool {
 	if !ok || !sp.Enabled() || sp.MaxScroll().Y <= 0 {
 		return false
 	}
-	thumb := scrollThumbRect(sp)
+	thumb := u.scrollThumbRect(sp)
 	if thumb.Contains(pos) {
 		u.scrollThumbDragging = sp
 		u.scrollDragStartY = pos.Y
 		u.scrollDragStartScroll = sp.Scroll().Y
 		return true
 	}
-	track := scrollTrackRect(sp)
+	track := u.scrollTrackRect(sp)
 	if track.Contains(pos) {
 		travel := track.H - thumb.H
 		if travel > 0 {
@@ -116,8 +142,8 @@ func (u *UI) handleScrollbarDrag(pos core.Vec2) bool {
 		u.scrollThumbDragging = nil
 		return false
 	}
-	track := scrollTrackRect(sp)
-	thumb := scrollThumbRect(sp)
+	track := u.scrollTrackRect(sp)
+	thumb := u.scrollThumbRect(sp)
 	travel := track.H - thumb.H
 	if travel > 0 {
 		deltaY := pos.Y - u.scrollDragStartY
@@ -147,7 +173,10 @@ func (u *UI) drawScrollbar(widget *widgets.ScrollPanel) {
 	if widget == nil || widget.MaxScroll().Y <= 0 {
 		return
 	}
-	trackRect := scrollTrackRect(widget)
+	trackRect := u.scrollTrackRect(widget)
+	if trackRect.H <= 0 || trackRect.W <= 0 {
+		return
+	}
 	u.theme.DrawWidgetPart(core.WidgetScrollPanel, skin.PartTrack, trackRect, core.StateNormal)
 
 	thumbState := core.StateNormal
@@ -156,7 +185,7 @@ func (u *UI) drawScrollbar(widget *widgets.ScrollPanel) {
 	} else if u.scrollThumbHovered == widget {
 		thumbState = core.StateHovered
 	}
-	thumbRect := scrollThumbRect(widget)
+	thumbRect := u.scrollThumbRect(widget)
 	if thumbRect.H > 0 {
 		u.theme.DrawWidgetPart(core.WidgetScrollPanel, skin.PartThumb, thumbRect, thumbState)
 	}

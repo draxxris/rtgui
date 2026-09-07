@@ -160,6 +160,7 @@ RichText::highlight {
 ScrollPanel {
     border-image-source: url("kenney/panel_border_grey.png");
     border-image-slice: 8;
+    padding: 8;
 }
 
 ScrollPanel::track {

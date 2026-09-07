@@ -856,13 +856,17 @@ func (g *gallery) drawScrollRows(bounds core.Rect, scroll core.Vec2) {
 	}
 	start := bounds.Y + 12 - scroll.Y
 	theme := g.facade.Theme()
+	trackPad := float32(0)
+	if g.scroll.MaxScroll().Y > 0 {
+		trackPad = 24
+	}
 	for i := 0; i < 10; i++ {
 		y := start + float32(i*34)
 		fill := color.RGBA{R: 35, G: 48, B: 70, A: 255}
 		if i%2 == 1 {
 			fill = color.RGBA{R: 29, G: 40, B: 59, A: 255}
 		}
-		rl.DrawRectangleRec(rl.Rectangle{X: bounds.X + 10, Y: y, Width: bounds.W - 20, Height: 28}, fill)
+		rl.DrawRectangleRec(rl.Rectangle{X: bounds.X + 10, Y: y, Width: bounds.W - 20 - trackPad, Height: 28}, fill)
 		theme.DrawText(fmt.Sprintf("%s %02d  •  scroll offset %.0f", prefix, i+1, scroll.Y), bounds.X+20, y+6, 18, false, color.RGBA{R: 194, G: 211, B: 235, A: 255})
 	}
 }

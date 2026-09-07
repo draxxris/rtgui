@@ -368,12 +368,26 @@ func TestLoadCSSFileRequiresReadyBackendOnlyForUpload(t *testing.T) {
 	}
 }
 
+// assertThreePatchDescriptor verifies that a descriptor has valid 3-patch slicing.
+func assertThreePatchDescriptor(t *testing.T, desc skin.SkinDescriptor, ok bool, capVal int32) {
+	t.Helper()
+	if !ok || !desc.HasThreePatch || desc.ThreePatch.Top != capVal || desc.ThreePatch.Bottom != capVal {
+		t.Fatalf("three-patch descriptor mismatch: ok=%v desc=%+v", ok, desc)
+	}
+}
+
 // TestScrollbarThreePatchCSS verifies ScrollPanel track and thumb descriptors support 3-patch.
 func TestScrollbarThreePatchCSS(t *testing.T) {
 	directory := t.TempDir()
+	writeTestPNG(t, directory, "panel.png", color.RGBA{R: 50, G: 60, B: 70, A: 255})
 	writeTestPNG(t, directory, "track.png", color.RGBA{R: 20, G: 30, B: 40, A: 255})
 	writeTestPNG(t, directory, "thumb.png", color.RGBA{R: 100, G: 110, B: 120, A: 255})
 	cssText := `
+		ScrollPanel {
+			border-image-source: url("panel.png");
+			border-image-slice: 8;
+			padding: 8;
+		}
 		ScrollPanel::track {
 			border-image-source: url("track.png");
 			border-image-slice: 8;
@@ -392,20 +406,23 @@ func TestScrollbarThreePatchCSS(t *testing.T) {
 		t.Fatalf("LoadCSSFile: %v", err)
 	}
 
-	trackDesc, ok := theme.Lookup(core.WidgetScrollPanel, skin.PartTrack, core.StateNormal)
-	if !ok || !trackDesc.HasThreePatch || trackDesc.ThreePatch.Top != 8 || trackDesc.ThreePatch.Bottom != 8 {
-		t.Fatalf("track descriptor mismatch: ok=%v desc=%+v", ok, trackDesc)
+	borderDesc, ok := theme.Lookup(core.WidgetScrollPanel, skin.PartBorder, core.StateNormal)
+	if !ok || !borderDesc.HasNinePatch || borderDesc.NinePatch.Left != 8 {
+		t.Fatalf("panel border descriptor mismatch: ok=%v desc=%+v", ok, borderDesc)
 	}
+	content := theme.ScrollContent(core.Rect{X: 100, Y: 100, W: 200, H: 200}, core.StateNormal)
+	if expected := (core.Rect{X: 108, Y: 108, W: 184, H: 184}); content != expected {
+		t.Fatalf("ScrollContent mismatch: got %v, want %v", content, expected)
+	}
+
+	trackDesc, ok := theme.Lookup(core.WidgetScrollPanel, skin.PartTrack, core.StateNormal)
+	assertThreePatchDescriptor(t, trackDesc, ok, 8)
 
 	thumbDesc, ok := theme.Lookup(core.WidgetScrollPanel, skin.PartThumb, core.StateNormal)
-	if !ok || !thumbDesc.HasThreePatch || thumbDesc.ThreePatch.Top != 8 || thumbDesc.ThreePatch.Bottom != 8 {
-		t.Fatalf("thumb descriptor mismatch: ok=%v desc=%+v", ok, thumbDesc)
-	}
+	assertThreePatchDescriptor(t, thumbDesc, ok, 8)
 
 	thumbHover, ok := theme.Lookup(core.WidgetScrollPanel, skin.PartThumb, core.StateHovered)
-	if !ok || !thumbHover.HasThreePatch || thumbHover.ThreePatch.Top != 8 || thumbHover.ThreePatch.Bottom != 8 {
-		t.Fatalf("thumb hover descriptor mismatch: ok=%v desc=%+v", ok, thumbHover)
-	}
+	assertThreePatchDescriptor(t, thumbHover, ok, 8)
 	if thumbHover.Tint != (core.Color{R: 0xE1, G: 0xF2, B: 0xFF, A: 255}) {
 		t.Fatalf("thumb hover tint mismatch: %v", thumbHover.Tint)
 	}

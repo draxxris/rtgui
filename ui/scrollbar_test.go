@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/draxxris/rtgui/core"
+	"github.com/draxxris/rtgui/render"
 	"github.com/draxxris/rtgui/skin"
 	"github.com/draxxris/rtgui/widgets"
 )
@@ -126,4 +127,83 @@ func TestScrollbarTrackClickJumpsScroll(t *testing.T) {
 		t.Fatalf("expected scroll offset to increase after track click, got %f", sp.Scroll().Y)
 	}
 	u.HandleMouse(MouseEvent{Pos: clickPos, Released: true})
+}
+
+// verifySkinnedScrollCalls verifies the drawn scroll panel track, thumb, and border calls.
+func verifySkinnedScrollCalls(t *testing.T, calls []render.DrawCall, track, bounds core.Rect) {
+	t.Helper()
+	var foundTrack, foundThumb, foundBorder bool
+	for _, call := range calls {
+		if call.Kind != core.WidgetScrollPanel {
+			continue
+		}
+		switch call.Part {
+		case skin.PartTrack:
+			foundTrack = true
+			if call.Dest != track {
+				t.Fatalf("expected track dest %v, got %v", track, call.Dest)
+			}
+		case skin.PartThumb:
+			foundThumb = true
+			if call.Dest.X != track.X || call.Dest.W != track.W {
+				t.Fatalf("thumb not within track X/W: %v", call.Dest)
+			}
+		case skin.PartBorder:
+			foundBorder = true
+			if call.Dest != bounds {
+				t.Fatalf("expected border dest %v, got %v", bounds, call.Dest)
+			}
+		}
+	}
+	if !foundTrack || !foundThumb || !foundBorder {
+		t.Fatalf("missing expected parts: track=%v thumb=%v border=%v", foundTrack, foundThumb, foundBorder)
+	}
+}
+
+// TestScrollbarTrackAndThumbSkinnedPadding verifies that border slice and padding
+// insets correctly place the track and thumb inside the panel borders.
+func TestScrollbarTrackAndThumbSkinnedPadding(t *testing.T) {
+	u := New(400, 300)
+	recorder := attachDrawRecorder(t, u)
+
+	// Set 8px nine-patch border and 8px padding
+	u.Theme().SetSkinPart(skin.SkinKey{Widget: core.WidgetScrollPanel, Part: skin.PartBorder, State: core.StateNormal}, skin.SkinDescriptor{
+		NinePatch:    skin.NinePatch{Left: 8, Top: 8, Right: 8, Bottom: 8},
+		HasNinePatch: true,
+	})
+	u.Theme().SetSkinPart(skin.SkinKey{Widget: core.WidgetScrollPanel, Part: skin.PartBackground, State: core.StateNormal}, skin.SkinDescriptor{
+		PaddingLeft:   8,
+		PaddingTop:    8,
+		PaddingRight:  8,
+		PaddingBottom: 8,
+	})
+
+	sp := widgets.NewScrollPanel("scroll", core.Rect{X: 50, Y: 50, W: 200, H: 100})
+	sp.SetMaxScroll(core.Vec2{Y: 100})
+	mustAdd(t, u, sp)
+
+	track := u.scrollTrackRect(sp)
+	// Outer: X=50, Y=50, W=200, H=100.
+	// Insets: 8 on all sides -> Content: X=58, Y=58, W=184, H=84.
+	// Track: X = 58 + 184 - 16 = 226, Y = 58, W = 16, H = 84.
+	expectedTrack := core.Rect{X: 226, Y: 58, W: 16, H: 84}
+	if track != expectedTrack {
+		t.Fatalf("expected track %v, got %v", expectedTrack, track)
+	}
+
+	thumb := u.scrollThumbRect(sp)
+	if thumb.X != 226 || thumb.Y != 58 || thumb.W != 16 || thumb.H <= 0 {
+		t.Fatalf("expected thumb at track top {226, 58, 16, >0}, got %v", thumb)
+	}
+
+	// Verify hover on the inset thumb
+	thumbCenter := core.Vec2{X: thumb.X + thumb.W/2, Y: thumb.Y + thumb.H/2}
+	u.HandleMouse(MouseEvent{Pos: thumbCenter})
+	state, err := u.ScrollThumbState("scroll")
+	if err != nil || state != core.StateHovered {
+		t.Fatalf("expected StateHovered on inset thumb, got %v, err=%v", state, err)
+	}
+
+	u.Draw()
+	verifySkinnedScrollCalls(t, recorder.Calls(), track, sp.Bounds())
 }
