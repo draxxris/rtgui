@@ -63,14 +63,14 @@ func TestRichTextLinkAccessors(t *testing.T) {
 	if _, ok := message.LinkAt(-1); ok {
 		t.Fatal("negative link index accepted")
 	}
-	var nilWidget *widgets.Widget
+	var nilWidget *widgets.RichText
 	if nilWidget.RichSegments() != nil || nilWidget.RichPlainText() != "" || nilWidget.LinkCount() != 0 {
 		t.Fatal("nil widget rich accessors must be zero")
 	}
 	if _, ok := nilWidget.LinkAt(0); ok {
 		t.Fatal("nil widget link lookup must fail")
 	}
-	if widgets.NewLabel("label", core.Rect{}, "x").LinkCount() != 0 {
-		t.Fatal("non-rich widget reported links")
+	if _, err := widgets.AsRichText(widgets.NewLabel("label", core.Rect{}, "x")); err == nil {
+		t.Fatal("non-rich widget cast must return error")
 	}
 }

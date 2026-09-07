@@ -46,15 +46,15 @@ type UI struct {
 	transform *transform.Transform
 	theme     *render.Theme
 
-	widgets map[string]*widgets.Widget
+	widgets map[string]widgets.Widget
 	order   []string
 
-	hovered *widgets.Widget
-	pressed *widgets.Widget
-	focused *widgets.Widget
+	hovered widgets.Widget
+	pressed widgets.Widget
+	focused widgets.Widget
 	// activeFrame is the container focus slot. It highlights its bounds
 	// and scopes frame-bound hotkeys while keyboard focus keeps editing.
-	activeFrame *widgets.Widget
+	activeFrame widgets.Widget
 	// hotkeys is the library-owned registry for scoped global actions.
 	// Iteration is linear and allocation-free on the hot path; N stays tiny.
 	hotkeys []hotkeyEntry
@@ -77,10 +77,16 @@ type UI struct {
 	tooltipAnchor core.Vec2
 
 	linkArmedSeg int
-	tipWidget    *widgets.Widget
+	tipWidget    widgets.Widget
 	tipSeg       int
 	tipText      string
+
+	diagnostics []string
+	diagHandler DiagnosticHandler
 }
+
+// DiagnosticHandler handles diagnostic messages from UI operations.
+type DiagnosticHandler func(msg string)
 
 // New returns a UI with a fixed logical design resolution. Non-positive
 // dimensions fall back to 800x600 so the viewport remains usable.
@@ -111,7 +117,7 @@ func NewWith(t *transform.Transform, th *render.Theme) *UI {
 	return &UI{
 		transform:    t,
 		theme:        th,
-		widgets:      make(map[string]*widgets.Widget),
+		widgets:      make(map[string]widgets.Widget),
 		callbacks:    make(map[string]callbackRecord),
 		linkArmedSeg: -1,
 		tipSeg:       -1,
@@ -121,13 +127,13 @@ func NewWith(t *transform.Transform, th *render.Theme) *UI {
 // Add validates and registers every widget atomically in insertion order.
 // Nil widgets, empty names, and duplicate names return meaningful errors
 // without changing the registry.
-func (u *UI) Add(list ...*widgets.Widget) error {
+func (u *UI) Add(list ...widgets.Widget) error {
 	if u == nil {
 		return ErrNilUI
 	}
 	seen := make(map[string]struct{}, len(list))
 	for _, widget := range list {
-		if widget == nil {
+		if isNilWidget(widget) {
 			return ErrNilWidget
 		}
 		name := widget.Name()
@@ -143,7 +149,7 @@ func (u *UI) Add(list ...*widgets.Widget) error {
 		seen[name] = struct{}{}
 	}
 	if u.widgets == nil {
-		u.widgets = make(map[string]*widgets.Widget, len(list))
+		u.widgets = make(map[string]widgets.Widget, len(list))
 	}
 	for _, widget := range list {
 		name := widget.Name()
@@ -183,7 +189,7 @@ func (u *UI) ClearWidgets() {
 	}
 	u.clearFocus()
 	u.clearActiveFrame()
-	u.widgets = make(map[string]*widgets.Widget)
+	u.widgets = make(map[string]widgets.Widget)
 	u.order = nil
 	u.hovered = nil
 	u.pressed = nil
@@ -249,7 +255,7 @@ func (u *UI) Transform() *transform.Transform {
 }
 
 // Hovered reports the currently hovered topmost eligible widget.
-func (u *UI) Hovered() *widgets.Widget {
+func (u *UI) Hovered() widgets.Widget {
 	if u == nil {
 		return nil
 	}
@@ -257,7 +263,7 @@ func (u *UI) Hovered() *widgets.Widget {
 }
 
 // Pressed reports the widget owning the active press gesture.
-func (u *UI) Pressed() *widgets.Widget {
+func (u *UI) Pressed() widgets.Widget {
 	if u == nil {
 		return nil
 	}
@@ -265,7 +271,7 @@ func (u *UI) Pressed() *widgets.Widget {
 }
 
 // Focused reports the currently focused widget.
-func (u *UI) Focused() *widgets.Widget {
+func (u *UI) Focused() widgets.Widget {
 	if u == nil {
 		return nil
 	}
@@ -273,7 +279,7 @@ func (u *UI) Focused() *widgets.Widget {
 }
 
 // Lookup returns the widget registered under name, or nil when unknown.
-func (u *UI) Lookup(name string) *widgets.Widget {
+func (u *UI) Lookup(name string) widgets.Widget {
 	if u == nil || u.widgets == nil {
 		return nil
 	}
@@ -290,7 +296,7 @@ func (u *UI) Pointer() core.Vec2 {
 
 // clearReferences removes widget from each transient owner slot, forgetting
 // any textbox selection held by a focused removal.
-func (u *UI) clearReferences(widget *widgets.Widget) {
+func (u *UI) clearReferences(widget widgets.Widget) {
 	if u == nil || widget == nil {
 		return
 	}
@@ -309,5 +315,95 @@ func (u *UI) clearReferences(widget *widgets.Widget) {
 	}
 	if u.tipWidget == widget {
 		u.clearLinkTip()
+	}
+}
+
+// SetDiagnosticHandler configures an optional callback for runtime warnings.
+func (u *UI) SetDiagnosticHandler(handler DiagnosticHandler) {
+	if u != nil {
+		u.diagHandler = handler
+		if u.theme != nil {
+			if handler != nil {
+				u.theme.SetDiagnosticHandler(func(msg string) {
+					u.diagnose("%s", msg)
+				})
+			} else {
+				u.theme.SetDiagnosticHandler(nil)
+			}
+		}
+	}
+}
+
+// SetDebugMode enables or disables visible placeholder rendering for missing skins.
+func (u *UI) SetDebugMode(enabled bool) {
+	if u != nil && u.theme != nil {
+		u.theme.SetDebugMode(enabled)
+	}
+}
+
+// DebugMode reports whether visible placeholder rendering for missing skins is enabled.
+func (u *UI) DebugMode() bool {
+	return u != nil && u.theme != nil && u.theme.DebugMode()
+}
+
+// Diagnostics returns a snapshot of recorded diagnostic warnings.
+func (u *UI) Diagnostics() []string {
+	if u == nil {
+		return nil
+	}
+	return append([]string(nil), u.diagnostics...)
+}
+
+// ClearDiagnostics clears recorded diagnostic messages.
+func (u *UI) ClearDiagnostics() {
+	if u != nil {
+		u.diagnostics = nil
+	}
+}
+
+// diagnose records and reports a diagnostic message.
+func (u *UI) diagnose(format string, args ...any) {
+	if u == nil {
+		return
+	}
+	msg := fmt.Sprintf(format, args...)
+	u.diagnostics = append(u.diagnostics, msg)
+	if u.diagHandler != nil {
+		u.diagHandler(msg)
+	}
+}
+
+// isNilWidget tests whether an interface or its underlying pointer value is nil.
+func isNilWidget(w widgets.Widget) bool {
+	if w == nil {
+		return true
+	}
+	switch v := w.(type) {
+	case *widgets.Button:
+		return v == nil
+	case *widgets.Label:
+		return v == nil
+	case *widgets.Checkbox:
+		return v == nil
+	case *widgets.Slider:
+		return v == nil
+	case *widgets.ProgressBar:
+		return v == nil
+	case *widgets.Textbox:
+		return v == nil
+	case *widgets.ScrollPanel:
+		return v == nil
+	case *widgets.Dropdown:
+		return v == nil
+	case *widgets.TabBar:
+		return v == nil
+	case *widgets.RichText:
+		return v == nil
+	case *widgets.Canvas:
+		return v == nil
+	case *widgets.Frame:
+		return v == nil
+	default:
+		return false
 	}
 }

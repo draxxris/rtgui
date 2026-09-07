@@ -9,7 +9,7 @@ import (
 )
 
 // richTestMessage returns a registered message with plain and linked runs.
-func richTestMessage(t *testing.T, u *UI) *widgets.Widget {
+func richTestMessage(t *testing.T, u *UI) *widgets.RichText {
 	t.Helper()
 	message := widgets.NewRichText("chat", core.Rect{X: 20, Y: 20, W: 300, H: 60}, []core.RichSegment{
 		{Text: "Need "},
@@ -22,7 +22,7 @@ func richTestMessage(t *testing.T, u *UI) *widgets.Widget {
 }
 
 // richSegCenter resolves the first fragment center of one segment for tests.
-func richSegCenter(u *UI, message *widgets.Widget, segment int) core.Vec2 {
+func richSegCenter(u *UI, message *widgets.RichText, segment int) core.Vec2 {
 	for _, span := range u.richSpans(message) {
 		if span.Segment == segment {
 			return core.Vec2{X: span.Bounds.X + span.Bounds.W/2, Y: span.Bounds.Y + span.Bounds.H/2}

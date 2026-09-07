@@ -15,11 +15,22 @@ func (u *UI) ActivateLink(name string, index int) bool {
 	}
 	u.reconcileInteraction()
 	target := u.Lookup(name)
-	if target == nil || !target.Enabled() || target.Kind() != core.WidgetRichText {
+	if target == nil {
+		u.diagnose("ui.ActivateLink: widget %q not found", name)
 		return false
 	}
-	link, ok := target.LinkAt(index)
+	rt, ok := target.(*widgets.RichText)
 	if !ok {
+		u.diagnose("ui.ActivateLink: widget %q is %v, expected WidgetRichText", name, target.Kind())
+		return false
+	}
+	if !rt.Enabled() {
+		u.diagnose("ui.ActivateLink: widget %q is disabled", name)
+		return false
+	}
+	link, ok := rt.LinkAt(index)
+	if !ok {
+		u.diagnose("ui.ActivateLink: link index %d out of range in %q", index, name)
 		return false
 	}
 	u.fireOnLinkClick(name, link)
@@ -34,16 +45,20 @@ func (u *UI) HoveredLink() (string, core.Link, int, bool) {
 	if u == nil || u.tipWidget == nil || u.tipWidget != u.hovered || u.tipSeg < 0 {
 		return "", core.Link{}, -1, false
 	}
-	segments := u.tipWidget.RichSegments()
+	rt, ok := u.tipWidget.(*widgets.RichText)
+	if !ok {
+		return "", core.Link{}, -1, false
+	}
+	segments := rt.RichSegments()
 	if u.tipSeg >= len(segments) || segments[u.tipSeg].Link.Kind == core.LinkNone {
 		return "", core.Link{}, -1, false
 	}
-	return u.tipWidget.Name(), segments[u.tipSeg].Link, u.tipSeg, true
+	return rt.Name(), segments[u.tipSeg].Link, u.tipSeg, true
 }
 
 // richSpans lays out message segments in resolved bounds for input and draw.
 // It returns nil without a theme so headless callers degrade gracefully.
-func (u *UI) richSpans(message *widgets.Widget) []render.RichSpanLayout {
+func (u *UI) richSpans(message *widgets.RichText) []render.RichSpanLayout {
 	if message == nil || u.theme == nil {
 		return nil
 	}
@@ -51,7 +66,7 @@ func (u *UI) richSpans(message *widgets.Widget) []render.RichSpanLayout {
 }
 
 // richLinkSegAt resolves the linked segment under pos, or -1 for plain text.
-func (u *UI) richLinkSegAt(message *widgets.Widget, pos core.Vec2) int {
+func (u *UI) richLinkSegAt(message *widgets.RichText, pos core.Vec2) int {
 	fragment, ok := render.RichSpanAt(u.richSpans(message), pos)
 	if !ok || !fragment.Linked() {
 		return -1
@@ -62,7 +77,7 @@ func (u *UI) richLinkSegAt(message *widgets.Widget, pos core.Vec2) int {
 // releaseRichText commits an armed link on a matching release. Pressing a
 // link and releasing elsewhere cancels without a callback; pressing plain
 // text keeps the shared click behavior. Every release is consumed.
-func (u *UI) releaseRichText(message *widgets.Widget, pos core.Vec2) bool {
+func (u *UI) releaseRichText(message *widgets.RichText, pos core.Vec2) bool {
 	armed := u.linkArmedSeg
 	u.linkArmedSeg = -1
 	fragment, ok := render.RichSpanAt(u.richSpans(message), pos)
@@ -85,7 +100,12 @@ func (u *UI) refreshLinkTip() {
 		u.clearLinkTip()
 		return
 	}
-	segment := u.richLinkSegAt(u.hovered, u.pointer)
+	rt, ok := u.hovered.(*widgets.RichText)
+	if !ok {
+		u.clearLinkTip()
+		return
+	}
+	segment := u.richLinkSegAt(rt, u.pointer)
 	if segment < 0 {
 		u.clearLinkTip()
 		return
@@ -93,7 +113,7 @@ func (u *UI) refreshLinkTip() {
 	if u.tipWidget == u.hovered && u.tipSeg == segment {
 		return
 	}
-	link := u.hovered.RichSegments()[segment].Link
+	link := rt.RichSegments()[segment].Link
 	u.tipWidget, u.tipSeg = u.hovered, segment
 	if link.Tooltip != "" {
 		u.tipText = link.Tooltip
@@ -101,8 +121,8 @@ func (u *UI) refreshLinkTip() {
 	}
 	u.tipText = ""
 	fn := u.callbacks[u.hovered.Name()].onLinkTooltip
-	if fn == nil && u.hovered != nil {
-		fn = u.hovered.OnLinkTooltipHandler()
+	if fn == nil {
+		fn = rt.OnLinkTooltipHandler()
 	}
 	if fn != nil {
 		u.tipText = fn(link)

@@ -23,6 +23,8 @@ type Theme struct {
 	recorder          *DrawRecorder
 	font              fontFace
 	italic            fontFace
+	debugMode         bool
+	diagnosticHandler func(string)
 }
 
 // fontFace owns one font path and its size-specific raster cache.
@@ -57,6 +59,25 @@ func (t *Theme) SetDrawRecorder(recorder *DrawRecorder) {
 func (t *Theme) BeginFrame() {
 	if t != nil {
 		t.recorder.beginFrame()
+	}
+}
+
+// SetDebugMode enables or disables visible placeholder rendering for missing skins.
+func (t *Theme) SetDebugMode(enabled bool) {
+	if t != nil {
+		t.debugMode = enabled
+	}
+}
+
+// DebugMode reports whether visible placeholder rendering for missing skins is enabled.
+func (t *Theme) DebugMode() bool {
+	return t != nil && t.debugMode
+}
+
+// SetDiagnosticHandler configures an optional callback invoked on render fallbacks or warnings.
+func (t *Theme) SetDiagnosticHandler(handler func(string)) {
+	if t != nil {
+		t.diagnosticHandler = handler
 	}
 }
 

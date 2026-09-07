@@ -156,21 +156,31 @@ func (u *UI) Activate(name string) bool {
 	}
 	u.reconcileInteraction()
 	target := u.Lookup(name)
-	if target == nil || !target.Enabled() || !isPressable(target.Kind()) {
+	if target == nil {
+		u.diagnose("ui.Activate: widget %q not found", name)
 		return false
 	}
-	switch target.Kind() {
-	case core.WidgetDropdown:
+	if !target.Enabled() {
+		u.diagnose("ui.Activate: widget %q is disabled", name)
+		return false
+	}
+	if !isPressable(target.Kind()) {
+		u.diagnose("ui.Activate: widget %q is %v, not pressable", name, target.Kind())
+		return false
+	}
+	switch w := target.(type) {
+	case *widgets.Dropdown:
 		if u.focused == target {
 			u.clearFocus()
 		} else {
 			u.setFocus(target)
 		}
-	case core.WidgetTabBar:
-		if target.TabCount() == 0 || target.SelectedTab() < 0 {
+	case *widgets.TabBar:
+		if w.TabCount() == 0 || w.SelectedTab() < 0 {
+			u.diagnose("ui.Activate: tab bar %q has no valid selection", name)
 			return false
 		}
-	case core.WidgetTextbox:
+	case *widgets.Textbox:
 		u.setFocus(target)
 	}
 	return u.activateWidget(target)
@@ -185,13 +195,24 @@ func (u *UI) SelectTab(name string, index int) bool {
 	}
 	u.reconcileInteraction()
 	target := u.Lookup(name)
-	if target == nil || !target.Enabled() || target.Kind() != core.WidgetTabBar {
+	if target == nil {
+		u.diagnose("ui.SelectTab: widget %q not found", name)
 		return false
 	}
-	if index < 0 || index >= target.TabCount() {
+	tb, ok := target.(*widgets.TabBar)
+	if !ok {
+		u.diagnose("ui.SelectTab: widget %q is %v, expected WidgetTabBar", name, target.Kind())
 		return false
 	}
-	u.commitTabSelection(target, index)
+	if !tb.Enabled() {
+		u.diagnose("ui.SelectTab: widget %q is disabled", name)
+		return false
+	}
+	if index < 0 || index >= tb.TabCount() {
+		u.diagnose("ui.SelectTab: index %d out of range [0, %d) for %q", index, tb.TabCount(), name)
+		return false
+	}
+	u.commitTabSelection(tb, index)
 	return true
 }
 
@@ -204,12 +225,26 @@ func (u *UI) TypeText(name, value string) bool {
 	}
 	u.reconcileInteraction()
 	target := u.Lookup(name)
-	if target == nil || !target.Enabled() || target.Kind() != core.WidgetTextbox || !utf8.ValidString(value) {
+	if target == nil {
+		u.diagnose("ui.TypeText: widget %q not found", name)
 		return false
 	}
-	u.setFocus(target)
-	if u.editText(target, []rune(value), false, false) {
-		u.fireOnText(target.Name(), target.Text())
+	tb, ok := target.(*widgets.Textbox)
+	if !ok {
+		u.diagnose("ui.TypeText: widget %q is %v, expected WidgetTextbox", name, target.Kind())
+		return false
+	}
+	if !tb.Enabled() {
+		u.diagnose("ui.TypeText: widget %q is disabled", name)
+		return false
+	}
+	if !utf8.ValidString(value) {
+		u.diagnose("ui.TypeText: invalid UTF-8 string for %q", name)
+		return false
+	}
+	u.setFocus(tb)
+	if u.editText(tb, []rune(value), false, false) {
+		u.fireOnText(tb.Name(), tb.Text())
 	}
 	return true
 }
@@ -223,7 +258,16 @@ func (u *UI) Focus(name string) bool {
 	}
 	u.reconcileInteraction()
 	target := u.Lookup(name)
-	if target == nil || !target.Enabled() || !isFocusable(target.Kind()) {
+	if target == nil {
+		u.diagnose("ui.Focus: widget %q not found", name)
+		return false
+	}
+	if !target.Enabled() {
+		u.diagnose("ui.Focus: widget %q is disabled", name)
+		return false
+	}
+	if !isFocusable(target.Kind()) {
+		u.diagnose("ui.Focus: widget %q (%v) is not focusable", name, target.Kind())
 		return false
 	}
 	u.setFocus(target)
@@ -263,7 +307,10 @@ func (u *UI) handleWheel(event MouseEvent) bool {
 	if target == nil {
 		return false
 	}
-	return target.ScrollBy(0, -event.Wheel*28)
+	if sp, ok := target.(*widgets.ScrollPanel); ok {
+		return sp.ScrollBy(0, -event.Wheel*28)
+	}
+	return false
 }
 
 // handlePress starts a gesture on the topmost eligible widget. Frame
@@ -294,24 +341,28 @@ func (u *UI) handlePress(event MouseEvent) bool {
 		u.setFocus(target)
 	}
 	u.pressed = target
-	if target.Kind() == core.WidgetSlider {
-		u.setSliderFromX(target, event.Pos.X)
+	if sl, ok := target.(*widgets.Slider); ok {
+		u.setSliderFromX(sl, event.Pos.X)
 	}
-	if target.Kind() == core.WidgetTextbox && u.theme != nil {
-		u.placeTextboxCaret(target, event.Pos.X)
+	if tb, ok := target.(*widgets.Textbox); ok && u.theme != nil {
+		u.placeTextboxCaret(tb, event.Pos.X)
 	}
-	if target.Kind() == core.WidgetRichText {
-		u.linkArmedSeg = u.richLinkSegAt(target, event.Pos)
+	if rt, ok := target.(*widgets.RichText); ok {
+		u.linkArmedSeg = u.richLinkSegAt(rt, event.Pos)
 	}
 	return true
 }
 
 // openDropdown returns the focused enabled dropdown while its popup is visible.
-func (u *UI) openDropdown() *widgets.Widget {
-	if u == nil || u.focused == nil || !u.focused.Enabled() || u.focused.Kind() != core.WidgetDropdown {
+func (u *UI) openDropdown() *widgets.Dropdown {
+	if u == nil || u.focused == nil || !u.focused.Enabled() {
 		return nil
 	}
-	return u.focused
+	dd, ok := u.focused.(*widgets.Dropdown)
+	if !ok {
+		return nil
+	}
+	return dd
 }
 
 // handleOpenDropdown gives a visible popup exclusive press routing while
@@ -336,7 +387,7 @@ func (u *UI) handleOpenDropdown(event MouseEvent) bool {
 }
 
 // pressOpenDropdown starts control or row activation, or closes on an outside press.
-func (u *UI) pressOpenDropdown(dropdown *widgets.Widget, pos core.Vec2) bool {
+func (u *UI) pressOpenDropdown(dropdown *widgets.Dropdown, pos core.Vec2) bool {
 	if dropdown.HitTest(pos) {
 		u.clearFocus()
 		u.pressed = dropdown
@@ -353,7 +404,7 @@ func (u *UI) pressOpenDropdown(dropdown *widgets.Widget, pos core.Vec2) bool {
 
 // releaseOpenDropdown commits a released row and closes the popup. Releasing
 // outside cancels selection but still consumes the gesture.
-func (u *UI) releaseOpenDropdown(dropdown *widgets.Widget, pos core.Vec2) bool {
+func (u *UI) releaseOpenDropdown(dropdown *widgets.Dropdown, pos core.Vec2) bool {
 	u.pressed = nil
 	if dropdown.HitTest(pos) {
 		u.fireOnClick(dropdown.Name())
@@ -370,11 +421,14 @@ func (u *UI) releaseOpenDropdown(dropdown *widgets.Widget, pos core.Vec2) bool {
 
 // handleDrag maps an active slider's pointer X through the shared value helper.
 func (u *UI) handleDrag(event MouseEvent) bool {
-	if !event.Down || event.Pressed || u.pressed == nil || u.pressed.Kind() != core.WidgetSlider {
+	if !event.Down || event.Pressed || u.pressed == nil {
 		return false
 	}
-	u.setSliderFromX(u.pressed, event.Pos.X)
-	return true
+	if sl, ok := u.pressed.(*widgets.Slider); ok {
+		u.setSliderFromX(sl, event.Pos.X)
+		return true
+	}
+	return false
 }
 
 // handleRelease ends an active gesture. Tab bars resolve the released tab
@@ -390,11 +444,11 @@ func (u *UI) handleRelease(event MouseEvent) bool {
 		u.linkArmedSeg = -1
 		return true
 	}
-	if active.Kind() == core.WidgetTabBar {
-		return u.releaseTabBar(active, event.Pos)
+	if tab, ok := active.(*widgets.TabBar); ok {
+		return u.releaseTabBar(tab, event.Pos)
 	}
-	if active.Kind() == core.WidgetRichText {
-		return u.releaseRichText(active, event.Pos)
+	if rt, ok := active.(*widgets.RichText); ok {
+		return u.releaseRichText(rt, event.Pos)
 	}
 	if active.HitTest(event.Pos) {
 		u.activateWidget(active)
@@ -405,7 +459,7 @@ func (u *UI) handleRelease(event MouseEvent) bool {
 // releaseTabBar commits a released tab cell and closes the gesture.
 // Releasing outside any cell consumes without activation. Committing the
 // already-selected tab still fires OnClick but not OnTabSelect.
-func (u *UI) releaseTabBar(bar *widgets.Widget, pos core.Vec2) bool {
+func (u *UI) releaseTabBar(bar *widgets.TabBar, pos core.Vec2) bool {
 	index := u.tabIndexAt(bar, pos)
 	if index < 0 {
 		return true
@@ -416,7 +470,7 @@ func (u *UI) releaseTabBar(bar *widgets.Widget, pos core.Vec2) bool {
 
 // commitTabSelection records index on bar and fires selection callbacks.
 // OnTabSelect runs only after a real index change; OnClick always runs.
-func (u *UI) commitTabSelection(bar *widgets.Widget, index int) {
+func (u *UI) commitTabSelection(bar *widgets.TabBar, index int) {
 	if bar.SetSelectedTab(index) {
 		u.fireOnTabSelect(bar.Name(), index)
 	}
@@ -424,7 +478,7 @@ func (u *UI) commitTabSelection(bar *widgets.Widget, index int) {
 }
 
 // tabIndexAt resolves the skin-aware tab cell under pos, or -1.
-func (u *UI) tabIndexAt(bar *widgets.Widget, pos core.Vec2) int {
+func (u *UI) tabIndexAt(bar *widgets.TabBar, pos core.Vec2) int {
 	if bar == nil || u.theme == nil {
 		return -1
 	}
@@ -489,12 +543,12 @@ func (u *UI) releaseOpenMenu(pos core.Vec2) bool {
 }
 
 // activateWidget applies domain mutation before the shared click callback.
-func (u *UI) activateWidget(target *widgets.Widget) bool {
+func (u *UI) activateWidget(target widgets.Widget) bool {
 	if target == nil || !target.Enabled() || !isPressable(target.Kind()) {
 		return false
 	}
-	if target.Kind() == core.WidgetCheckbox {
-		target.SetChecked(!target.Checked())
+	if cb, ok := target.(*widgets.Checkbox); ok {
+		cb.SetChecked(!cb.Checked())
 	}
 	u.fireOnClick(target.Name())
 	return true
@@ -504,8 +558,8 @@ func (u *UI) activateWidget(target *widgets.Widget) bool {
 // selection, clipboard, or text state changed. Text callbacks fire once with
 // the final value after at least one real text mutation.
 func (u *UI) handleText(event KeyEvent) bool {
-	target := u.focused
-	if target == nil || target.Kind() != core.WidgetTextbox || !target.Enabled() {
+	target, ok := u.focused.(*widgets.Textbox)
+	if !ok || target == nil || !target.Enabled() {
 		return false
 	}
 	handled := false
@@ -536,7 +590,7 @@ func (u *UI) handleText(event KeyEvent) bool {
 // handleTextboxClipboard applies copy, cut, and paste through the shared
 // clipboard. It reports handling when an action ran and mutation when text
 // changed (cut or paste insertion, including selection removal).
-func (u *UI) handleTextboxClipboard(target *widgets.Widget, event KeyEvent) (bool, bool) {
+func (u *UI) handleTextboxClipboard(target *widgets.Textbox, event KeyEvent) (bool, bool) {
 	handled := false
 	mutated := false
 	if event.Copy && target.HasSelection() {
@@ -563,7 +617,7 @@ func (u *UI) handleTextboxClipboard(target *widgets.Widget, event KeyEvent) (boo
 
 // handleTextboxNavigation moves the textbox caret, extending the selection
 // while Shift is held. It reports whether caret or selection changed.
-func (u *UI) handleTextboxNavigation(target *widgets.Widget, event KeyEvent) bool {
+func (u *UI) handleTextboxNavigation(target *widgets.Textbox, event KeyEvent) bool {
 	handled := false
 	extend := event.Shift
 	if event.Left && target.MoveCaret(-1, extend) {
@@ -584,7 +638,7 @@ func (u *UI) handleTextboxNavigation(target *widgets.Widget, event KeyEvent) boo
 // editText applies printable runes plus backspace and delete, firing no
 // callback itself; handleText and TypeText own the single OnText fire after
 // at least one real mutation. It reports whether text changed.
-func (u *UI) editText(target *widgets.Widget, chars []rune, backspace, del bool) bool {
+func (u *UI) editText(target *widgets.Textbox, chars []rune, backspace, del bool) bool {
 	mutated := false
 	for _, char := range chars {
 		if char >= 32 && char != 127 {
@@ -601,7 +655,7 @@ func (u *UI) editText(target *widgets.Widget, chars []rune, backspace, del bool)
 }
 
 // placeTextboxCaret moves the caret to the click X and clears any selection.
-func (u *UI) placeTextboxCaret(target *widgets.Widget, x float32) {
+func (u *UI) placeTextboxCaret(target *widgets.Textbox, x float32) {
 	if target == nil || u.theme == nil {
 		return
 	}
@@ -613,11 +667,11 @@ func (u *UI) placeTextboxCaret(target *widgets.Widget, x float32) {
 // textbox so stale highlights never resurface. It bubbles container focus
 // so a field inside a frame keeps that frame glowing while text keeps
 // editing rights; a focus outside every frame clears container focus.
-func (u *UI) setFocus(target *widgets.Widget) {
+func (u *UI) setFocus(target widgets.Widget) {
 	if u == nil {
 		return
 	}
-	if previous := u.focused; previous != nil && previous != target && previous.Kind() == core.WidgetTextbox {
+	if previous, ok := u.focused.(*widgets.Textbox); ok && previous != nil && previous != target {
 		previous.ClearSelection()
 	}
 	u.focused = target
@@ -630,15 +684,15 @@ func (u *UI) clearFocus() bool {
 	if u == nil || u.focused == nil {
 		return false
 	}
-	if u.focused.Kind() == core.WidgetTextbox {
-		u.focused.ClearSelection()
+	if tb, ok := u.focused.(*widgets.Textbox); ok && tb != nil {
+		tb.ClearSelection()
 	}
 	u.focused = nil
 	return true
 }
 
 // hitInteractive returns the topmost enabled pressable widget under pos.
-func (u *UI) hitInteractive(pos core.Vec2) *widgets.Widget {
+func (u *UI) hitInteractive(pos core.Vec2) widgets.Widget {
 	for index := len(u.order) - 1; index >= 0; index-- {
 		widget := u.widgets[u.order[index]]
 		if widget != nil && widget.Enabled() && isPressable(widget.Kind()) && widget.HitTest(pos) {
@@ -649,7 +703,7 @@ func (u *UI) hitInteractive(pos core.Vec2) *widgets.Widget {
 }
 
 // topmostAt returns the topmost enabled widget of kind under pos.
-func (u *UI) topmostAt(pos core.Vec2, kind core.WidgetKind) *widgets.Widget {
+func (u *UI) topmostAt(pos core.Vec2, kind core.WidgetKind) widgets.Widget {
 	for index := len(u.order) - 1; index >= 0; index-- {
 		widget := u.widgets[u.order[index]]
 		if widget != nil && widget.Enabled() && widget.Kind() == kind && widget.HitTest(pos) {
@@ -674,7 +728,7 @@ func isFocusable(kind core.WidgetKind) bool {
 }
 
 // setSliderFromX converts logical X to a clamped value and reports only changes.
-func (u *UI) setSliderFromX(widget *widgets.Widget, x float32) {
+func (u *UI) setSliderFromX(widget *widgets.Slider, x float32) {
 	if widget == nil {
 		return
 	}

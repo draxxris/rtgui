@@ -71,8 +71,10 @@ func (u *UI) fireOnChange(name string, value float32) {
 		return
 	}
 	if w := u.widgets[name]; w != nil {
-		if fn := w.OnChangeHandler(); fn != nil {
-			fn(value)
+		if s, ok := w.(interface{ OnChangeHandler() func(float32) }); ok {
+			if fn := s.OnChangeHandler(); fn != nil {
+				fn(value)
+			}
 		}
 	}
 	if fn := u.callbacks[name].onChange; fn != nil {
@@ -86,8 +88,10 @@ func (u *UI) fireOnText(name, value string) {
 		return
 	}
 	if w := u.widgets[name]; w != nil {
-		if fn := w.OnTextHandler(); fn != nil {
-			fn(value)
+		if t, ok := w.(interface{ OnTextHandler() func(string) }); ok {
+			if fn := t.OnTextHandler(); fn != nil {
+				fn(value)
+			}
 		}
 	}
 	if fn := u.callbacks[name].onText; fn != nil {
@@ -112,8 +116,10 @@ func (u *UI) fireOnTabSelect(name string, index int) {
 		return
 	}
 	if w := u.widgets[name]; w != nil {
-		if fn := w.OnTabSelectHandler(); fn != nil {
-			fn(index)
+		if t, ok := w.(interface{ OnTabSelectHandler() func(int) }); ok {
+			if fn := t.OnTabSelectHandler(); fn != nil {
+				fn(index)
+			}
 		}
 	}
 	if fn := u.callbacks[name].onTabSelect; fn != nil {
@@ -151,8 +157,10 @@ func (u *UI) fireOnLinkClick(name string, link core.Link) {
 		return
 	}
 	if w := u.widgets[name]; w != nil {
-		if fn := w.OnLinkClickHandler(); fn != nil {
-			fn(link)
+		if r, ok := w.(interface{ OnLinkClickHandler() func(core.Link) }); ok {
+			if fn := r.OnLinkClickHandler(); fn != nil {
+				fn(link)
+			}
 		}
 	}
 	if fn := u.callbacks[name].onLinkClick; fn != nil {

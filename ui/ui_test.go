@@ -11,14 +11,14 @@ import (
 	"github.com/draxxris/rtgui/widgets"
 )
 
-func mustAdd(t *testing.T, u *UI, list ...*widgets.Widget) {
+func mustAdd(t *testing.T, u *UI, list ...widgets.Widget) {
 	t.Helper()
 	if err := u.Add(list...); err != nil {
 		t.Fatalf("Add: %v", err)
 	}
 }
 
-func centerOf(widget *widgets.Widget) core.Vec2 {
+func centerOf(widget widgets.Widget) core.Vec2 {
 	bounds := widget.Bounds()
 	return core.Vec2{X: bounds.X + bounds.W/2, Y: bounds.Y + bounds.H/2}
 }
@@ -441,7 +441,7 @@ func TestResolvedBoundsDriveInputAndDrawing(t *testing.T) {
 }
 
 // arrangeInputWidgets resolves the controls used by the layout integration test.
-func arrangeInputWidgets(t *testing.T, root *layout.Node, button, slider *widgets.Widget) {
+func arrangeInputWidgets(t *testing.T, root *layout.Node, button, slider widgets.Widget) {
 	t.Helper()
 	if err := root.AddChild(button.Frame()); err != nil {
 		t.Fatal(err)

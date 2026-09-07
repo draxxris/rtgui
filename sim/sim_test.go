@@ -11,7 +11,7 @@ import (
 )
 
 // newStageUI builds a registered UI and its borrowed semantic adapter.
-func newStageUI(t *testing.T, list ...*widgets.Widget) (*Stage, *ui.UI) {
+func newStageUI(t *testing.T, list ...widgets.Widget) (*Stage, *ui.UI) {
 	t.Helper()
 	facade := ui.New(200, 200)
 	if err := facade.Add(list...); err != nil {

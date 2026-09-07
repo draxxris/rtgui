@@ -67,47 +67,57 @@ func (u *UI) drawPopup() {
 // Tab bars render through the dedicated tab path so per-cell skins apply.
 // Textboxes render through the caret path so selection and caret draw with
 // the same content area used for click mapping.
-func (u *UI) drawOne(widget *widgets.Widget) {
-	if widget == nil {
+func (u *UI) drawOne(widget widgets.Widget) {
+	if isNilWidget(widget) {
 		return
 	}
-	if widget.Kind() == core.WidgetCanvas {
-		if fn := widget.CanvasDraw(); fn != nil {
-			fn(widget.Bounds())
+	switch w := widget.(type) {
+	case *widgets.Canvas:
+		if fn := w.CanvasDraw(); fn != nil {
+			fn(w.Bounds())
 		}
+		return
+	case *widgets.ScrollPanel:
+		state := u.visualState(w)
+		u.drawScrollPanel(w, state)
+		return
+	case *widgets.TabBar:
+		state := u.visualState(w)
+		u.drawTabBar(w, state)
+		return
+	case *widgets.RichText:
+		state := u.visualState(w)
+		u.drawRichText(w, state)
+		return
+	case *widgets.Textbox:
+		state := u.visualState(w)
+		u.drawTextbox(w, state)
 		return
 	}
 	state := u.visualState(widget)
-	if widget.Kind() == core.WidgetScrollPanel {
-		u.drawScrollPanel(widget, state)
-		return
-	}
-	if widget.Kind() == core.WidgetTabBar {
-		u.drawTabBar(widget, state)
-		return
-	}
-	if widget.Kind() == core.WidgetRichText {
-		u.drawRichText(widget, state)
-		return
-	}
-	if widget.Kind() == core.WidgetTextbox {
-		u.drawTextbox(widget, state)
-		return
+	var val float32
+	var chk bool
+	if s, ok := widget.(*widgets.Slider); ok {
+		val = s.Value()
+	} else if p, ok := widget.(*widgets.ProgressBar); ok {
+		val = p.Value()
+	} else if c, ok := widget.(*widgets.Checkbox); ok {
+		chk = c.Checked()
 	}
 	info := widget.Snapshot(state)
-	u.theme.DrawWidget(info, widgetText(widget), widget.Value(), widget.Checked())
+	u.theme.DrawWidget(info, widgetText(widget), val, chk)
 	if needsBorder(widget.Kind()) {
 		u.theme.DrawWidgetPart(widget.Kind(), skin.PartBorder, widget.Bounds(), state)
 	}
-	if widget.Kind() == core.WidgetDropdown {
-		u.drawDropdownArrow(widget, state)
+	if dd, ok := widget.(*widgets.Dropdown); ok {
+		u.drawDropdownArrow(dd, state)
 	}
 }
 
 // drawScrollPanel renders a scroll panel background, border, and scissored contents.
-func (u *UI) drawScrollPanel(widget *widgets.Widget, state core.WidgetState) {
+func (u *UI) drawScrollPanel(widget *widgets.ScrollPanel, state core.WidgetState) {
 	info := widget.Snapshot(state)
-	u.theme.DrawWidget(info, "", widget.Value(), widget.Checked())
+	u.theme.DrawWidget(info, "", 0, false)
 	if needsBorder(widget.Kind()) {
 		u.theme.DrawWidgetPart(widget.Kind(), skin.PartBorder, widget.Bounds(), state)
 	}
@@ -130,7 +140,7 @@ func (u *UI) drawScrollPanel(widget *widgets.Widget, state core.WidgetState) {
 // caret shows only while focused and enabled; the selection shows whenever
 // the buffer holds one. Background comes from DrawTextbox and the border
 // draws here so textbox borders match every other widget.
-func (u *UI) drawTextbox(widget *widgets.Widget, state core.WidgetState) {
+func (u *UI) drawTextbox(widget *widgets.Textbox, state core.WidgetState) {
 	info := widget.Snapshot(state)
 	selStart, selEnd := -1, -1
 	if widget.HasSelection() {
@@ -146,7 +156,7 @@ func (u *UI) drawTextbox(widget *widgets.Widget, state core.WidgetState) {
 // visualState derives one state from widget availability and UI owner priority.
 // Container focus shares the focused rank so an active frame glows while a
 // textbox inside it keeps the caret; pressed and disabled still win outright.
-func (u *UI) visualState(widget *widgets.Widget) core.WidgetState {
+func (u *UI) visualState(widget widgets.Widget) core.WidgetState {
 	if widget == nil || !widget.Enabled() {
 		return core.StateDisabled
 	}
@@ -163,7 +173,7 @@ func (u *UI) visualState(widget *widgets.Widget) core.WidgetState {
 }
 
 // drawDropdownArrow renders the popup arrow at the dropdown's right edge.
-func (u *UI) drawDropdownArrow(widget *widgets.Widget, state core.WidgetState) {
+func (u *UI) drawDropdownArrow(widget *widgets.Dropdown, state core.WidgetState) {
 	bounds := widget.Bounds()
 	arrow := core.Rect{X: bounds.X + bounds.W - 34, Y: bounds.Y + 7, W: 28, H: 28}
 	u.theme.DrawWidgetPart(widget.Kind(), skin.PartArrow, arrow, state)
@@ -172,7 +182,7 @@ func (u *UI) drawDropdownArrow(widget *widgets.Widget, state core.WidgetState) {
 // dropdownPopupIndex resolves one skin-aware popup row under pos. The
 // content area comes from the theme so hit testing always matches the
 // drawn rows, including popup border and padding insets.
-func (u *UI) dropdownPopupIndex(dropdown *widgets.Widget, pos core.Vec2) int {
+func (u *UI) dropdownPopupIndex(dropdown *widgets.Dropdown, pos core.Vec2) int {
 	if dropdown == nil {
 		return -1
 	}
@@ -181,7 +191,7 @@ func (u *UI) dropdownPopupIndex(dropdown *widgets.Widget, pos core.Vec2) int {
 }
 
 // drawDropdownPopup renders a copied item snapshot above all registered widgets.
-func (u *UI) drawDropdownPopup(widget *widgets.Widget) {
+func (u *UI) drawDropdownPopup(widget *widgets.Dropdown) {
 	popup := widget.DropdownPopupBounds()
 	if popup.H <= 0 {
 		return
@@ -192,18 +202,21 @@ func (u *UI) drawDropdownPopup(widget *widgets.Widget) {
 }
 
 // widgetText resolves plain, textbox, or selected dropdown display text.
-func widgetText(widget *widgets.Widget) string {
-	if widget == nil {
+func widgetText(widget widgets.Widget) string {
+	if isNilWidget(widget) {
 		return ""
 	}
-	if widget.Kind() == core.WidgetDropdown {
-		if value, ok := widget.DropdownSelection(); ok {
+	if dd, ok := widget.(*widgets.Dropdown); ok {
+		if value, ok := dd.DropdownSelection(); ok {
 			return value
 		}
 		return ""
 	}
-	if (widget.Kind() == core.WidgetSlider || widget.Kind() == core.WidgetProgressBar) && widget.Format() != "" {
-		return fmt.Sprintf(widget.Format(), widget.Value()*100)
+	if s, ok := widget.(*widgets.Slider); ok && s.Format() != "" {
+		return fmt.Sprintf(s.Format(), s.Value()*100)
+	}
+	if p, ok := widget.(*widgets.ProgressBar); ok && p.Format() != "" {
+		return fmt.Sprintf(p.Format(), p.Value()*100)
 	}
 	return widget.Text()
 }
@@ -227,11 +240,11 @@ func needsBorder(kind core.WidgetKind) bool {
 }
 
 // drawRichText renders one message with hover-aware link highlighting.
-func (u *UI) drawRichText(message *widgets.Widget, state core.WidgetState) {
+func (u *UI) drawRichText(message *widgets.RichText, state core.WidgetState) {
 	info := message.Snapshot(state)
 	segments := message.RichSegments()
 	if len(segments) == 0 {
-		u.theme.DrawWidget(info, "", message.Value(), message.Checked())
+		u.theme.DrawWidget(info, "", 0, false)
 		if needsBorder(message.Kind()) {
 			u.theme.DrawWidgetPart(message.Kind(), skin.PartBorder, message.Bounds(), state)
 		}
@@ -246,7 +259,7 @@ func (u *UI) drawRichText(message *widgets.Widget, state core.WidgetState) {
 // richHoverSeg resolves the highlighted link segment for drawing, or -1.
 // The lookup is gated on hover-derived tip state so highlight, press arm,
 // and tooltip always agree on the same segment.
-func (u *UI) richHoverSeg(message *widgets.Widget) int {
+func (u *UI) richHoverSeg(message *widgets.RichText) int {
 	if message == nil || u.tipWidget != message || u.tipSeg < 0 {
 		return -1
 	}
@@ -254,11 +267,11 @@ func (u *UI) richHoverSeg(message *widgets.Widget) int {
 }
 
 // drawTabBar renders one tab strip with pointer-aware cell states.
-func (u *UI) drawTabBar(bar *widgets.Widget, state core.WidgetState) {
+func (u *UI) drawTabBar(bar *widgets.TabBar, state core.WidgetState) {
 	info := bar.Snapshot(state)
 	labels := bar.TabLabels()
 	if len(labels) == 0 {
-		u.theme.DrawWidget(info, "", bar.Value(), bar.Checked())
+		u.theme.DrawWidget(info, "", 0, false)
 		if needsBorder(bar.Kind()) {
 			u.theme.DrawWidgetPart(bar.Kind(), skin.PartBorder, bar.Bounds(), state)
 		}
@@ -273,7 +286,7 @@ func (u *UI) drawTabBar(bar *widgets.Widget, state core.WidgetState) {
 // tabHoverIndex resolves the pointer tab cell for drawing, or -1. The cell
 // lookup is gated on the single hover owner so an overlapped bar never
 // renders hover; the pointer only identifies the cell within the owner.
-func (u *UI) tabHoverIndex(bar *widgets.Widget) int {
+func (u *UI) tabHoverIndex(bar *widgets.TabBar) int {
 	if bar == nil || u.hovered != bar {
 		return -1
 	}
@@ -281,7 +294,7 @@ func (u *UI) tabHoverIndex(bar *widgets.Widget) int {
 }
 
 // tabPressedIndex resolves the armed tab cell for drawing, or -1.
-func (u *UI) tabPressedIndex(bar *widgets.Widget) int {
+func (u *UI) tabPressedIndex(bar *widgets.TabBar) int {
 	if bar == nil || u.pressed != bar {
 		return -1
 	}

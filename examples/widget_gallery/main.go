@@ -102,37 +102,37 @@ type tabPage struct {
 type gallery struct {
 	facade *ui.UI
 
-	leftPanel       *widgets.Widget
-	rightPanel      *widgets.Widget
-	titleLabel      *widgets.Widget
-	subtitleLabel   *widgets.Widget
-	leftTitle       *widgets.Widget
-	rightTitle      *widgets.Widget
-	button          *widgets.Widget
-	checkbox        *widgets.Widget
-	textbox         *widgets.Widget
-	textboxCaption  *widgets.Widget
-	dropdown        *widgets.Widget
-	dropdownCaption *widgets.Widget
-	slider          *widgets.Widget
-	sliderCaption   *widgets.Widget
-	progress        *widgets.Widget
-	panel           *widgets.Widget
-	panelText       *widgets.Widget
-	label           *widgets.Widget
-	tabbar          *widgets.Widget
-	tabbarCaption   *widgets.Widget
-	chat            *widgets.Widget
-	chatCaption     *widgets.Widget
-	frame           *widgets.Widget
-	frameCaption    *widgets.Widget
-	frameButton     *widgets.Widget
-	scroll          *widgets.Widget
-	scrollCaption   *widgets.Widget
-	menuHint        *widgets.Widget
-	tooltipHint     *widgets.Widget
-	stateCanvas     *widgets.Widget
-	statusLabel     *widgets.Widget
+	leftPanel       *widgets.Frame
+	rightPanel      *widgets.Frame
+	titleLabel      *widgets.Label
+	subtitleLabel   *widgets.Label
+	leftTitle       *widgets.Label
+	rightTitle      *widgets.Label
+	button          *widgets.Button
+	checkbox        *widgets.Checkbox
+	textbox         *widgets.Textbox
+	textboxCaption  *widgets.Label
+	dropdown        *widgets.Dropdown
+	dropdownCaption *widgets.Label
+	slider          *widgets.Slider
+	sliderCaption   *widgets.Label
+	progress        *widgets.ProgressBar
+	panel           *widgets.Frame
+	panelText       *widgets.Label
+	label           *widgets.Label
+	tabbar          *widgets.TabBar
+	tabbarCaption   *widgets.Label
+	chat            *widgets.RichText
+	chatCaption     *widgets.Label
+	frame           *widgets.Frame
+	frameCaption    *widgets.Label
+	frameButton     *widgets.Button
+	scroll          *widgets.ScrollPanel
+	scrollCaption   *widgets.Label
+	menuHint        *widgets.Label
+	tooltipHint     *widgets.Label
+	stateCanvas     *widgets.Canvas
+	statusLabel     *widgets.Label
 
 	status       string
 	designWidth  float32

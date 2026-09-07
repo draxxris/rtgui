@@ -10,7 +10,7 @@ import (
 )
 
 // tabCellCenter resolves the skin-aware center of one tab cell for tests.
-func tabCellCenter(u *UI, bar *widgets.Widget, index int) core.Vec2 {
+func tabCellCenter(u *UI, bar *widgets.TabBar, index int) core.Vec2 {
 	content := u.Theme().TabContent(bar.Bounds(), core.StateNormal)
 	cell, _ := render.TabTabRect(content, bar.TabCount(), index)
 	return core.Vec2{X: cell.X + cell.W/2, Y: cell.Y + cell.H/2}

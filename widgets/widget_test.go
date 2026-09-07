@@ -110,7 +110,7 @@ func TestDropdownPopupGeometry(t *testing.T) {
 	if got := widgets.NewDropdown("empty", core.Rect{}, nil, 0).DropdownItemCount(); got != 0 {
 		t.Fatalf("empty item count = %d", got)
 	}
-	var nilWidget *widgets.Widget
+	var nilWidget *widgets.Dropdown
 	if nilWidget.DropdownItemCount() != 0 {
 		t.Fatal("nil widget item count must be 0")
 	}
@@ -136,7 +136,7 @@ func TestWidgetUsesResolvedFrameBounds(t *testing.T) {
 }
 
 // arrangedDropdown creates one widget resolved through a parent layout tree.
-func arrangedDropdown(t *testing.T) *widgets.Widget {
+func arrangedDropdown(t *testing.T) *widgets.Dropdown {
 	t.Helper()
 	root := layout.New("root", core.Rect{W: 400, H: 300})
 	dropdown := widgets.NewDropdown("class", core.Rect{W: 180, H: 42}, []string{"A", "B"}, 0)

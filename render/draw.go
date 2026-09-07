@@ -1,6 +1,7 @@
 package render
 
 import (
+	"fmt"
 	"image/color"
 	"math"
 
@@ -32,7 +33,13 @@ func (t *Theme) resolveDescriptor(kind core.WidgetKind, part skin.SkinPart, stat
 
 // logDrawCall records one operation only when diagnostics are explicitly enabled.
 func (t *Theme) logDrawCall(kind core.WidgetKind, part skin.SkinPart, state core.WidgetState, bounds, dest core.Rect, descriptor skin.SkinDescriptor, tint color.RGBA, fallback bool) {
-	if t == nil || t.recorder == nil {
+	if t == nil {
+		return
+	}
+	if fallback && t.diagnosticHandler != nil {
+		t.diagnosticHandler(fmt.Sprintf("render: missing skin for widget=%v part=%v state=%v", kind, part, state))
+	}
+	if t.recorder == nil {
 		return
 	}
 	t.recorder.record(DrawCall{
@@ -64,7 +71,11 @@ func drawTexturedPart(descriptor skin.SkinDescriptor, dest core.Rect, tint color
 }
 
 func drawFallbackPart(dest core.Rect, tint color.RGBA) {
+	if !rl.IsWindowReady() {
+		return
+	}
 	rl.DrawRectangleRec(toRaylibRect(dest), tint)
+	rl.DrawRectangleLinesEx(toRaylibRect(dest), 1, color.RGBA{R: 255, G: 0, B: 255, A: 255})
 }
 
 func atlasRegion(descriptor skin.SkinDescriptor, texture rl.Texture2D) core.Rect {
@@ -207,7 +218,11 @@ func (t *Theme) drawPart(kind core.WidgetKind, part skin.SkinPart, bounds core.R
 	destination := t.snap(bounds)
 	t.logDrawCall(kind, part, state, bounds, destination, descriptor, tint, fallback)
 	if rl.IsWindowReady() {
-		drawTexturedPart(descriptor, destination, tint)
+		if descriptor.HasTexture && descriptor.Texture.ID != 0 {
+			drawTexturedPart(descriptor, destination, tint)
+		} else if fallback && t != nil && t.debugMode {
+			drawFallbackPart(destination, color.RGBA{R: 255, G: 0, B: 255, A: 100})
+		}
 	}
 	return descriptor, fallback
 }
@@ -401,7 +416,11 @@ func (t *Theme) drawSlider(info core.WidgetInfo, value string, content core.Rect
 	trackRect := sliderTrackRect(t, info, content, track, fallback)
 	t.logDrawCall(info.Kind, skin.PartTrack, info.State, trackRect, trackRect, track, trackTint, fallback)
 	if rl.IsWindowReady() {
-		drawTexturedPart(track, trackRect, trackTint)
+		if track.HasTexture && track.Texture.ID != 0 {
+			drawTexturedPart(track, trackRect, trackTint)
+		} else if fallback && t != nil && t.debugMode {
+			drawFallbackPart(trackRect, color.RGBA{R: 255, G: 0, B: 255, A: 100})
+		}
 	}
 
 	thumb, thumbFallback := t.resolveDescriptor(info.Kind, skin.PartThumb, info.State)
@@ -409,7 +428,11 @@ func (t *Theme) drawSlider(info core.WidgetInfo, value string, content core.Rect
 	thumbRect := sliderThumbRect(t, trackRect, thumb, thumbFallback, amount)
 	t.logDrawCall(info.Kind, skin.PartThumb, info.State, thumbRect, thumbRect, thumb, thumbTint, thumbFallback)
 	if rl.IsWindowReady() {
-		drawTexturedPart(thumb, thumbRect, thumbTint)
+		if thumb.HasTexture && thumb.Texture.ID != 0 {
+			drawTexturedPart(thumb, thumbRect, thumbTint)
+		} else if thumbFallback && t != nil && t.debugMode {
+			drawFallbackPart(thumbRect, color.RGBA{R: 255, G: 0, B: 255, A: 150})
+		}
 	}
 	if value != "" {
 		t.drawTextInContent(info, value, content, info.State)
@@ -476,28 +499,41 @@ func (t *Theme) drawProgressBar(info core.WidgetInfo, value string, content core
 	}
 	t.logDrawCall(info.Kind, skin.PartTrack, info.State, trackRect, trackRect, track, trackTint, fallback)
 	if rl.IsWindowReady() {
-		drawTexturedPart(track, trackRect, trackTint)
+		if track.HasTexture && track.Texture.ID != 0 {
+			drawTexturedPart(track, trackRect, trackTint)
+		} else if fallback && t != nil && t.debugMode {
+			drawFallbackPart(trackRect, color.RGBA{R: 255, G: 0, B: 255, A: 100})
+		}
 	}
 
+	fillWidth := t.drawProgressBarFill(info, trackRect, amount)
+	if fillWidth > 0 {
+		t.drawProgressSpark(info, trackRect, fillWidth)
+	}
+	if value != "" {
+		t.drawTextInContent(info, value, trackRect, info.State)
+	}
+}
+
+// drawProgressBarFill renders the proportional fill overlay for a progress bar.
+func (t *Theme) drawProgressBarFill(info core.WidgetInfo, trackRect core.Rect, amount float32) float32 {
 	amount = clamp01(amount)
 	fill, fillFallback := t.resolveDescriptor(info.Kind, skin.PartOverlay, info.State)
 	fillTint := effectiveTint(fill, fillFallback)
 	fillWidth := trackRect.W * amount
 	if fillWidth <= 0 {
-		if value != "" {
-			t.drawTextInContent(info, value, trackRect, info.State)
-		}
-		return
+		return 0
 	}
 	fillRect := t.snap(core.Rect{X: trackRect.X, Y: trackRect.Y, W: fillWidth, H: trackRect.H})
 	t.logDrawCall(info.Kind, skin.PartOverlay, info.State, fillRect, fillRect, fill, fillTint, fillFallback)
 	if rl.IsWindowReady() {
-		drawTexturedPart(fill, fillRect, fillTint)
+		if fill.HasTexture && fill.Texture.ID != 0 {
+			drawTexturedPart(fill, fillRect, fillTint)
+		} else if fillFallback && t != nil && t.debugMode {
+			drawFallbackPart(fillRect, color.RGBA{R: 255, G: 0, B: 255, A: 150})
+		}
 	}
-	t.drawProgressSpark(info, trackRect, fillWidth)
-	if value != "" {
-		t.drawTextInContent(info, value, trackRect, info.State)
-	}
+	return fillWidth
 }
 
 // drawProgressSpark renders the ::spark marker centered on the fill edge.

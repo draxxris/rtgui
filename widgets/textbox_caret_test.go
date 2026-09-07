@@ -58,7 +58,7 @@ func TestTextboxSelectionEdits(t *testing.T) {
 
 // TestTextboxCaretNilZero verifies nil zero values.
 func TestTextboxCaretNilZero(t *testing.T) {
-	var nilWidget *widgets.Widget
+	var nilWidget *widgets.Textbox
 	if nilWidget.Caret() != 0 {
 		t.Fatal("nil caret must be zero")
 	}
@@ -75,7 +75,7 @@ func TestTextboxCaretNilZero(t *testing.T) {
 
 // TestTextboxCaretNilEdits verifies nil and wrong-kind edits fail.
 func TestTextboxCaretNilEdits(t *testing.T) {
-	var nilWidget *widgets.Widget
+	var nilWidget *widgets.Textbox
 	if nilWidget.SetCaret(1) {
 		t.Fatal("nil SetCaret must fail")
 	}
@@ -92,10 +92,7 @@ func TestTextboxCaretNilEdits(t *testing.T) {
 		t.Fatal("nil insert must fail")
 	}
 	button := widgets.NewButton("button", core.Rect{}, "OK")
-	if button.Caret() != 0 {
-		t.Fatal("wrong-kind caret must be zero")
-	}
-	if button.SelectAll() {
-		t.Fatal("wrong-kind select must fail")
+	if _, err := widgets.AsTextbox(button); err == nil {
+		t.Fatal("expected ErrKindMismatch when casting button to Textbox")
 	}
 }

@@ -37,11 +37,14 @@ func TestTabBarGuardsSelection(t *testing.T) {
 	if got := widgets.NewTabBar("empty", core.Rect{}, nil, 0).TabCount(); got != 0 {
 		t.Fatalf("empty tab count = %d", got)
 	}
-	var nilWidget *widgets.Widget
+	var nilWidget *widgets.TabBar
 	if nilWidget.TabCount() != 0 || nilWidget.SelectedTab() != -1 {
 		t.Fatal("nil widget tab accessors must be zero")
 	}
 	if _, ok := nilWidget.TabSelection(); ok {
 		t.Fatal("nil widget tab selection must be unset")
+	}
+	if _, err := widgets.AsTabBar(widgets.NewLabel("lbl", core.Rect{}, "x")); err == nil {
+		t.Fatal("expected ErrKindMismatch when casting label to TabBar")
 	}
 }

@@ -82,7 +82,7 @@ func (u *UI) RemoveHotkey(id string) bool {
 // it. Click a frame background or a child inside it to gain it; presses
 // outside every frame move or lose it. Textbox focus coexists: the frame
 // keeps its glow while typing, but text wins over frame hotkeys.
-func (u *UI) ActiveFrame() *widgets.Widget {
+func (u *UI) ActiveFrame() widgets.Widget {
 	if u == nil {
 		return nil
 	}
@@ -98,7 +98,16 @@ func (u *UI) FocusFrame(name string) bool {
 	}
 	u.reconcileInteraction()
 	target := u.Lookup(name)
-	if target == nil || !target.Enabled() || target.Kind() != core.WidgetFrame {
+	if target == nil {
+		u.diagnose("ui.FocusFrame: frame %q not found", name)
+		return false
+	}
+	if !target.Enabled() {
+		u.diagnose("ui.FocusFrame: frame %q is disabled", name)
+		return false
+	}
+	if target.Kind() != core.WidgetFrame {
+		u.diagnose("ui.FocusFrame: widget %q is %v, expected WidgetFrame", name, target.Kind())
 		return false
 	}
 	u.clearFocus()
@@ -118,7 +127,7 @@ func (u *UI) WantsTextInput() bool {
 
 // setActiveFrame switches container focus to an enabled frame. A nil target
 // clears. Callers resolve bubbling first; this helper only stores.
-func (u *UI) setActiveFrame(target *widgets.Widget) {
+func (u *UI) setActiveFrame(target widgets.Widget) {
 	if u == nil {
 		return
 	}
@@ -145,7 +154,7 @@ func (u *UI) clearActiveFrame() bool {
 // Reverse registry order matches draw stacking so overlapping panels resolve
 // to the visible one. The scan allocates nothing and stays linear in the
 // widget count.
-func (u *UI) innermostFrameAt(pos core.Vec2) *widgets.Widget {
+func (u *UI) innermostFrameAt(pos core.Vec2) widgets.Widget {
 	if u == nil {
 		return nil
 	}
@@ -164,7 +173,7 @@ func (u *UI) innermostFrameAt(pos core.Vec2) *widgets.Widget {
 // bubbleActiveFrameFor keeps container focus coherent with keyboard focus.
 // A focused widget inside a frame keeps that frame active for glow; a focus
 // outside every frame clears container focus so scoped hotkeys stop firing.
-func (u *UI) bubbleActiveFrameFor(target *widgets.Widget) {
+func (u *UI) bubbleActiveFrameFor(target widgets.Widget) {
 	if u == nil || target == nil {
 		return
 	}
