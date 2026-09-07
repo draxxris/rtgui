@@ -140,6 +140,9 @@ func main() {
 	rl.SetTargetFPS(60)
 
 	facade := ui.New(int(windowWidth), int(windowHeight))
+	// PixelSnap keeps nine-patch borders on whole pixels so the drifting demo
+	// frame never renders fractional seam positions while it moves.
+	facade.Theme().SetPixelSnap(true)
 	// CSS-only skinning: every pixel requires a CSS->texture pathway.
 	// Unauthored keys stay invisible (text still draws); unauthored states
 	// inherit their base rule.
@@ -762,6 +765,11 @@ func (g *gallery) nudgeDemoFrame() {
 	if frameBounds.Y+delta.Y+frameBounds.H > g.designHeight-20 {
 		delta.Y = -30
 	}
+	// Shift the sine baseline with the manual move. animateFrame servos the
+	// frame back toward g.layout.frame every tick, so without this the nudge
+	// is fully reverted on the very next frame.
+	g.layout.frame.X += delta.X
+	g.layout.frame.Y += delta.Y
 	g.applyFrameMove(delta)
 	childBounds := g.frameButton.Bounds()
 	g.status = fmt.Sprintf("MoveFrame %+v — child follows (%.0f,%.0f)", delta, childBounds.X, childBounds.Y)
@@ -840,7 +848,9 @@ func (g *gallery) draw() {
 	g.drawItalic("Chat message — links clickable", int32(chatBounds.X), int32(chatBounds.Y-23), 20, color.RGBA{R: 153, G: 174, B: 202, A: 255})
 	g.drawItalic("Right-click anywhere for the context menu", int32(scrollBounds.X+12), int32(scrollBounds.Y+scrollBounds.H+10), 20, color.RGBA{R: 153, G: 174, B: 202, A: 255})
 	g.drawItalic("Click demoFrame then T for a pinned tooltip (Esc dismisses)", int32(scrollBounds.X+12), int32(scrollBounds.Y+scrollBounds.H+28), 20, color.RGBA{R: 153, G: 174, B: 202, A: 255})
-	g.drawText(page.frameCaption, int32(frameBounds.X+18), int32(frameBounds.Y+20), 20, color.RGBA{R: 153, G: 174, B: 202, A: 255})
+	// Round (not truncate) the caption so it crosses pixel boundaries on the
+	// same frames as the pixel-snapped frame box instead of leapfrogging it.
+	g.drawText(page.frameCaption, int32(math.Round(float64(frameBounds.X+18))), int32(math.Round(float64(frameBounds.Y+20))), 20, color.RGBA{R: 153, G: 174, B: 202, A: 255})
 
 	g.drawScrollContents()
 	g.drawStateSamples()
