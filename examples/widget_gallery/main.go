@@ -15,9 +15,10 @@
 // textbox (typing + backspace including multi-byte UTF-8),
 // dropdown popup, slider driving progress, tab bar switching the demo label,
 // chat message with clickable item/player/URL links plus link tooltips,
-// right-click context menu, hover tooltips plus a T-pinned tooltip,
-// scroll panel with wheel + scissor,
-// frame with relative-move child (layout.MoveFrame), state-sample strip,
+// right-click context menu, hover tooltips plus a T-pinned tooltip scoped to
+// the focused demo frame, scroll panel with wheel + scissor,
+// frame with click-to-focus glow and relative-move child (layout.MoveFrame,
+// R only while demoFrame holds container focus), state-sample strip,
 // status line; flags -frames / -screenshot for headless smoke.
 //
 // Headless / window behavior:
@@ -100,6 +101,10 @@ type gallery struct {
 	designWidth  float32
 	designHeight float32
 	layout       galleryLayout
+	// lastMouse is the logical pointer at the latest input frame. Scoped
+	// hotkey callbacks read it so the T-pinned tooltip anchors where the
+	// user pressed T instead of capturing coordinates at registration.
+	lastMouse core.Vec2
 }
 
 // main opens the gallery when a display is available and otherwise runs the
@@ -423,7 +428,7 @@ func newGallery(facade *ui.UI) *gallery {
 		frame:       widgets.NewFrame("demoFrame", core.Rect{}),
 		frameButton: widgets.NewButton("frameChildButton", core.Rect{}, "Frame child"),
 		scroll:      widgets.NewScrollPanel("scrollPanel", core.Rect{}),
-		status:      "Click a widget to interact with it — press R to MoveFrame",
+		status:      "Click demoFrame to focus it — R moves, T pins a tooltip",
 	}
 	g.textbox.SetText("Type here")
 	if err := facade.Add(g.leftPanel, g.rightPanel, g.button, g.checkbox, g.textbox, g.dropdown, g.slider, g.progress, g.panel, g.label, g.tabbar, g.chat, g.frame, g.frameButton, g.scroll); err != nil {
@@ -438,6 +443,15 @@ func newGallery(facade *ui.UI) *gallery {
 	})
 	facade.OnClick("frameChildButton", func() {
 		g.status = "Frame child button clicked"
+	})
+	// Scoped hotkeys replace direct IsKeyPressed polling. Text wins while
+	// editing; otherwise the library fires these only while demoFrame holds
+	// container focus, and reports consumption so a host game stays silent.
+	facade.OnHotkey("demoFrameMove", 'R', ui.HotkeyOpts{Scope: "demoFrame", Consume: true}, func() {
+		g.nudgeDemoFrame()
+	})
+	facade.OnHotkey("demoPinTooltip", 'T', ui.HotkeyOpts{Scope: "demoFrame", Consume: true}, func() {
+		g.facade.ShowTooltip("Pinned tooltip — Esc dismisses it", g.lastMouse)
 	})
 	facade.OnChange("valueSlider", func(v float32) {
 		g.progress.SetValue(v)
@@ -536,11 +550,13 @@ func calculateLayout(width, height float32) galleryLayout {
 }
 
 // handleInput polls raylib once per frame and forwards to the facade. The UI
-// owns dropdown, menu, and tooltip input; right-click menu requests, the
-// T-pinned tooltip, frame movement, and animation remain gallery work.
+// owns dropdown, menu, tooltip, text, and scoped R/T hotkeys; right-click menu
+// requests and animation remain gallery work. R/T fire only while demoFrame
+// holds container focus, so typing r/t in the textbox never moves or pins.
 func (g *gallery) handleInput() {
 	physical := rl.GetMousePosition()
 	mouse := g.facade.ToLogical(core.Vec2{X: physical.X, Y: physical.Y})
+	g.lastMouse = mouse
 	pressedEdge := rl.IsMouseButtonPressed(rl.MouseButtonLeft)
 	mouseHandled := g.facade.HandleMouse(ui.MouseEvent{
 		Pos:      mouse,
@@ -558,16 +574,15 @@ func (g *gallery) handleInput() {
 	if rl.IsMouseButtonPressed(rl.MouseButtonRight) {
 		g.showGalleryMenu(mouse)
 	}
-	if rl.IsKeyPressed(rl.KeyT) {
-		g.facade.ShowTooltip("Pinned tooltip — Esc dismisses it", mouse)
-	}
 	// The facade scrolls unclamped; the gallery bounds its demo list.
 	scroll := g.scroll.Scroll()
 	scroll.Y = clamp(scroll.Y, 0, 170)
 	g.scroll.SetScroll(scroll)
-	g.handleKeys()
-	g.handleFrameMove()
+	// Sine drift runs before keys so a scoped R nudge owns the final word on
+	// manual-move frames. Position precision does not matter here; both paths
+	// only prove the frame child follows its parent.
 	g.animateFrame()
+	g.handleKeys()
 }
 
 // showGalleryMenu opens the demo context menu at a logical point. The
@@ -583,9 +598,11 @@ func (g *gallery) showGalleryMenu(pos core.Vec2) {
 	})
 }
 
-// handleKeys forwards chars, caret motion, selection, clipboard, and escape
-// to the facade. Control combos map to select-all and clipboard actions;
-// Shift extends the selection during arrow, Home, and End motion.
+// handleKeys forwards chars, caret motion, selection, clipboard, escape, and
+// scoped R/T presses to the facade in one KeyEvent. Control combos map to
+// select-all and clipboard actions; Shift extends the selection during arrow,
+// Home, and End motion. Scoped hotkeys fire inside HandleKey, so there is no
+// separate polling or animation gating here.
 func (g *gallery) handleKeys() {
 	chars := drainGalleryChars()
 	event := ui.KeyEvent{
@@ -593,6 +610,7 @@ func (g *gallery) handleKeys() {
 		Backspace: galleryPressed(rl.KeyBackspace),
 		Delete:    galleryPressed(rl.KeyDelete),
 		Escape:    rl.IsKeyPressed(rl.KeyEscape),
+		Hotkeys:   galleryHotkeys(),
 	}
 	event.Left, event.Right, event.Home, event.End, event.Shift = galleryNavKeys()
 	event.SelectAll, event.Copy, event.Cut, event.Paste = galleryClipboardKeys()
@@ -600,6 +618,8 @@ func (g *gallery) handleKeys() {
 	if event.SelectAll || event.Copy || event.Cut || event.Paste {
 		event.Chars = nil
 	}
+	// The host game would branch on this result; the gallery has no game
+	// layer, so an unfocused, unregistered key simply falls through to nothing.
 	_ = g.facade.HandleKey(event)
 }
 
@@ -642,11 +662,24 @@ func drainGalleryChars() []rune {
 	return out
 }
 
-// handleFrameMove nudges the demo frame on R.
-func (g *gallery) handleFrameMove() {
-	if !rl.IsKeyPressed(rl.KeyR) {
-		return
+// galleryHotkeys collects scoped hotkey press edges once per frame. R nudges
+// demoFrame and T pins a tooltip, but only while demoFrame holds container
+// focus; the facade enforces scope and text precedence after this single build.
+func galleryHotkeys() []rune {
+	var hotkeys []rune
+	if rl.IsKeyPressed(rl.KeyR) {
+		hotkeys = append(hotkeys, 'R')
 	}
+	if rl.IsKeyPressed(rl.KeyT) {
+		hotkeys = append(hotkeys, 'T')
+	}
+	return hotkeys
+}
+
+// nudgeDemoFrame authors one scoped MoveFrame step and performs the required
+// arrangement. The library calls it only for in-scope R presses while no
+// textbox holds keyboard focus, so typing r never arrives here.
+func (g *gallery) nudgeDemoFrame() {
 	delta := core.Vec2{X: 12, Y: 8}
 	frameBounds := g.frame.Bounds()
 	if frameBounds.X+delta.X+frameBounds.W > g.designWidth-20 {
@@ -660,9 +693,12 @@ func (g *gallery) handleFrameMove() {
 	g.status = fmt.Sprintf("MoveFrame %+v — child follows (%.0f,%.0f)", delta, childBounds.X, childBounds.Y)
 }
 
-// animateFrame drifts the demo frame on a sine wave.
+// animateFrame drifts the demo frame on a sine wave. It runs every frame
+// ahead of keys so a scoped R nudge owns the final word on manual-move
+// frames; exact resting position does not matter, only that the child
+// follows its parent.
 func (g *gallery) animateFrame() {
-	if g.frame == nil || rl.IsKeyDown(rl.KeyR) {
+	if g.frame == nil {
 		return
 	}
 	t := float32(rl.GetTime())
@@ -700,7 +736,7 @@ func (g *gallery) draw() {
 	rl.Scalef(sx, sy, 1)
 
 	g.drawText("RTG textured widget gallery", 28, 24, 26, color.RGBA{R: 226, G: 239, B: 255, A: 255})
-	g.drawItalic("Every pixel needs a CSS texture; missing skins stay invisible and states inherit their base rule. Press R to MoveFrame.", 30, 51, 18, color.RGBA{R: 153, G: 174, B: 202, A: 255})
+	g.drawItalic("Every pixel needs a CSS texture; missing skins stay invisible and states inherit their base rule. Click demoFrame then R to MoveFrame, T to pin.", 30, 51, 18, color.RGBA{R: 153, G: 174, B: 202, A: 255})
 	g.panelTitle(g.layout.leftPanel, "Widgets")
 	g.panelTitle(g.layout.rightPanel, "Containers, clipping, and states")
 
@@ -728,8 +764,8 @@ func (g *gallery) draw() {
 	g.drawItalic("Tab bar — click to switch tabs", int32(tabbarBounds.X), int32(tabbarBounds.Y-23), 20, color.RGBA{R: 153, G: 174, B: 202, A: 255})
 	g.drawItalic("Chat message — links clickable", int32(chatBounds.X), int32(chatBounds.Y-23), 20, color.RGBA{R: 153, G: 174, B: 202, A: 255})
 	g.drawItalic("Right-click anywhere for the context menu", int32(scrollBounds.X+12), int32(scrollBounds.Y+scrollBounds.H+10), 20, color.RGBA{R: 153, G: 174, B: 202, A: 255})
-	g.drawItalic("Press T for a pinned tooltip (Esc dismisses)", int32(scrollBounds.X+12), int32(scrollBounds.Y+scrollBounds.H+28), 20, color.RGBA{R: 153, G: 174, B: 202, A: 255})
-	g.drawText("Frame child moves with its parent (R / sine)", int32(frameBounds.X+18), int32(frameBounds.Y+20), 20, color.RGBA{R: 153, G: 174, B: 202, A: 255})
+	g.drawItalic("Click demoFrame then T for a pinned tooltip (Esc dismisses)", int32(scrollBounds.X+12), int32(scrollBounds.Y+scrollBounds.H+28), 20, color.RGBA{R: 153, G: 174, B: 202, A: 255})
+	g.drawText("Frame child moves with its parent (focus + R / sine)", int32(frameBounds.X+18), int32(frameBounds.Y+20), 20, color.RGBA{R: 153, G: 174, B: 202, A: 255})
 
 	g.drawScrollContents()
 	g.drawStateSamples()

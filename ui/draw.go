@@ -109,6 +109,8 @@ func (u *UI) drawTextbox(widget *widgets.Widget, state core.WidgetState) {
 }
 
 // visualState derives one state from widget availability and UI owner priority.
+// Container focus shares the focused rank so an active frame glows while a
+// textbox inside it keeps the caret; pressed and disabled still win outright.
 func (u *UI) visualState(widget *widgets.Widget) core.WidgetState {
 	if widget == nil || !widget.Enabled() {
 		return core.StateDisabled
@@ -116,7 +118,7 @@ func (u *UI) visualState(widget *widgets.Widget) core.WidgetState {
 	if u.pressed == widget {
 		return core.StatePressed
 	}
-	if u.focused == widget {
+	if u.focused == widget || u.activeFrame == widget {
 		return core.StateFocused
 	}
 	if u.hovered == widget {

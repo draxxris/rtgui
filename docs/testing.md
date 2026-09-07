@@ -89,22 +89,40 @@ if !mouseHandled {
 }
 keyHandled := u.HandleKey(ui.KeyEvent{Chars: runes, Backspace: backspace, Delete: del, Escape: escape,
     Left: left, Right: right, Home: home, End: end, Shift: shift,
-    SelectAll: selectAll, Copy: copy, Cut: cut, Paste: paste})
+    SelectAll: selectAll, Copy: copy, Cut: cut, Paste: paste, Hotkeys: hotkeys})
 if !keyHandled {
     playerMove(keys)
 }
 u.Draw()
 ```
 
+Focus is dual-slot. `Focus("field")` owns text editing; `FocusFrame("panel")`
+owns container glow and scopes `OnHotkey` registrations. Clicking a child
+bubbles container focus to its frame; presses outside every frame clear both.
+Test it headless:
+
+```go
+stage.FocusFrame("demoFrame")
+stage.PressHotkey('R') // fires only in scope, case-insensitively
+```
+
 Hover alone and empty-space misses pass through. A press, drag, or release on a
-hit widget consumes the gesture; an active press remains owned until release.
-Wheel input is consumed only over a scroll panel. Textbox keys are consumed
-only by a focused textbox when they change caret, selection, clipboard, or
-text: Left/Right/Home/End move the caret (Shift extends), Ctrl-A selects all,
+hit widget consumes the gesture; a frame-background press sets container focus
+and consumes; an active press remains owned until release.
+Wheel input is consumed only over a scroll panel. Textbox navigation,
+selection, clipboard, and delete keys are consumed only by a focused textbox
+when they change caret, selection, clipboard, or text: Left/Right/Home/End move
+the caret (Shift extends), Ctrl-A selects all,
 Ctrl-C/X/V copy, cut, and paste, Delete removes forward, and typing or
-Backspace edits at the caret replacing any selection. `Escape` is consumed
-only when it clears focus. Duplicate `Add` requests are rejected; use `Remove`
-before registering a replacement. Callback registrations remain available
+Backspace edits at the caret replacing any selection. Printable typing consumes
+even into a full buffer so the host game never observes a rejected character.
+Open menus and dropdown popups swallow key intent; `Escape` is consumed
+only when it dismisses a menu, tooltip, keyboard focus, or container focus.
+Scoped hotkeys fire only when their frame holds container focus and text does
+not claim the frame; `AllowWhenEditing:false` suppresses while swallowing so
+the game stays silent, and `Consume:false` fires but passes through.
+Duplicate `Add` requests are rejected; use `Remove`
+before registering a replacement. Callback and hotkey registrations remain available
 after widget removal.
 
 ## Performance and race checks

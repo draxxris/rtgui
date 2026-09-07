@@ -50,6 +50,11 @@ type KeyEvent struct {
 	Cut bool
 	// Paste requests inserting clipboard text at the caret (Ctrl-V).
 	Paste bool
+	// Hotkeys carries bare hotkey press edges for this frame as canonical
+	// runes (R for KeyR). The library matches them against OnHotkey
+	// registrations after text, so callers build one KeyEvent per frame
+	// instead of polling IsKeyPressed separately.
+	Hotkeys []rune
 }
 
 // HandleMouse reconciles disabled owners, then routes one physical pointer
@@ -83,31 +88,62 @@ func (u *UI) HandleMouse(event MouseEvent) bool {
 	return handled
 }
 
-// HandleKey routes one physical keyboard frame. Escape closes an open menu
-// first, then hides an explicit tooltip, then clears focus; text routes to
-// the focused textbox. It reports edits only when text changes.
+// HandleKey routes one physical keyboard frame. Escape dismisses menu,
+// tooltip, keyboard focus, then container focus; modal popups swallow intent;
+// text wins over scoped hotkeys; hotkeys consume per registration; the rest
+// passes to the host game. It reports consumption, not mutation: printable
+// typing into a full buffer still consumes so the game never observes it.
 func (u *UI) HandleKey(event KeyEvent) bool {
 	if u == nil {
 		return false
 	}
 	u.reconcileInteraction()
 	if event.Escape {
-		u.linkArmedSeg = -1
-		u.clearLinkTip()
-		if u.HasOpenMenu() {
-			u.closeMenuState()
-			return true
-		}
-		if u.tooltipText != "" {
-			u.tooltipText = ""
-			return true
-		}
-		if u.clearFocus() {
-			return true
-		}
-		return false
+		return u.handleEscape()
 	}
-	return u.handleText(event)
+	if u.HasOpenMenu() || u.openDropdown() != nil {
+		return hasKeyIntent(event)
+	}
+	if u.WantsTextInput() {
+		if u.handleText(event) {
+			return true
+		}
+		if hasPrintableChars(event.Chars) {
+			return true
+		}
+	}
+	return u.fireScopedHotkeys(event.Hotkeys)
+}
+
+// handleEscape dismisses one layer per frame in menu, tooltip, keyboard
+// focus, then container focus order. It reports whether any layer owned the
+// press; empty state passes through so the host game still observes Escape.
+func (u *UI) handleEscape() bool {
+	u.linkArmedSeg = -1
+	u.clearLinkTip()
+	if u.HasOpenMenu() {
+		u.closeMenuState()
+		return true
+	}
+	if u.tooltipText != "" {
+		u.tooltipText = ""
+		return true
+	}
+	if u.clearFocus() {
+		return true
+	}
+	return u.clearActiveFrame()
+}
+
+// hasKeyIntent reports whether a keyboard frame carries any actionable
+// content. Empty poll frames never consume, even while modal state stands,
+// so the host game is not starved by an open menu with no fresh presses.
+// Escape is excluded: HandleKey returns for it before this helper runs.
+func hasKeyIntent(event KeyEvent) bool {
+	if len(event.Chars) > 0 || len(event.Hotkeys) > 0 {
+		return true
+	}
+	return event.Backspace || event.Delete || event.Left || event.Right || event.Home || event.End || event.SelectAll || event.Copy || event.Cut || event.Paste
 }
 
 // Activate performs the same kind-specific activation and callbacks as a
@@ -179,7 +215,8 @@ func (u *UI) TypeText(name, value string) bool {
 }
 
 // Focus gives keyboard focus to a valid enabled textbox or dropdown without
-// changing hover or firing a callback.
+// changing hover or firing a callback. Focusing inside a frame keeps that
+// frame active for glow; focusing outside every frame clears container focus.
 func (u *UI) Focus(name string) bool {
 	if u == nil {
 		return false
@@ -195,7 +232,7 @@ func (u *UI) Focus(name string) bool {
 
 // reconcileInteraction clears transient owners whose widgets became disabled.
 // A disabled focused textbox also forgets its selection so it never
-// resurfaces on re-enable.
+// resurfaces on re-enable. A disabled active frame releases container focus.
 func (u *UI) reconcileInteraction() {
 	if u == nil {
 		return
@@ -208,6 +245,9 @@ func (u *UI) reconcileInteraction() {
 	}
 	if u.focused != nil && !u.focused.Enabled() {
 		u.clearFocus()
+	}
+	if u.activeFrame != nil && !u.activeFrame.Enabled() {
+		u.clearActiveFrame()
 	}
 }
 
@@ -226,16 +266,29 @@ func (u *UI) handleWheel(event MouseEvent) bool {
 	return target.ScrollBy(0, -event.Wheel*28)
 }
 
-// handlePress starts a gesture on the topmost eligible widget. Empty-space
-// presses clear focus but pass through to application input.
+// handlePress starts a gesture on the topmost eligible widget. Frame
+// background presses set container focus and consume; empty-space presses
+// clear both keyboard and container focus but pass through to the host game.
 func (u *UI) handlePress(event MouseEvent) bool {
 	if !event.Pressed {
 		return false
 	}
 	target := u.hitInteractive(event.Pos)
+	frame := u.innermostFrameAt(event.Pos)
+	if target == nil && frame == nil {
+		u.clearFocus()
+		u.clearActiveFrame()
+		return false
+	}
+	if frame != nil {
+		u.setActiveFrame(frame)
+	}
 	if target == nil {
 		u.clearFocus()
-		return false
+		return true
+	}
+	if frame == nil {
+		u.clearActiveFrame()
 	}
 	if isFocusable(target.Kind()) {
 		u.setFocus(target)
@@ -557,7 +610,9 @@ func (u *UI) placeTextboxCaret(target *widgets.Widget, x float32) {
 }
 
 // setFocus switches focus, clearing any selection held by the previous
-// textbox so stale highlights never resurface.
+// textbox so stale highlights never resurface. It bubbles container focus
+// so a field inside a frame keeps that frame glowing while text keeps
+// editing rights; a focus outside every frame clears container focus.
 func (u *UI) setFocus(target *widgets.Widget) {
 	if u == nil {
 		return
@@ -566,6 +621,7 @@ func (u *UI) setFocus(target *widgets.Widget) {
 		previous.ClearSelection()
 	}
 	u.focused = target
+	u.bubbleActiveFrameFor(target)
 }
 
 // clearFocus releases focus, clearing any textbox selection first. It

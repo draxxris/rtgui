@@ -12,11 +12,13 @@ type MenuItem = core.MenuItem
 // ShowContextMenu opens an ephemeral menu anchored at pos with copied items.
 // It replaces any open dropdown focus and any existing menu. Empty lists and
 // nil receivers are no-ops. The callback runs synchronously on row commit.
+// Opening clears container focus; modal dismissal needs a fresh frame click.
 func (u *UI) ShowContextMenu(items []MenuItem, pos core.Vec2, onSelect func(string)) {
 	if u == nil || len(items) == 0 {
 		return
 	}
 	u.clearFocus()
+	u.clearActiveFrame()
 	u.pressed = nil
 	u.hovered = nil
 	u.menuItems = append([]core.MenuItem(nil), items...)

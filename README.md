@@ -100,11 +100,30 @@ mouseHandled := u.HandleMouse(ui.MouseEvent{
 if !mouseHandled {
     // The application may process world input here.
 }
-u.HandleKey(ui.KeyEvent{Chars: runes, Backspace: backspace, Delete: del, Escape: escape,
+keyHandled := u.HandleKey(ui.KeyEvent{Chars: runes, Backspace: backspace, Delete: del, Escape: escape,
     Left: left, Right: right, Home: home, End: end, Shift: shift,
-    SelectAll: selectAll, Copy: copy, Cut: cut, Paste: paste})
+    SelectAll: selectAll, Copy: copy, Cut: cut, Paste: paste, Hotkeys: hotkeys})
+if !keyHandled {
+    // The host game owns unfocused, unregistered, and non-modal keys here.
+}
 u.Draw()
 ```
+
+Focus is dual-slot: keyboard focus (textbox/dropdown) owns text editing while
+container focus (active frame) scopes hotkeys and glows via `Frame:focus`.
+Click a frame background or a child inside it to activate it; presses
+outside every frame move or lose it. Text wins while editing, so typing
+`r` never fires a frame-bound `R`. Register scoped actions once:
+
+```go
+u.OnHotkey("moveFrame", 'R', ui.HotkeyOpts{Scope: "demoFrame", Consume: true}, func() {
+    // Move the frame; runs only while demoFrame is active and no field edits.
+})
+```
+
+`HandleKey` reports consumption, not mutation: printable typing into a full
+buffer still consumes so the game never observes it, modal menus swallow
+intent, and `Consume:false` hotkeys fire but pass through.
 
 `Add` rejects nil, empty-name, and duplicate widgets atomically. `Remove` and
 `ClearWidgets` clear active interaction owners. Text and slider callbacks run

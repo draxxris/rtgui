@@ -2,7 +2,8 @@
    against this file's directory. Every pixel requires a CSS->texture pathway;
    unauthored keys stay invisible (text still draws) and unauthored states
    inherit their base rule. Checkbox::box is PartIcon, ::checkmark is
-   PartCheckmark; plain Checkbox has no background by design. */
+   PartCheckmark; plain Checkbox has no background by design. Frame:focus is
+   the container-focus glow that scopes the gallery R/T hotkeys. */
 
 Button {
     border-image-source: url("kenney/blue/button_rectangle_line.png");
@@ -36,6 +37,10 @@ Frame {
     border-image-source: url("kenney/panel_border_grey.png");
     border-image-slice: 8;
     padding: 8;
+}
+Frame:focus {
+    border-image-source: url("kenney/blue/button_rectangle_border.png");
+    border-image-source-tint: #e1f2ff;
 }
 Frame:disabled {
     background-image-tint: #565b66;

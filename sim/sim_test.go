@@ -113,3 +113,27 @@ func TestTwoSimulationInstancesShareNoState(t *testing.T) {
 		t.Fatal("second stage activation failed independently")
 	}
 }
+
+// TestSimulationFrameFocusAndHotkeys checks scoped hotkeys through the stage.
+func TestSimulationFrameFocusAndHotkeys(t *testing.T) {
+	frame := widgets.NewFrame("demoFrame", core.Rect{X: 10, Y: 10, W: 100, H: 100})
+	stage, facade := newStageUI(t, frame)
+	fires := 0
+	facade.OnHotkey("move", 'R', ui.HotkeyOpts{Scope: "demoFrame", Consume: true}, func() { fires++ })
+	if stage.PressHotkey('R') || fires != 0 {
+		t.Fatal("out-of-scope hotkey must pass through without firing")
+	}
+	if !stage.FocusFrame("demoFrame") || facade.ActiveFrame() != frame {
+		t.Fatal("simulated frame focus failed")
+	}
+	if !stage.PressHotkey('r') || fires != 1 {
+		t.Fatal("in-scope hotkey must fire case-insensitively and consume")
+	}
+	var nilStage *Stage
+	if nilStage.PressHotkey('R') || nilStage.FocusFrame("demoFrame") {
+		t.Fatal("nil Stage handled frame operations")
+	}
+	if stage.FocusFrame("missing") {
+		t.Fatal("invalid frame focus accepted")
+	}
+}

@@ -39,7 +39,9 @@ type callbackRecord struct {
 // owner each and are never mirrored into widgets. Textbox caret and
 // selection are the documented exception: they live in the widget's text
 // buffer as part of the editing model, while focus gates the caret display
-// and focus transfer or loss clears the selection.
+// and focus transfer or loss clears the selection. Container focus is a
+// second independent slot: the active frame highlights its bounds and
+// scopes frame-bound hotkeys while keyboard focus keeps editing rights.
 type UI struct {
 	transform *transform.Transform
 	theme     *render.Theme
@@ -50,6 +52,12 @@ type UI struct {
 	hovered *widgets.Widget
 	pressed *widgets.Widget
 	focused *widgets.Widget
+	// activeFrame is the container focus slot. It highlights its bounds
+	// and scopes frame-bound hotkeys while keyboard focus keeps editing.
+	activeFrame *widgets.Widget
+	// hotkeys is the library-owned registry for scoped global actions.
+	// Iteration is linear and allocation-free on the hot path; N stays tiny.
+	hotkeys []hotkeyEntry
 	pointer core.Vec2
 	// clipboard is the in-memory fallback used headless; windowed clipboard
 	// access goes through the system via render with this as mirror.
@@ -173,6 +181,7 @@ func (u *UI) ClearWidgets() {
 		return
 	}
 	u.clearFocus()
+	u.clearActiveFrame()
 	u.widgets = make(map[string]*widgets.Widget)
 	u.order = nil
 	u.hovered = nil
@@ -285,6 +294,9 @@ func (u *UI) clearReferences(widget *widgets.Widget) {
 	}
 	if u.focused == widget {
 		u.clearFocus()
+	}
+	if u.activeFrame == widget {
+		u.clearActiveFrame()
 	}
 	if u.tipWidget == widget {
 		u.clearLinkTip()
