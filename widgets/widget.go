@@ -10,20 +10,36 @@ import (
 // Widget is a compact tagged widget whose identity and kind are fixed at construction.
 // UI-owned hover, press, and focus state is deliberately not stored here.
 type Widget struct {
-	name          string
-	kind          core.WidgetKind
-	frame         *layout.Node
-	enabled       bool
-	text          string
-	value         float32
-	checked       bool
-	scroll        core.Vec2
-	dropdownIndex int
-	dropdownItems []string
-	tabSelected   int
-	tabLabels     []string
-	richSegments  []core.RichSegment
-	textBuf       *text.Buffer
+	name                string
+	kind                core.WidgetKind
+	frame               *layout.Node
+	enabled             bool
+	text                string
+	value               float32
+	checked             bool
+	scroll              core.Vec2
+	dropdownIndex       int
+	dropdownItems       []string
+	tabSelected         int
+	tabLabels           []string
+	richSegments        []core.RichSegment
+	textBuf             *text.Buffer
+	onClick             func()
+	onChange            func(float32)
+	onText              func(string)
+	onTabSelect         func(int)
+	onLinkClick         func(core.Link)
+	onLinkTooltip       func(core.Link) string
+	tooltip             string
+	canvasDraw          func(bounds core.Rect)
+	scrollContentDrawer func(bounds core.Rect, scrollOffset core.Vec2)
+	maxScroll           core.Vec2
+	textColor           core.Color
+	hasTextColor        bool
+	format              string
+	fontSize            float32
+	italic              bool
+	align               core.TextAlign
 }
 
 // NewButton returns an enabled button with immutable name and kind.
@@ -36,9 +52,33 @@ func NewLabel(name string, bounds core.Rect, label string) *Widget {
 	return &Widget{name: name, kind: core.WidgetLabel, frame: layout.New(name, bounds), enabled: true, text: label}
 }
 
+// NewStyledLabel returns an enabled label with custom font size, italic style, and alignment.
+func NewStyledLabel(name string, bounds core.Rect, label string, fontSize float32, italic bool, align core.TextAlign) *Widget {
+	return &Widget{
+		name:     name,
+		kind:     core.WidgetLabel,
+		frame:    layout.New(name, bounds),
+		enabled:  true,
+		text:     label,
+		fontSize: fontSize,
+		italic:   italic,
+		align:    align,
+	}
+}
+
 // NewCheckbox returns an enabled checkbox with immutable name and kind.
 func NewCheckbox(name string, bounds core.Rect, checked bool) *Widget {
 	return &Widget{name: name, kind: core.WidgetCheckbox, frame: layout.New(name, bounds), enabled: true, checked: checked}
+}
+
+// NewCheckboxWithLabel returns an enabled checkbox with a label and immutable name and kind.
+func NewCheckboxWithLabel(name string, bounds core.Rect, label string, checked bool) *Widget {
+	return &Widget{name: name, kind: core.WidgetCheckbox, frame: layout.New(name, bounds), enabled: true, text: label, checked: checked}
+}
+
+// NewCanvas returns an enabled custom drawing widget that executes drawFn during Draw.
+func NewCanvas(name string, bounds core.Rect, drawFn func(bounds core.Rect)) *Widget {
+	return &Widget{name: name, kind: core.WidgetCanvas, frame: layout.New(name, bounds), enabled: true, canvasDraw: drawFn}
 }
 
 // NewTextbox returns an enabled textbox with bounded private UTF-8 storage.
@@ -241,9 +281,23 @@ func (w *Widget) ScrollBy(dx, dy float32) bool {
 	if w == nil || w.kind != core.WidgetScrollPanel || (dx == 0 && dy == 0) {
 		return false
 	}
-	w.scroll.X += dx
-	w.scroll.Y += dy
-	return true
+	newX := w.scroll.X + dx
+	newY := w.scroll.Y + dy
+	if w.maxScroll.X > 0 {
+		if newX < 0 {
+			newX = 0
+		} else if newX > w.maxScroll.X {
+			newX = w.maxScroll.X
+		}
+	}
+	if w.maxScroll.Y > 0 {
+		if newY < 0 {
+			newY = 0
+		} else if newY > w.maxScroll.Y {
+			newY = w.maxScroll.Y
+		}
+	}
+	return w.SetScroll(core.Vec2{X: newX, Y: newY})
 }
 
 // DropdownIndex returns the selected dropdown item index, or -1 when unset.
@@ -578,7 +632,261 @@ func (w *Widget) Snapshot(state core.WidgetState) core.WidgetInfo {
 	if w == nil {
 		return core.WidgetInfo{}
 	}
-	return core.WidgetInfo{Name: w.name, Bounds: w.Bounds(), Kind: w.kind, State: state}
+	info := core.WidgetInfo{
+		Name:     w.name,
+		Bounds:   w.Bounds(),
+		Kind:     w.kind,
+		State:    state,
+		FontSize: w.fontSize,
+		Italic:   w.italic,
+		Align:    w.align,
+	}
+	if w.hasTextColor {
+		info.TextColor = w.textColor
+		info.HasTextColor = true
+	}
+	return info
+}
+
+// OnClick attaches a synchronous activation callback directly to the widget.
+func (w *Widget) OnClick(fn func()) *Widget {
+	if w != nil {
+		w.onClick = fn
+	}
+	return w
+}
+
+// OnClickHandler returns the widget's direct activation callback.
+func (w *Widget) OnClickHandler() func() {
+	if w == nil {
+		return nil
+	}
+	return w.onClick
+}
+
+// OnChange attaches a synchronous slider callback directly to the widget.
+func (w *Widget) OnChange(fn func(float32)) *Widget {
+	if w != nil {
+		w.onChange = fn
+	}
+	return w
+}
+
+// OnChangeHandler returns the widget's direct value-change callback.
+func (w *Widget) OnChangeHandler() func(float32) {
+	if w == nil {
+		return nil
+	}
+	return w.onChange
+}
+
+// OnText attaches a synchronous textbox edit callback directly to the widget.
+func (w *Widget) OnText(fn func(string)) *Widget {
+	if w != nil {
+		w.onText = fn
+	}
+	return w
+}
+
+// OnTextHandler returns the widget's direct text-change callback.
+func (w *Widget) OnTextHandler() func(string) {
+	if w == nil {
+		return nil
+	}
+	return w.onText
+}
+
+// OnTabSelect attaches a synchronous tab selection callback directly to the widget.
+func (w *Widget) OnTabSelect(fn func(int)) *Widget {
+	if w != nil {
+		w.onTabSelect = fn
+	}
+	return w
+}
+
+// OnTabSelectHandler returns the widget's direct tab selection callback.
+func (w *Widget) OnTabSelectHandler() func(int) {
+	if w == nil {
+		return nil
+	}
+	return w.onTabSelect
+}
+
+// OnLinkClick attaches a synchronous link activation callback directly to the widget.
+func (w *Widget) OnLinkClick(fn func(core.Link)) *Widget {
+	if w != nil {
+		w.onLinkClick = fn
+	}
+	return w
+}
+
+// OnLinkClickHandler returns the widget's direct link click callback.
+func (w *Widget) OnLinkClickHandler() func(core.Link) {
+	if w == nil {
+		return nil
+	}
+	return w.onLinkClick
+}
+
+// OnLinkTooltipRequested attaches a hover-text provider directly to the widget.
+func (w *Widget) OnLinkTooltipRequested(fn func(core.Link) string) *Widget {
+	if w != nil {
+		w.onLinkTooltip = fn
+	}
+	return w
+}
+
+// OnLinkTooltipHandler returns the widget's direct link tooltip provider.
+func (w *Widget) OnLinkTooltipHandler() func(core.Link) string {
+	if w == nil {
+		return nil
+	}
+	return w.onLinkTooltip
+}
+
+// SetTooltip attaches a hover tooltip string directly to the widget.
+func (w *Widget) SetTooltip(text string) *Widget {
+	if w != nil {
+		w.tooltip = text
+	}
+	return w
+}
+
+// Tooltip returns the widget's direct hover tooltip string.
+func (w *Widget) Tooltip() string {
+	if w == nil {
+		return ""
+	}
+	return w.tooltip
+}
+
+// CanvasDraw returns the widget's custom draw function, if any.
+func (w *Widget) CanvasDraw() func(bounds core.Rect) {
+	if w == nil {
+		return nil
+	}
+	return w.canvasDraw
+}
+
+// SetCanvasDraw replaces the widget's custom draw function.
+func (w *Widget) SetCanvasDraw(fn func(bounds core.Rect)) *Widget {
+	if w != nil {
+		w.canvasDraw = fn
+	}
+	return w
+}
+
+// SetScrollContentDrawer registers a custom drawer for the scroll panel's contents.
+func (w *Widget) SetScrollContentDrawer(fn func(bounds core.Rect, scrollOffset core.Vec2)) *Widget {
+	if w != nil {
+		w.scrollContentDrawer = fn
+	}
+	return w
+}
+
+// ScrollContentDrawer returns the scroll panel's content drawer.
+func (w *Widget) ScrollContentDrawer() func(bounds core.Rect, scrollOffset core.Vec2) {
+	if w == nil {
+		return nil
+	}
+	return w.scrollContentDrawer
+}
+
+// SetMaxScroll configures the maximum scroll offset for ScrollBy.
+func (w *Widget) SetMaxScroll(max core.Vec2) *Widget {
+	if w != nil {
+		w.maxScroll = max
+	}
+	return w
+}
+
+// MaxScroll returns the maximum scroll offset.
+func (w *Widget) MaxScroll() core.Vec2 {
+	if w == nil {
+		return core.Vec2{}
+	}
+	return w.maxScroll
+}
+
+// SetTextColor configures an explicit text color for the widget.
+func (w *Widget) SetTextColor(c core.Color) *Widget {
+	if w != nil {
+		w.textColor = c
+		w.hasTextColor = true
+	}
+	return w
+}
+
+// TextColor returns the widget's configured text color and whether one was set.
+func (w *Widget) TextColor() (core.Color, bool) {
+	if w == nil || !w.hasTextColor {
+		return core.Color{}, false
+	}
+	return w.textColor, true
+}
+
+// SetFormat configures a display format string for slider or progress-bar readouts.
+func (w *Widget) SetFormat(format string) *Widget {
+	if w != nil {
+		w.format = format
+	}
+	return w
+}
+
+// Format returns the widget's display format string.
+func (w *Widget) Format() string {
+	if w == nil {
+		return ""
+	}
+	return w.format
+}
+
+// SetFontSize sets an explicit font size in pixels for text rendering.
+func (w *Widget) SetFontSize(size float32) *Widget {
+	if w != nil {
+		w.fontSize = size
+	}
+	return w
+}
+
+// FontSize returns the explicit font size, or 0 if auto-derived from bounds.
+func (w *Widget) FontSize() float32 {
+	if w == nil {
+		return 0
+	}
+	return w.fontSize
+}
+
+// SetItalic configures whether the widget text uses the italic theme font.
+func (w *Widget) SetItalic(italic bool) *Widget {
+	if w != nil {
+		w.italic = italic
+	}
+	return w
+}
+
+// Italic reports whether the widget text uses the italic theme font.
+func (w *Widget) Italic() bool {
+	if w == nil {
+		return false
+	}
+	return w.italic
+}
+
+// SetAlign configures the horizontal text alignment within the content bounds.
+func (w *Widget) SetAlign(align core.TextAlign) *Widget {
+	if w != nil {
+		w.align = align
+	}
+	return w
+}
+
+// Align reports the horizontal text alignment within the content bounds.
+func (w *Widget) Align() core.TextAlign {
+	if w == nil {
+		return core.AlignLeft
+	}
+	return w.align
 }
 
 // equalStrings compares dropdown item snapshots without allocating.

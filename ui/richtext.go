@@ -100,7 +100,11 @@ func (u *UI) refreshLinkTip() {
 		return
 	}
 	u.tipText = ""
-	if fn := u.callbacks[u.hovered.Name()].onLinkTooltip; fn != nil {
+	fn := u.callbacks[u.hovered.Name()].onLinkTooltip
+	if fn == nil && u.hovered != nil {
+		fn = u.hovered.OnLinkTooltipHandler()
+	}
+	if fn != nil {
 		u.tipText = fn(link)
 	}
 }

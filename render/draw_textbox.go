@@ -60,7 +60,7 @@ func (t *Theme) DrawTextbox(info core.WidgetInfo, value string, caret, selStart,
 	if hasTextboxSelection(selStart, selEnd, value) {
 		t.drawTextboxSelection(info, content, value, selStart, selEnd, fontSize, x0, y0)
 	}
-	t.drawTextInContent(info.Kind, value, content, info.State)
+	t.drawTextInContent(info, value, content, info.State)
 	if showCaret {
 		t.drawTextboxCaret(info, content, value, caret, fontSize, x0, y0)
 	}

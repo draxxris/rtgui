@@ -65,11 +65,12 @@ type UI struct {
 
 	callbacks map[string]callbackRecord
 
-	menuItems    []core.MenuItem
-	menuBounds   core.Rect
-	menuOnSelect func(string)
-	menuArmed    int
-	menuDown     bool
+	menuItems          []core.MenuItem
+	menuBounds         core.Rect
+	menuOnSelect       func(string)
+	menuArmed          int
+	menuDown           bool
+	contextMenuHandler func(core.Vec2)
 
 	tooltips      map[string]string
 	tooltipText   string
@@ -277,6 +278,14 @@ func (u *UI) Lookup(name string) *widgets.Widget {
 		return nil
 	}
 	return u.widgets[name]
+}
+
+// Pointer returns the logical pointer position from the latest mouse event.
+func (u *UI) Pointer() core.Vec2 {
+	if u == nil {
+		return core.Vec2{}
+	}
+	return u.pointer
 }
 
 // clearReferences removes widget from each transient owner slot, forgetting

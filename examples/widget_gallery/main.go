@@ -68,15 +68,24 @@ var (
 )
 
 type galleryLayout struct {
-	leftPanel, rightPanel core.Rect
-	button, checkbox      core.Rect
-	textbox, dropdown     core.Rect
-	slider, progress      core.Rect
-	panel, label          core.Rect
-	tabbar                core.Rect
-	chat                  core.Rect
-	frame, frameButton    core.Rect
-	scroll                core.Rect
+	leftPanel, rightPanel     core.Rect
+	title, subtitle           core.Rect
+	leftTitle, rightTitle     core.Rect
+	button, checkbox          core.Rect
+	textbox, textboxCaption   core.Rect
+	dropdown, dropdownCaption core.Rect
+	slider, sliderCaption     core.Rect
+	progress                  core.Rect
+	panel, panelText          core.Rect
+	label                     core.Rect
+	tabbar, tabbarCaption     core.Rect
+	chat, chatCaption         core.Rect
+	frame, frameCaption       core.Rect
+	frameButton               core.Rect
+	scroll, scrollCaption     core.Rect
+	menuHint, tooltipHint     core.Rect
+	stateCanvas               core.Rect
+	status                    core.Rect
 }
 
 // tabPage is one app-side tab content set. The TabBar widget owns only
@@ -93,21 +102,37 @@ type tabPage struct {
 type gallery struct {
 	facade *ui.UI
 
-	leftPanel   *widgets.Widget
-	rightPanel  *widgets.Widget
-	button      *widgets.Widget
-	checkbox    *widgets.Widget
-	textbox     *widgets.Widget
-	dropdown    *widgets.Widget
-	slider      *widgets.Widget
-	progress    *widgets.Widget
-	panel       *widgets.Widget
-	label       *widgets.Widget
-	tabbar      *widgets.Widget
-	chat        *widgets.Widget
-	frame       *widgets.Widget
-	frameButton *widgets.Widget
-	scroll      *widgets.Widget
+	leftPanel       *widgets.Widget
+	rightPanel      *widgets.Widget
+	titleLabel      *widgets.Widget
+	subtitleLabel   *widgets.Widget
+	leftTitle       *widgets.Widget
+	rightTitle      *widgets.Widget
+	button          *widgets.Widget
+	checkbox        *widgets.Widget
+	textbox         *widgets.Widget
+	textboxCaption  *widgets.Widget
+	dropdown        *widgets.Widget
+	dropdownCaption *widgets.Widget
+	slider          *widgets.Widget
+	sliderCaption   *widgets.Widget
+	progress        *widgets.Widget
+	panel           *widgets.Widget
+	panelText       *widgets.Widget
+	label           *widgets.Widget
+	tabbar          *widgets.Widget
+	tabbarCaption   *widgets.Widget
+	chat            *widgets.Widget
+	chatCaption     *widgets.Widget
+	frame           *widgets.Widget
+	frameCaption    *widgets.Widget
+	frameButton     *widgets.Widget
+	scroll          *widgets.Widget
+	scrollCaption   *widgets.Widget
+	menuHint        *widgets.Widget
+	tooltipHint     *widgets.Widget
+	stateCanvas     *widgets.Widget
+	statusLabel     *widgets.Widget
 
 	status       string
 	designWidth  float32
@@ -417,19 +442,30 @@ func firstExistingFile(candidates []string) string {
 // dropdown-popup state lives in the facade; the gallery keeps status and its
 // fixed design-resolution layout.
 func newGallery(facade *ui.UI) *gallery {
+	captionColor := core.Color{R: 153, G: 174, B: 202, A: 255}
 	g := &gallery{
-		facade:     facade,
-		leftPanel:  widgets.NewFrame("leftPanel", core.Rect{}),
-		rightPanel: widgets.NewFrame("rightPanel", core.Rect{}),
-		button:     widgets.NewButton("primaryButton", core.Rect{}, "Primary button"),
-		checkbox:   widgets.NewCheckbox("enableCheckbox", core.Rect{}, true),
-		textbox:    widgets.NewTextbox("inputTextbox", core.Rect{}, 128),
-		dropdown:   widgets.NewDropdown("classDropdown", core.Rect{}, []string{"Warrior", "Ranger", "Mage"}, 0),
-		slider:     widgets.NewSlider("valueSlider", core.Rect{}, 0.35),
-		progress:   widgets.NewProgressBar("valueProgress", core.Rect{}, 0.35),
-		panel:      widgets.NewFrame("demoPanel", core.Rect{}),
-		label:      widgets.NewLabel("demoLabel", core.Rect{}, "Textured label"),
-		tabbar:     widgets.NewTabBar("demoTabs", core.Rect{}, []string{"Widgets", "Style", "About"}, 0),
+		facade:          facade,
+		leftPanel:       widgets.NewFrame("leftPanel", core.Rect{}),
+		rightPanel:      widgets.NewFrame("rightPanel", core.Rect{}),
+		titleLabel:      widgets.NewStyledLabel("galleryTitle", core.Rect{}, "RTG textured widget gallery", 26, false, core.AlignLeft).SetTextColor(core.Color{R: 226, G: 239, B: 255, A: 255}),
+		subtitleLabel:   widgets.NewStyledLabel("gallerySubtitle", core.Rect{}, "Every pixel needs a CSS texture; missing skins stay invisible and states inherit their base rule. Click demoFrame then R to MoveFrame, T to pin.", 18, true, core.AlignLeft).SetTextColor(captionColor),
+		leftTitle:       widgets.NewStyledLabel("leftTitle", core.Rect{}, "Widgets", 20, false, core.AlignLeft).SetTextColor(core.Color{R: 224, G: 235, B: 252, A: 255}),
+		rightTitle:      widgets.NewStyledLabel("rightTitle", core.Rect{}, "Widgets output", 20, false, core.AlignLeft).SetTextColor(core.Color{R: 224, G: 235, B: 252, A: 255}),
+		button:          widgets.NewButton("primaryButton", core.Rect{}, "Primary button"),
+		checkbox:        widgets.NewCheckboxWithLabel("enableCheckbox", core.Rect{}, "Enable primary button", true),
+		textboxCaption:  widgets.NewStyledLabel("textboxCaption", core.Rect{}, "Textbox (arrows/Home/End, Shift-select, Ctrl-A/C/X/V, Del — UTF-8)", 20, true, core.AlignLeft).SetTextColor(captionColor),
+		textbox:         widgets.NewTextbox("inputTextbox", core.Rect{}, 128),
+		dropdownCaption: widgets.NewStyledLabel("dropdownCaption", core.Rect{}, "Dropdown (click to open)", 20, true, core.AlignLeft).SetTextColor(captionColor),
+		dropdown:        widgets.NewDropdown("classDropdown", core.Rect{}, []string{"Warrior", "Ranger", "Mage"}, 0),
+		sliderCaption:   widgets.NewStyledLabel("sliderCaption", core.Rect{}, "Slider drives the progress bar", 20, true, core.AlignLeft).SetTextColor(captionColor),
+		slider:          widgets.NewSlider("valueSlider", core.Rect{}, 0.35),
+		progress:        widgets.NewProgressBar("valueProgress", core.Rect{}, 0.35),
+		panel:           widgets.NewFrame("demoPanel", core.Rect{}),
+		panelText:       widgets.NewStyledLabel("panelText", core.Rect{}, "Panel frame decoration", 22, false, core.AlignLeft).SetTextColor(core.Color{R: 218, G: 230, B: 248, A: 255}),
+		label:           widgets.NewLabel("demoLabel", core.Rect{}, "Textured label"),
+		tabbarCaption:   widgets.NewStyledLabel("tabbarCaption", core.Rect{}, "Tab bar — click to switch demo pages", 20, true, core.AlignLeft).SetTextColor(captionColor),
+		tabbar:          widgets.NewTabBar("demoTabs", core.Rect{}, []string{"Widgets", "Style", "About"}, 0),
+		chatCaption:     widgets.NewStyledLabel("chatCaption", core.Rect{}, "Chat message — links clickable", 20, true, core.AlignLeft).SetTextColor(captionColor),
 		chat: widgets.NewRichText("chatMessage", core.Rect{}, []core.RichSegment{
 			{Text: "Guild: need "},
 			{Text: "Thunderfury", Color: core.Color{R: 255, G: 140, B: 40, A: 255}, HasColor: true,
@@ -441,50 +477,51 @@ func newGallery(facade *ui.UI) *gallery {
 			{Text: "the wiki", Link: core.Link{Kind: core.LinkURL, Target: "https://example.com/guide"}},
 			{Text: "."},
 		}),
-		frame:       widgets.NewFrame("demoFrame", core.Rect{}),
-		frameButton: widgets.NewButton("frameChildButton", core.Rect{}, "Frame child"),
-		scroll:      widgets.NewScrollPanel("scrollPanel", core.Rect{}),
-		status:      "Click demoFrame to focus it — R moves, T pins a tooltip",
+		frame:         widgets.NewFrame("demoFrame", core.Rect{}),
+		frameCaption:  widgets.NewStyledLabel("frameCaption", core.Rect{}, "Frame child moves with its parent (focus + R / sine)", 20, false, core.AlignLeft).SetTextColor(captionColor),
+		frameButton:   widgets.NewButton("frameChildButton", core.Rect{}, "Frame child"),
+		scrollCaption: widgets.NewStyledLabel("scrollCaption", core.Rect{}, "Scroll panel — wheel over this area", 20, true, core.AlignLeft).SetTextColor(captionColor),
+		scroll:        widgets.NewScrollPanel("scrollPanel", core.Rect{}),
+		menuHint:      widgets.NewStyledLabel("menuHint", core.Rect{}, "Right-click anywhere for the context menu", 20, true, core.AlignLeft).SetTextColor(captionColor),
+		tooltipHint:   widgets.NewStyledLabel("tooltipHint", core.Rect{}, "Click demoFrame then T for a pinned tooltip (Esc dismisses)", 20, true, core.AlignLeft).SetTextColor(captionColor),
+		status:        "Click demoFrame to focus it — R moves, T pins a tooltip",
 	}
+	g.statusLabel = widgets.NewStyledLabel("statusLabel", core.Rect{}, g.status, 18, true, core.AlignLeft).SetTextColor(core.Color{R: 161, G: 192, B: 224, A: 255})
+	g.stateCanvas = widgets.NewCanvas("stateSamples", core.Rect{}, g.drawStateSamples)
+	g.checkbox.SetTextColor(core.Color{R: 205, G: 218, B: 238, A: 255})
 	g.textbox.SetText("Type here")
-	if err := facade.Add(g.leftPanel, g.rightPanel, g.button, g.checkbox, g.textbox, g.dropdown, g.slider, g.progress, g.panel, g.label, g.tabbar, g.chat, g.frame, g.frameButton, g.scroll); err != nil {
-		panic(err)
-	}
-	facade.OnClick("primaryButton", func() {
-		g.status = "Primary button clicked"
-	})
-	facade.OnClick("enableCheckbox", func() {
+
+	g.slider.SetFormat("%.0f%%").SetFontSize(20).SetAlign(core.AlignRight).SetTextColor(core.Color{R: 230, G: 242, B: 255, A: 255})
+	g.progress.SetFormat("Progress: %.0f%%").SetFontSize(20).SetTextColor(core.Color{R: 235, G: 255, B: 240, A: 255})
+
+	// Direct callback attachment on widget instances replaces stringly registration:
+	g.button.OnClick(func() {
+		g.setStatus("Primary button clicked")
+	}).SetTooltip("Primary action — fires OnClick")
+
+	g.checkbox.OnClick(func() {
 		g.button.SetEnabled(g.checkbox.Checked())
-		g.status = fmt.Sprintf("Checkbox is %v; primary button enabled=%v", g.checkbox.Checked(), g.button.Enabled())
+		g.setStatus(fmt.Sprintf("Checkbox is %v; primary button enabled=%v", g.checkbox.Checked(), g.button.Enabled()))
 	})
-	facade.OnClick("frameChildButton", func() {
-		g.status = "Frame child button clicked"
+
+	g.frameButton.OnClick(func() {
+		g.setStatus("Frame child button clicked")
 	})
-	// Scoped hotkeys replace direct IsKeyPressed polling. Text wins while
-	// editing; otherwise the library fires these only while demoFrame holds
-	// container focus, and reports consumption so a host game stays silent.
-	facade.OnHotkey("demoFrameMove", 'R', ui.HotkeyOpts{Scope: "demoFrame", Consume: true}, func() {
-		g.nudgeDemoFrame()
-	})
-	facade.OnHotkey("demoPinTooltip", 'T', ui.HotkeyOpts{Scope: "demoFrame", Consume: true}, func() {
-		g.facade.ShowTooltip("Pinned tooltip — Esc dismisses it", g.lastMouse)
-	})
-	facade.OnChange("valueSlider", func(v float32) {
+
+	g.slider.OnChange(func(v float32) {
 		g.progress.SetValue(v)
-		g.status = fmt.Sprintf("Slider value %.0f%%", v*100)
-	})
-	facade.OnTabSelect("demoTabs", func(index int) {
+		g.setStatus(fmt.Sprintf("Slider value %.0f%%", v*100))
+	}).SetTooltip("Drag to drive the progress bar")
+
+	g.tabbar.OnTabSelect(func(index int) {
 		g.applyTab(index)
-	})
-	facade.SetTooltip("primaryButton", "Primary action — fires OnClick")
-	facade.SetTooltip("valueSlider", "Drag to drive the progress bar")
-	facade.SetTooltip("demoTabs", "TabBar — click a tab to switch demo pages")
-	facade.SetTooltip("classDropdown", "Dropdown — click to open")
-	facade.SetTooltip("chatMessage", "Chat log — hover a link")
-	facade.OnLinkClick("chatMessage", func(link core.Link) {
-		g.status = fmt.Sprintf("Link clicked %s %q", link.Kind, link.Target)
-	})
-	facade.OnLinkTooltipRequested("chatMessage", func(link core.Link) string {
+	}).SetTooltip("TabBar — click a tab to switch demo pages")
+
+	g.dropdown.SetTooltip("Dropdown — click to open")
+
+	g.chat.OnLinkClick(func(link core.Link) {
+		g.setStatus(fmt.Sprintf("Link clicked %s %q", link.Kind, link.Target))
+	}).OnLinkTooltipRequested(func(link core.Link) string {
 		switch link.Kind {
 		case core.LinkItem:
 			return "Thunderfury — Legendary sword (ilvl 80)"
@@ -495,8 +532,51 @@ func newGallery(facade *ui.UI) *gallery {
 		default:
 			return ""
 		}
+	}).SetTooltip("Chat log — hover a link")
+
+	// Self-contained scroll panel manages clipping and bounds:
+	g.scroll.SetMaxScroll(core.Vec2{Y: 170}).SetScrollContentDrawer(g.drawScrollRows)
+
+	if err := facade.Add(
+		g.leftPanel, g.rightPanel,
+		g.titleLabel, g.subtitleLabel,
+		g.leftTitle, g.rightTitle,
+		g.button, g.checkbox,
+		g.textboxCaption, g.textbox,
+		g.dropdownCaption, g.dropdown,
+		g.sliderCaption, g.slider,
+		g.progress,
+		g.panel, g.panelText,
+		g.label,
+		g.tabbarCaption, g.tabbar,
+		g.chatCaption, g.chat,
+		g.frame, g.frameCaption, g.frameButton,
+		g.scrollCaption, g.scroll,
+		g.menuHint, g.tooltipHint,
+		g.stateCanvas,
+		g.statusLabel,
+	); err != nil {
+		panic(err)
+	}
+
+	// Scoped hotkeys replace direct IsKeyPressed polling. Text wins while
+	// editing; otherwise the library fires these only while demoFrame holds
+	// container focus, and reports consumption so a host game stays silent.
+	facade.OnHotkey("demoFrameMove", 'R', ui.HotkeyOpts{Scope: "demoFrame", Consume: true}, func() {
+		g.nudgeDemoFrame()
 	})
+	facade.OnHotkey("demoPinTooltip", 'T', ui.HotkeyOpts{Scope: "demoFrame", Consume: true}, func() {
+		g.facade.ShowTooltip("Pinned tooltip — Esc dismisses it", g.facade.Pointer())
+	})
+	facade.OnContextMenu(g.showGalleryMenu)
+
 	// The visual widgets own the layout nodes used by the MoveFrame demo.
+	if err := g.frame.Frame().AddChild(g.frameCaption.Frame()); err != nil {
+		panic(err)
+	}
+	if err := g.frameCaption.SetPoint(layout.AnchorTopLeft, nil, layout.AnchorTopLeft, core.Vec2{X: 18, Y: 20}); err != nil {
+		panic(err)
+	}
 	if err := g.frame.Frame().AddChild(g.frameButton.Frame()); err != nil {
 		panic(err)
 	}
@@ -557,25 +637,41 @@ func (g *gallery) currentPage() tabPage {
 	return g.tabPages[index]
 }
 
+// setStatus updates the active status message and syncs the status label widget.
+func (g *gallery) setStatus(msg string) {
+	g.status = msg
+	if g.statusLabel != nil {
+		g.statusLabel.SetText(msg)
+	}
+}
+
 // applyTab swaps app-side tab content for index and reports the selection.
 // The TabBar owns selection state; this owns the page swap (label text
-// plus status). Panel, frame, and scroll content read currentPage live
-// during draw, so no further widget mutation is needed here.
+// plus status). Labels and widgets update their text directly.
 func (g *gallery) applyTab(index int) {
 	if g == nil || len(g.tabPages) == 0 {
 		return
 	}
 	if index < 0 || index >= len(g.tabPages) {
-		g.status = fmt.Sprintf("Tab index %d selected", index)
+		g.setStatus(fmt.Sprintf("Tab index %d selected", index))
 		return
 	}
 	page := g.tabPages[index]
 	g.label.SetText(page.label)
+	if g.rightTitle != nil {
+		g.rightTitle.SetText(page.heading)
+	}
+	if g.panelText != nil {
+		g.panelText.SetText(page.panelText)
+	}
+	if g.frameCaption != nil {
+		g.frameCaption.SetText(page.frameCaption)
+	}
 	if label, ok := g.tabbar.TabSelection(); ok {
-		g.status = fmt.Sprintf("Tab %q selected (index %d)", label, index)
+		g.setStatus(fmt.Sprintf("Tab %q selected (index %d)", label, index))
 		return
 	}
-	g.status = fmt.Sprintf("Tab index %d selected", index)
+	g.setStatus(fmt.Sprintf("Tab index %d selected", index))
 }
 
 // applyLayout assigns cached design-resolution bounds and arranges the frame
@@ -583,19 +679,35 @@ func (g *gallery) applyTab(index int) {
 func (g *gallery) applyLayout() {
 	g.leftPanel.SetBounds(g.layout.leftPanel)
 	g.rightPanel.SetBounds(g.layout.rightPanel)
+	g.titleLabel.SetBounds(g.layout.title)
+	g.subtitleLabel.SetBounds(g.layout.subtitle)
+	g.leftTitle.SetBounds(g.layout.leftTitle)
+	g.rightTitle.SetBounds(g.layout.rightTitle)
 	g.button.SetBounds(g.layout.button)
 	g.checkbox.SetBounds(g.layout.checkbox)
+	g.textboxCaption.SetBounds(g.layout.textboxCaption)
 	g.textbox.SetBounds(g.layout.textbox)
+	g.dropdownCaption.SetBounds(g.layout.dropdownCaption)
 	g.dropdown.SetBounds(g.layout.dropdown)
+	g.sliderCaption.SetBounds(g.layout.sliderCaption)
 	g.slider.SetBounds(g.layout.slider)
 	g.progress.SetBounds(g.layout.progress)
 	g.panel.SetBounds(g.layout.panel)
+	g.panelText.SetBounds(g.layout.panelText)
 	g.label.SetBounds(g.layout.label)
+	g.tabbarCaption.SetBounds(g.layout.tabbarCaption)
 	g.tabbar.SetBounds(g.layout.tabbar)
+	g.chatCaption.SetBounds(g.layout.chatCaption)
 	g.chat.SetBounds(g.layout.chat)
 	g.frame.SetBounds(g.layout.frame)
+	g.frameCaption.SetBounds(core.Rect{W: g.layout.frameCaption.W, H: g.layout.frameCaption.H})
 	g.frameButton.SetBounds(core.Rect{W: g.layout.frameButton.W, H: g.layout.frameButton.H})
+	g.scrollCaption.SetBounds(g.layout.scrollCaption)
 	g.scroll.SetBounds(g.layout.scroll)
+	g.menuHint.SetBounds(g.layout.menuHint)
+	g.tooltipHint.SetBounds(g.layout.tooltipHint)
+	g.stateCanvas.SetBounds(g.layout.stateCanvas)
+	g.statusLabel.SetBounds(g.layout.status)
 	if err := layout.Arrange(g.frame.Frame(), core.Rect{}); err != nil {
 		panic(err)
 	}
@@ -608,58 +720,47 @@ func calculateLayout(width, height float32) galleryLayout {
 	left := core.Rect{X: margin, Y: 74, W: panelWidth, H: height - 98}
 	right := core.Rect{X: margin + panelWidth + gap, Y: 74, W: panelWidth, H: height - 98}
 	widgetX, widgetW := left.X+24, left.W-48
+	rightX, rightW := right.X+24, right.W-48
 	return galleryLayout{
-		leftPanel: left, rightPanel: right,
-		button:      core.Rect{X: widgetX, Y: left.Y + 48, W: widgetW, H: 42},
-		checkbox:    core.Rect{X: widgetX, Y: left.Y + 112, W: widgetW, H: 38},
-		textbox:     core.Rect{X: widgetX, Y: left.Y + 176, W: widgetW, H: 42},
-		dropdown:    core.Rect{X: widgetX, Y: left.Y + 240, W: widgetW, H: 42},
-		slider:      core.Rect{X: widgetX, Y: left.Y + 304, W: widgetW, H: 42},
-		progress:    core.Rect{X: widgetX, Y: left.Y + 368, W: widgetW, H: 42},
-		panel:       core.Rect{X: widgetX, Y: left.Y + 440, W: widgetW, H: 70},
-		tabbar:      core.Rect{X: widgetX, Y: left.Y + 536, W: widgetW, H: 36},
-		chat:        core.Rect{X: widgetX, Y: left.Y + 600, W: widgetW, H: 68},
-		label:       core.Rect{X: right.X + 24, Y: right.Y + 40, W: right.W - 48, H: 32},
-		frame:       core.Rect{X: right.X + 24, Y: right.Y + 92, W: right.W - 48, H: 164},
-		frameButton: core.Rect{X: right.X + 48, Y: right.Y + 166, W: right.W - 96, H: 42},
-		scroll:      core.Rect{X: right.X + 24, Y: right.Y + 282, W: right.W - 48, H: 232},
+		leftPanel:       left,
+		rightPanel:      right,
+		title:           core.Rect{X: 28, Y: 24, W: 600, H: 26},
+		subtitle:        core.Rect{X: 30, Y: 51, W: 1200, H: 20},
+		leftTitle:       core.Rect{X: left.X + 24, Y: left.Y + 15, W: left.W - 48, H: 24},
+		rightTitle:      core.Rect{X: right.X + 24, Y: right.Y + 15, W: right.W - 48, H: 24},
+		button:          core.Rect{X: widgetX, Y: left.Y + 48, W: widgetW, H: 42},
+		checkbox:        core.Rect{X: widgetX, Y: left.Y + 112, W: widgetW, H: 38},
+		textboxCaption:  core.Rect{X: widgetX, Y: left.Y + 176 - 23, W: widgetW, H: 20},
+		textbox:         core.Rect{X: widgetX, Y: left.Y + 176, W: widgetW, H: 42},
+		dropdownCaption: core.Rect{X: widgetX, Y: left.Y + 240 - 23, W: widgetW, H: 20},
+		dropdown:        core.Rect{X: widgetX, Y: left.Y + 240, W: widgetW, H: 42},
+		sliderCaption:   core.Rect{X: widgetX, Y: left.Y + 304 - 23, W: widgetW, H: 20},
+		slider:          core.Rect{X: widgetX, Y: left.Y + 304, W: widgetW, H: 42},
+		progress:        core.Rect{X: widgetX, Y: left.Y + 368, W: widgetW, H: 42},
+		panel:           core.Rect{X: widgetX, Y: left.Y + 440, W: widgetW, H: 70},
+		panelText:       core.Rect{X: widgetX + 14, Y: left.Y + 440 + 30, W: widgetW - 28, H: 24},
+		tabbarCaption:   core.Rect{X: widgetX, Y: left.Y + 536 - 23, W: widgetW, H: 20},
+		tabbar:          core.Rect{X: widgetX, Y: left.Y + 536, W: widgetW, H: 36},
+		chatCaption:     core.Rect{X: widgetX, Y: left.Y + 600 - 23, W: widgetW, H: 20},
+		chat:            core.Rect{X: widgetX, Y: left.Y + 600, W: widgetW, H: 68},
+		label:           core.Rect{X: rightX, Y: right.Y + 40, W: rightW, H: 32},
+		frame:           core.Rect{X: rightX, Y: right.Y + 92, W: rightW, H: 164},
+		frameCaption:    core.Rect{W: rightW - 36, H: 22},
+		frameButton:     core.Rect{W: rightW - 96, H: 42},
+		scrollCaption:   core.Rect{X: rightX + 12, Y: right.Y + 282 - 22, W: rightW - 24, H: 20},
+		scroll:          core.Rect{X: rightX, Y: right.Y + 282, W: rightW, H: 232},
+		menuHint:        core.Rect{X: rightX + 12, Y: right.Y + 282 + 232 + 10, W: rightW - 24, H: 20},
+		tooltipHint:     core.Rect{X: rightX + 12, Y: right.Y + 282 + 232 + 28, W: rightW - 24, H: 20},
+		stateCanvas:     core.Rect{X: rightX, Y: right.Y + right.H - 66, W: rightW, H: 34},
+		status:          core.Rect{X: 30, Y: height - 18, W: width - 60, H: 20},
 	}
 }
 
-// handleInput polls raylib once per frame and forwards to the facade. The UI
-// owns dropdown, menu, tooltip, text, and scoped R/T hotkeys; right-click menu
-// requests and animation remain gallery work. R/T fire only while demoFrame
-// holds container focus, so typing r/t in the textbox never moves or pins.
+// handleInput polls raylib input through the UI driver and animates the demo frame.
 func (g *gallery) handleInput() {
-	physical := rl.GetMousePosition()
-	mouse := g.facade.ToLogical(core.Vec2{X: physical.X, Y: physical.Y})
-	g.lastMouse = mouse
-	pressedEdge := rl.IsMouseButtonPressed(rl.MouseButtonLeft)
-	mouseHandled := g.facade.HandleMouse(ui.MouseEvent{
-		Pos:      mouse,
-		Pressed:  pressedEdge,
-		Down:     rl.IsMouseButtonDown(rl.MouseButtonLeft),
-		Released: rl.IsMouseButtonReleased(rl.MouseButtonLeft),
-		Wheel:    rl.GetMouseWheelMove(),
-	})
-	_ = mouseHandled
-	if _, _, _, ok := g.facade.HoveredLink(); ok {
-		rl.SetMouseCursor(rl.MouseCursorPointingHand)
-	} else {
-		rl.SetMouseCursor(rl.MouseCursorDefault)
-	}
-	if rl.IsMouseButtonPressed(rl.MouseButtonRight) {
-		g.showGalleryMenu(mouse)
-	}
-	// The facade scrolls unclamped; the gallery bounds its demo list.
-	scroll := g.scroll.Scroll()
-	scroll.Y = clamp(scroll.Y, 0, 170)
-	g.scroll.SetScroll(scroll)
-	// Sine drift runs before keys so a scoped R nudge owns the final word on
-	// manual-move frames. Position precision does not matter here; both paths
-	// only prove the frame child follows its parent.
+	g.lastMouse = g.facade.Pointer()
+	_ = g.facade.PollRaylibInput()
 	g.animateFrame()
-	g.handleKeys()
 }
 
 // showGalleryMenu opens the demo context menu at a logical point. The
@@ -671,86 +772,8 @@ func (g *gallery) showGalleryMenu(pos core.Vec2) {
 		{Separator: true},
 		{ID: "about", Label: "About gallery"},
 	}, pos, func(id string) {
-		g.status = fmt.Sprintf("Menu selected %q", id)
+		g.setStatus(fmt.Sprintf("Menu selected %q", id))
 	})
-}
-
-// handleKeys forwards chars, caret motion, selection, clipboard, escape, and
-// scoped R/T presses to the facade in one KeyEvent. Control combos map to
-// select-all and clipboard actions; Shift extends the selection during arrow,
-// Home, and End motion. Scoped hotkeys fire inside HandleKey, so there is no
-// separate polling or animation gating here.
-func (g *gallery) handleKeys() {
-	chars := drainGalleryChars()
-	event := ui.KeyEvent{
-		Chars:     chars,
-		Backspace: galleryPressed(rl.KeyBackspace),
-		Delete:    galleryPressed(rl.KeyDelete),
-		Escape:    rl.IsKeyPressed(rl.KeyEscape),
-		Hotkeys:   galleryHotkeys(),
-	}
-	event.Left, event.Right, event.Home, event.End, event.Shift = galleryNavKeys()
-	event.SelectAll, event.Copy, event.Cut, event.Paste = galleryClipboardKeys()
-	// Control combos own their letters so Ctrl-A/C/X/V never also type.
-	if event.SelectAll || event.Copy || event.Cut || event.Paste {
-		event.Chars = nil
-	}
-	// The host game would branch on this result; the gallery has no game
-	// layer, so an unfocused, unregistered key simply falls through to nothing.
-	_ = g.facade.HandleKey(event)
-}
-
-// galleryPressed reports press or repeat for editing keys with repeat.
-func galleryPressed(key int32) bool {
-	return rl.IsKeyPressed(key) || rl.IsKeyPressedRepeat(key)
-}
-
-// galleryNavKeys polls arrow, Home, End, and Shift for caret motion.
-func galleryNavKeys() (left, right, home, end, shift bool) {
-	left = galleryPressed(rl.KeyLeft)
-	right = galleryPressed(rl.KeyRight)
-	home = galleryPressed(rl.KeyHome)
-	end = galleryPressed(rl.KeyEnd)
-	shift = rl.IsKeyDown(rl.KeyLeftShift) || rl.IsKeyDown(rl.KeyRightShift)
-	return left, right, home, end, shift
-}
-
-// galleryClipboardKeys polls Ctrl-A/C/X/V for selection and clipboard.
-func galleryClipboardKeys() (selectAll, copyKey, cutKey, pasteKey bool) {
-	ctrl := rl.IsKeyDown(rl.KeyLeftControl) || rl.IsKeyDown(rl.KeyRightControl)
-	if !ctrl {
-		return false, false, false, false
-	}
-	selectAll = rl.IsKeyPressed(rl.KeyA)
-	copyKey = rl.IsKeyPressed(rl.KeyC)
-	cutKey = rl.IsKeyPressed(rl.KeyX)
-	pasteKey = rl.IsKeyPressed(rl.KeyV)
-	return selectAll, copyKey, cutKey, pasteKey
-}
-
-// drainGalleryChars collects pending raylib runes for this frame.
-func drainGalleryChars() []rune {
-	var out []rune
-	for codepoint := rl.GetCharPressed(); codepoint > 0; codepoint = rl.GetCharPressed() {
-		if codepoint >= 32 && codepoint != 127 {
-			out = append(out, rune(codepoint))
-		}
-	}
-	return out
-}
-
-// galleryHotkeys collects scoped hotkey press edges once per frame. R nudges
-// demoFrame and T pins a tooltip, but only while demoFrame holds container
-// focus; the facade enforces scope and text precedence after this single build.
-func galleryHotkeys() []rune {
-	var hotkeys []rune
-	if rl.IsKeyPressed(rl.KeyR) {
-		hotkeys = append(hotkeys, 'R')
-	}
-	if rl.IsKeyPressed(rl.KeyT) {
-		hotkeys = append(hotkeys, 'T')
-	}
-	return hotkeys
 }
 
 // nudgeDemoFrame authors one scoped MoveFrame step and performs the required
@@ -772,7 +795,7 @@ func (g *gallery) nudgeDemoFrame() {
 	g.layout.frame.Y += delta.Y
 	g.applyFrameMove(delta)
 	childBounds := g.frameButton.Bounds()
-	g.status = fmt.Sprintf("MoveFrame %+v — child follows (%.0f,%.0f)", delta, childBounds.X, childBounds.Y)
+	g.setStatus(fmt.Sprintf("MoveFrame %+v — child follows (%.0f,%.0f)", delta, childBounds.X, childBounds.Y))
 }
 
 // animateFrame drifts the demo frame on a sine wave. It runs every frame
@@ -806,9 +829,9 @@ func (g *gallery) applyFrameMove(delta core.Vec2) {
 	}
 }
 
-// draw renders the facade widgets plus app-specific layers. Everything is
-// expressed in logical design coordinates; the matrix stretch maps it onto
-// the live window, so resizing scales the UI instead of reflowing it.
+// draw renders the facade widgets. Everything is expressed in logical design
+// coordinates; the matrix stretch maps it onto the live window, so resizing
+// scales the UI instead of reflowing it.
 func (g *gallery) draw() {
 	rl.BeginDrawing()
 	rl.ClearBackground(color.RGBA{R: 13, G: 17, B: 27, A: 255})
@@ -817,91 +840,20 @@ func (g *gallery) draw() {
 	rl.PushMatrix()
 	rl.Scalef(sx, sy, 1)
 
-	g.drawText("RTG textured widget gallery", 28, 24, 26, color.RGBA{R: 226, G: 239, B: 255, A: 255})
-	g.drawItalic("Every pixel needs a CSS texture; missing skins stay invisible and states inherit their base rule. Click demoFrame then R to MoveFrame, T to pin.", 30, 51, 18, color.RGBA{R: 153, G: 174, B: 202, A: 255})
-	page := g.currentPage()
-	g.panelTitle(g.layout.leftPanel, "Widgets")
-	g.panelTitle(g.layout.rightPanel, page.heading)
-
-	// Widgets first so app chrome can sit above them; the popup goes last
-	// so overlapping captions and values never paint over it.
-	g.facade.DrawWidgets()
-
-	checkboxBounds := g.checkbox.Bounds()
-	textboxBounds := g.textbox.Bounds()
-	dropdownBounds := g.dropdown.Bounds()
-	sliderBounds := g.slider.Bounds()
-	progressBounds := g.progress.Bounds()
-	panelBounds := g.panel.Bounds()
-	tabbarBounds := g.tabbar.Bounds()
-	chatBounds := g.chat.Bounds()
-	frameBounds := g.frame.Bounds()
-	scrollBounds := g.scroll.Bounds()
-	g.drawText("Enable primary button", int32(checkboxBounds.X+40), int32(checkboxBounds.Y+8), 22, color.RGBA{R: 205, G: 218, B: 238, A: 255})
-	g.drawItalic("Textbox (arrows/Home/End, Shift-select, Ctrl-A/C/X/V, Del — UTF-8)", int32(textboxBounds.X), int32(textboxBounds.Y-23), 20, color.RGBA{R: 153, G: 174, B: 202, A: 255})
-	g.drawItalic("Dropdown (click to open)", int32(dropdownBounds.X), int32(dropdownBounds.Y-23), 20, color.RGBA{R: 153, G: 174, B: 202, A: 255})
-	g.drawItalic("Slider drives the progress bar", int32(sliderBounds.X), int32(sliderBounds.Y-23), 20, color.RGBA{R: 153, G: 174, B: 202, A: 255})
-	g.drawText(fmt.Sprintf("%.0f%%", g.slider.Value()*100), int32(sliderBounds.X+sliderBounds.W-48), int32(sliderBounds.Y+13), 20, color.RGBA{R: 230, G: 242, B: 255, A: 255})
-	g.drawText(fmt.Sprintf("Progress: %.0f%%", g.progress.Value()*100), int32(progressBounds.X+12), int32(progressBounds.Y+13), 20, color.RGBA{R: 235, G: 255, B: 240, A: 255})
-	g.drawText(page.panelText, int32(panelBounds.X+14), int32(panelBounds.Y+30), 22, color.RGBA{R: 218, G: 230, B: 248, A: 255})
-	g.drawItalic("Tab bar — click to switch demo pages", int32(tabbarBounds.X), int32(tabbarBounds.Y-23), 20, color.RGBA{R: 153, G: 174, B: 202, A: 255})
-	g.drawItalic("Chat message — links clickable", int32(chatBounds.X), int32(chatBounds.Y-23), 20, color.RGBA{R: 153, G: 174, B: 202, A: 255})
-	g.drawItalic("Right-click anywhere for the context menu", int32(scrollBounds.X+12), int32(scrollBounds.Y+scrollBounds.H+10), 20, color.RGBA{R: 153, G: 174, B: 202, A: 255})
-	g.drawItalic("Click demoFrame then T for a pinned tooltip (Esc dismisses)", int32(scrollBounds.X+12), int32(scrollBounds.Y+scrollBounds.H+28), 20, color.RGBA{R: 153, G: 174, B: 202, A: 255})
-	// Round (not truncate) the caption so it crosses pixel boundaries on the
-	// same frames as the pixel-snapped frame box instead of leapfrogging it.
-	g.drawText(page.frameCaption, int32(math.Round(float64(frameBounds.X+18))), int32(math.Round(float64(frameBounds.Y+20))), 20, color.RGBA{R: 153, G: 174, B: 202, A: 255})
-
-	g.drawScrollContents()
-	g.drawStateSamples()
-	g.drawItalic(g.status, 30, int32(g.designHeight-18), 18, color.RGBA{R: 161, G: 192, B: 224, A: 255})
-
-	// Popup above every app layer: text under an open popup stays behind it.
-	g.facade.DrawPopup()
+	g.facade.Draw()
 
 	rl.PopMatrix()
 	rl.EndDrawing()
 }
 
-// drawText renders gallery chrome with the Grenze-Regular theme font.
-func (g *gallery) drawText(value string, x, y int32, size float32, tint color.RGBA) {
-	theme := g.facade.Theme()
-	if theme.HasFont() {
-		rl.DrawTextEx(theme.FontForSize(size), value, rl.NewVector2(float32(x), float32(y)), size, size/10, tint)
-		return
-	}
-	rl.DrawText(value, x, y, int32(size), tint)
-}
-
-// drawItalic renders captions and status with the Grenze-Italic font.
-func (g *gallery) drawItalic(value string, x, y int32, size float32, tint color.RGBA) {
-	theme := g.facade.Theme()
-	if theme.HasItalicFont() {
-		rl.DrawTextEx(theme.ItalicForSize(size), value, rl.NewVector2(float32(x), float32(y)), size, size/10, tint)
-		return
-	}
-	rl.DrawText(value, x, y, int32(size), tint)
-}
-
-// panelTitle renders a panel heading with the Grenze-Regular theme font.
-func (g *gallery) panelTitle(bounds core.Rect, title string) {
-	g.drawText(title, int32(bounds.X+24), int32(bounds.Y+15), 20, color.RGBA{R: 224, G: 235, B: 252, A: 255})
-}
-
-// drawScrollContents renders the clipped demo rows. Scissor stays app-side,
-// and takes physical pixels, so the logical panel bounds are scaled by hand
-// (the matrix stretch does not apply to the GPU scissor test).
-func (g *gallery) drawScrollContents() {
-	// Scissor is left to the app (draw.go never calls BeginScissorMode)
-	sx, sy := g.facade.Scale()
-	bounds := g.scroll.Bounds()
-	scroll := g.scroll.Scroll()
+// drawScrollRows renders the clipped demo rows inside the scroll panel.
+func (g *gallery) drawScrollRows(bounds core.Rect, scroll core.Vec2) {
 	prefix := g.currentPage().rowPrefix
 	if prefix == "" {
 		prefix = "Clipped row"
 	}
-	rl.BeginScissorMode(int32(bounds.X*sx), int32(bounds.Y*sy), int32(bounds.W*sx), int32(bounds.H*sy))
 	start := bounds.Y + 12 - scroll.Y
+	theme := g.facade.Theme()
 	for i := 0; i < 10; i++ {
 		y := start + float32(i*34)
 		fill := color.RGBA{R: 35, G: 48, B: 70, A: 255}
@@ -909,23 +861,20 @@ func (g *gallery) drawScrollContents() {
 			fill = color.RGBA{R: 29, G: 40, B: 59, A: 255}
 		}
 		rl.DrawRectangleRec(rl.Rectangle{X: bounds.X + 10, Y: y, Width: bounds.W - 20, Height: 28}, fill)
-		g.drawText(fmt.Sprintf("%s %02d  •  scroll offset %.0f", prefix, i+1, scroll.Y), int32(bounds.X+20), int32(y+6), 18, color.RGBA{R: 194, G: 211, B: 235, A: 255})
+		theme.DrawText(fmt.Sprintf("%s %02d  •  scroll offset %.0f", prefix, i+1, scroll.Y), bounds.X+20, y+6, 18, false, color.RGBA{R: 194, G: 211, B: 235, A: 255})
 	}
-	rl.EndScissorMode()
-	g.drawItalic("Scroll panel — wheel over this area", int32(bounds.X+12), int32(bounds.Y-22), 20, color.RGBA{R: 153, G: 174, B: 202, A: 255})
 }
 
-// drawStateSamples renders the six state swatches.
-func (g *gallery) drawStateSamples() {
+// drawStateSamples renders the six state swatches inside the state canvas.
+func (g *gallery) drawStateSamples(bounds core.Rect) {
 	theme := g.facade.Theme()
 	names := []string{"normal", "focus", "hover", "press", "disabled", "selected"}
-	panelBounds := g.rightPanel.Bounds()
-	startX := panelBounds.X + 20
-	y := panelBounds.Y + panelBounds.H - 66
+	count := float32(len(names))
+	itemWidth := (bounds.W - 12) / count
 	for i, state := range []core.WidgetState{core.StateNormal, core.StateFocused, core.StateHovered, core.StatePressed, core.StateDisabled, core.StateSelected} {
-		bounds := core.Rect{X: startX + float32(i)*((panelBounds.W-40)/6), Y: y, W: (panelBounds.W - 52) / 6, H: 34}
-		theme.DrawWidgetPart(core.WidgetButton, skin.PartBackground, bounds, state)
-		g.drawText(names[i], int32(bounds.X+5), int32(bounds.Y+10), 14, color.RGBA{R: 228, G: 239, B: 255, A: 255})
+		itemBounds := core.Rect{X: bounds.X + float32(i)*itemWidth, Y: bounds.Y, W: itemWidth - 2, H: bounds.H}
+		theme.DrawWidgetPart(core.WidgetButton, skin.PartBackground, itemBounds, state)
+		theme.DrawText(names[i], itemBounds.X+5, itemBounds.Y+10, 14, false, color.RGBA{R: 228, G: 239, B: 255, A: 255})
 	}
 }
 

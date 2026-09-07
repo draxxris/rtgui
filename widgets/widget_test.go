@@ -165,3 +165,131 @@ func TestAbsoluteWidgetRetainsConstructorBounds(t *testing.T) {
 		t.Fatalf("updated absolute bounds = %+v", button.Bounds())
 	}
 }
+
+// TestWidgetDirectCallbacksAndCanvas tests direct event handlers and custom canvas.
+// TestWidgetDirectCallbacks verifies direct callback registration on button, slider, textbox, and tab bar.
+func TestWidgetDirectCallbacks(t *testing.T) {
+	btn := widgets.NewButton("btn", core.Rect{}, "OK")
+	clicked := false
+	btn.OnClick(func() { clicked = true })
+	if btn.OnClickHandler() == nil {
+		t.Fatal("expected OnClickHandler to be non-nil")
+	}
+	btn.OnClickHandler()()
+	if !clicked {
+		t.Fatal("expected direct click callback to execute")
+	}
+
+	slider := widgets.NewSlider("s", core.Rect{}, 0.5)
+	var sliderVal float32
+	slider.OnChange(func(v float32) { sliderVal = v })
+	slider.OnChangeHandler()(0.8)
+	if sliderVal != 0.8 {
+		t.Fatalf("expected slider callback 0.8, got %v", sliderVal)
+	}
+	slider.SetFormat("%.1f")
+	if slider.Format() != "%.1f" {
+		t.Fatalf("expected format %q, got %q", "%.1f", slider.Format())
+	}
+
+	tb := widgets.NewTextbox("tb", core.Rect{}, 16)
+	var textVal string
+	tb.OnText(func(s string) { textVal = s })
+	tb.OnTextHandler()("hello")
+	if textVal != "hello" {
+		t.Fatalf("expected text callback hello, got %q", textVal)
+	}
+
+	tab := widgets.NewTabBar("tabs", core.Rect{}, []string{"A", "B"}, 0)
+	var tabIdx int
+	tab.OnTabSelect(func(i int) { tabIdx = i })
+	tab.OnTabSelectHandler()(1)
+	if tabIdx != 1 {
+		t.Fatalf("expected tab callback 1, got %d", tabIdx)
+	}
+
+	btn.SetTooltip("Button tip")
+	if btn.Tooltip() != "Button tip" {
+		t.Fatalf("expected tooltip %q, got %q", "Button tip", btn.Tooltip())
+	}
+}
+
+// TestCanvasWidget verifies creation and invocation of canvas drawing functions.
+func TestCanvasWidget(t *testing.T) {
+	drawn := false
+	canvas := widgets.NewCanvas("c", core.Rect{W: 50, H: 50}, func(b core.Rect) { drawn = true })
+	if canvas.Kind() != core.WidgetCanvas || canvas.CanvasDraw() == nil {
+		t.Fatal("expected WidgetCanvas with non-nil CanvasDraw")
+	}
+	canvas.CanvasDraw()(canvas.Bounds())
+	if !drawn {
+		t.Fatal("expected canvas draw function to run")
+	}
+}
+
+// TestCheckboxWithLabelAndTextColor verifies label text, checked state, and custom text color.
+func TestCheckboxWithLabelAndTextColor(t *testing.T) {
+	cb := widgets.NewCheckboxWithLabel("cb", core.Rect{}, "Remember me", true)
+	if cb.Text() != "Remember me" || !cb.Checked() {
+		t.Fatalf("expected checkbox with label and checked=true")
+	}
+	cb.SetTextColor(core.Color{R: 255, G: 0, B: 0, A: 255})
+	if c, ok := cb.TextColor(); !ok || c.R != 255 {
+		t.Fatalf("expected text color configured")
+	}
+	snapshot := cb.Snapshot(core.StateNormal)
+	if !snapshot.HasTextColor || snapshot.TextColor.R != 255 {
+		t.Fatalf("expected snapshot to carry text color")
+	}
+}
+
+// TestScrollPanelClampingAndContentDrawer tests max scroll limits and content drawers.
+func TestScrollPanelClampingAndContentDrawer(t *testing.T) {
+	panel := widgets.NewScrollPanel("scroll", core.Rect{W: 100, H: 100})
+	panel.SetMaxScroll(core.Vec2{X: 0, Y: 150})
+	if panel.MaxScroll() != (core.Vec2{X: 0, Y: 150}) {
+		t.Fatalf("expected max scroll {0, 150}, got %+v", panel.MaxScroll())
+	}
+	panel.ScrollBy(0, 200)
+	if panel.Scroll().Y != 150 {
+		t.Fatalf("expected scroll Y clamped to 150, got %v", panel.Scroll().Y)
+	}
+	panel.ScrollBy(0, -300)
+	if panel.Scroll().Y != 0 {
+		t.Fatalf("expected scroll Y clamped to 0, got %v", panel.Scroll().Y)
+	}
+
+	drawerCalled := false
+	panel.SetScrollContentDrawer(func(bounds core.Rect, offset core.Vec2) {
+		drawerCalled = true
+	})
+	if panel.ScrollContentDrawer() == nil {
+		t.Fatal("expected non-nil scroll content drawer")
+	}
+	panel.ScrollContentDrawer()(panel.Bounds(), panel.Scroll())
+	if !drawerCalled {
+		t.Fatal("expected scroll content drawer to run")
+	}
+}
+
+// TestStyledLabelTypographyAndAlignment verifies typography options and alignment propagation.
+func TestStyledLabelTypographyAndAlignment(t *testing.T) {
+	label := widgets.NewStyledLabel("title", core.Rect{W: 200, H: 40}, "Gallery Title", 24, true, core.AlignCenter)
+	if label.Kind() != core.WidgetLabel {
+		t.Fatalf("expected WidgetLabel, got %v", label.Kind())
+	}
+	if label.FontSize() != 24 || !label.Italic() || label.Align() != core.AlignCenter {
+		t.Fatalf("unexpected label properties: size=%v italic=%v align=%v", label.FontSize(), label.Italic(), label.Align())
+	}
+
+	snap := label.Snapshot(core.StateNormal)
+	if snap.FontSize != 24 || !snap.Italic || snap.Align != core.AlignCenter {
+		t.Fatalf("unexpected snapshot typography: %+v", snap)
+	}
+
+	label.SetFontSize(16).SetItalic(false).SetAlign(core.AlignRight)
+	snap2 := label.Snapshot(core.StateNormal)
+	if snap2.FontSize != 16 || snap2.Italic || snap2.Align != core.AlignRight {
+		t.Fatalf("unexpected updated snapshot: %+v", snap2)
+	}
+}

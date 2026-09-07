@@ -132,26 +132,72 @@ func widgetTextOrigin(content core.Rect) (int32, float32, float32) {
 	return fontSize, x, y
 }
 
+// textLayout computes the font size and origin for widget text considering explicit size and alignment.
+func (t *Theme) textLayout(info core.WidgetInfo, value string, content core.Rect) (float32, float32, float32) {
+	fontSize := info.FontSize
+	if fontSize <= 0 {
+		autoSize, defX, defY := widgetTextOrigin(content)
+		if info.Align == core.AlignLeft {
+			return float32(autoSize), defX, defY
+		}
+		fontSize = float32(autoSize)
+	}
+	y := float32(math.Round(float64(content.Y + (content.H-fontSize)/2)))
+	if info.Kind == core.WidgetLabel {
+		switch info.Align {
+		case core.AlignCenter:
+			w := t.MeasureText(value, fontSize, info.Italic)
+			x := float32(math.Round(float64(content.X + (content.W-w)/2)))
+			return fontSize, x, y
+		case core.AlignRight:
+			w := t.MeasureText(value, fontSize, info.Italic)
+			x := float32(math.Round(float64(content.X + content.W - w)))
+			return fontSize, x, y
+		default:
+			return fontSize, content.X, y
+		}
+	}
+	switch info.Align {
+	case core.AlignCenter:
+		w := t.MeasureText(value, fontSize, info.Italic)
+		x := float32(math.Round(float64(content.X + (content.W-w)/2)))
+		return fontSize, x, y
+	case core.AlignRight:
+		w := t.MeasureText(value, fontSize, info.Italic)
+		x := float32(math.Round(float64(content.X + content.W - w - 6)))
+		return fontSize, x, y
+	default:
+		x := float32(math.Round(float64(content.X + 6)))
+		return fontSize, x, y
+	}
+}
+
 // drawTextInContent lays out and draws text, recording its text operation when enabled.
-func (t *Theme) drawTextInContent(kind core.WidgetKind, value string, content core.Rect, state core.WidgetState) {
+func (t *Theme) drawTextInContent(info core.WidgetInfo, value string, content core.Rect, state core.WidgetState) {
 	if value == "" || content.W <= 0 || content.H <= 0 {
 		return
 	}
-	fontSize, x, y := widgetTextOrigin(content)
-	textColor := color.RGBA{R: 20, G: 20, B: 20, A: 255}
-	if state == core.StateDisabled {
-		textColor = color.RGBA{R: 130, G: 130, B: 130, A: 255}
-	} else if state == core.StatePressed {
-		textColor = color.RGBA{R: 30, G: 30, B: 30, A: 255}
-	}
-	t.logDrawCall(kind, skin.PartText, state, content, content, skin.SkinDescriptor{}, textColor, false)
-	if rl.IsWindowReady() {
-		if t != nil && t.HasFont() {
-			rl.DrawTextEx(t.FontForSize(float32(fontSize)), value, rl.NewVector2(x, y), float32(fontSize), float32(fontSize)/10, textColor)
-		} else {
-			rl.DrawText(value, int32(x), int32(y), fontSize, textColor)
+	fontSize, x, y := t.textLayout(info, value, content)
+	textColor := defaultWidgetTextColor(info, state)
+	t.logDrawCall(info.Kind, skin.PartText, state, content, content, skin.SkinDescriptor{}, textColor, false)
+	t.DrawText(value, x, y, fontSize, info.Italic, textColor)
+}
+
+// defaultWidgetTextColor resolves the text tint from explicit widget color or state default.
+func defaultWidgetTextColor(info core.WidgetInfo, state core.WidgetState) color.RGBA {
+	if info.HasTextColor {
+		base := info.TextColor.RGBA()
+		if state == core.StateDisabled {
+			return color.RGBA{R: base.R / 2, G: base.G / 2, B: base.B / 2, A: base.A}
 		}
+		return base
 	}
+	if state == core.StateDisabled {
+		return color.RGBA{R: 130, G: 130, B: 130, A: 255}
+	} else if state == core.StatePressed {
+		return color.RGBA{R: 30, G: 30, B: 30, A: 255}
+	}
+	return color.RGBA{R: 20, G: 20, B: 20, A: 255}
 }
 
 // drawPart resolves, records, and optionally draws one widget skin part.
@@ -196,11 +242,11 @@ func (t *Theme) DrawWidget(info core.WidgetInfo, value string, amount float32, c
 	case core.WidgetCheckbox:
 		t.drawCheckbox(info, value, content, checked)
 	case core.WidgetSlider:
-		t.drawSlider(info, content, amount)
+		t.drawSlider(info, value, content, amount)
 	case core.WidgetProgressBar:
-		t.drawProgressBar(info, content, amount)
+		t.drawProgressBar(info, value, content, amount)
 	default:
-		t.drawTextInContent(info.Kind, value, content, info.State)
+		t.drawTextInContent(info, value, content, info.State)
 	}
 }
 
@@ -246,12 +292,36 @@ func (t *Theme) drawDropdownText(info core.WidgetInfo, row core.Rect, value stri
 
 // drawCheckbox renders its icon state followed by its optional text.
 func (t *Theme) drawCheckbox(info core.WidgetInfo, value string, content core.Rect, checked bool) {
-	if checked {
-		t.drawCheckmark(info, content)
-	} else {
-		t.drawUncheckedBox(info, content)
+	if value == "" {
+		if checked {
+			t.drawCheckmark(info, content)
+		} else {
+			t.drawUncheckedBox(info, content)
+		}
+		return
 	}
-	t.drawTextInContent(info.Kind, value, content, info.State)
+	boxSize := float32(20)
+	if boxSize > content.H {
+		boxSize = content.H
+	}
+	iconRect := core.Rect{
+		X: content.X + 4,
+		Y: content.Y + (content.H-boxSize)/2,
+		W: boxSize,
+		H: boxSize,
+	}
+	if checked {
+		t.drawCheckmark(info, iconRect)
+	} else {
+		t.drawUncheckedBox(info, iconRect)
+	}
+	textRect := core.Rect{
+		X: content.X + boxSize + 10,
+		Y: content.Y,
+		W: content.W - (boxSize + 10),
+		H: content.H,
+	}
+	t.drawTextInContent(info, value, textRect, info.State)
 }
 
 // drawUncheckedBox renders the empty box icon when a textured PartIcon is
@@ -325,7 +395,7 @@ func (t *Theme) drawGeometryCheckmark(info core.WidgetInfo, missingSkin bool) {
 }
 
 // drawSlider renders the track and thumb at amount's clamped position.
-func (t *Theme) drawSlider(info core.WidgetInfo, content core.Rect, amount float32) {
+func (t *Theme) drawSlider(info core.WidgetInfo, value string, content core.Rect, amount float32) {
 	track, fallback := t.resolveDescriptor(info.Kind, skin.PartTrack, info.State)
 	trackTint := effectiveTint(track, fallback)
 	trackRect := sliderTrackRect(t, info, content, track, fallback)
@@ -340,6 +410,9 @@ func (t *Theme) drawSlider(info core.WidgetInfo, content core.Rect, amount float
 	t.logDrawCall(info.Kind, skin.PartThumb, info.State, thumbRect, thumbRect, thumb, thumbTint, thumbFallback)
 	if rl.IsWindowReady() {
 		drawTexturedPart(thumb, thumbRect, thumbTint)
+	}
+	if value != "" {
+		t.drawTextInContent(info, value, content, info.State)
 	}
 }
 
@@ -394,7 +467,7 @@ func sliderThumbRect(t *Theme, track core.Rect, descriptor skin.SkinDescriptor, 
 // drawProgressBar renders a track, a proportional fill, and its spark.
 // The fill is ProgressBar::fill, which shares the PartOverlay key with
 // Dropdown::highlight; registry keys are widget-scoped so they never meet.
-func (t *Theme) drawProgressBar(info core.WidgetInfo, content core.Rect, amount float32) {
+func (t *Theme) drawProgressBar(info core.WidgetInfo, value string, content core.Rect, amount float32) {
 	track, fallback := t.resolveDescriptor(info.Kind, skin.PartTrack, info.State)
 	trackTint := effectiveTint(track, fallback)
 	trackRect := content
@@ -411,6 +484,9 @@ func (t *Theme) drawProgressBar(info core.WidgetInfo, content core.Rect, amount 
 	fillTint := effectiveTint(fill, fillFallback)
 	fillWidth := trackRect.W * amount
 	if fillWidth <= 0 {
+		if value != "" {
+			t.drawTextInContent(info, value, trackRect, info.State)
+		}
 		return
 	}
 	fillRect := t.snap(core.Rect{X: trackRect.X, Y: trackRect.Y, W: fillWidth, H: trackRect.H})
@@ -419,6 +495,9 @@ func (t *Theme) drawProgressBar(info core.WidgetInfo, content core.Rect, amount 
 		drawTexturedPart(fill, fillRect, fillTint)
 	}
 	t.drawProgressSpark(info, trackRect, fillWidth)
+	if value != "" {
+		t.drawTextInContent(info, value, trackRect, info.State)
+	}
 }
 
 // drawProgressSpark renders the ::spark marker centered on the fill edge.

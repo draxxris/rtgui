@@ -27,7 +27,7 @@ func (t *Theme) DrawTabBar(info core.WidgetInfo, labels []string, selected, hove
 		}
 		state := tabCellState(info.State, index, selected, hovered, pressed)
 		t.drawPart(info.Kind, skin.PartTab, cell, state)
-		t.drawTextInContent(info.Kind, label, cell, state)
+		t.drawTextInContent(info, label, cell, state)
 	}
 }
 

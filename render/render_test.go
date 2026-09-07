@@ -459,3 +459,36 @@ func TestDrawWidgetPartWithoutRecorderAllocatesNothing(t *testing.T) {
 		t.Fatalf("DrawWidgetPart allocations = %v, want 0", allocations)
 	}
 }
+
+// TestThemeDrawTextAndLayout verifies text layout calculation and alignment for labels and widgets.
+func TestThemeDrawTextAndLayout(t *testing.T) {
+	theme := NewTheme(transform.New(core.Viewport{}))
+	content := core.Rect{X: 10, Y: 10, W: 100, H: 40}
+
+	// Unskinned Label with left alignment starts at content.X
+	labelInfo := core.WidgetInfo{Kind: core.WidgetLabel, FontSize: 20, Align: core.AlignLeft}
+	size, x, y := theme.textLayout(labelInfo, "Hello", content)
+	if size != 20 || x != 10 || y != 20 {
+		t.Fatalf("label left: got size=%v x=%v y=%v, want 20, 10, 20", size, x, y)
+	}
+
+	// Label with center alignment
+	labelInfo.Align = core.AlignCenter
+	_, centerX, _ := theme.textLayout(labelInfo, "Hello", content)
+	if centerX <= 10 {
+		t.Fatalf("label center: expected x > 10, got %v", centerX)
+	}
+
+	// Button with left alignment includes standard 6px inset
+	buttonInfo := core.WidgetInfo{Kind: core.WidgetButton, FontSize: 20, Align: core.AlignLeft}
+	_, btnX, _ := theme.textLayout(buttonInfo, "Hello", content)
+	if btnX != 16 {
+		t.Fatalf("button left: expected x=16, got %v", btnX)
+	}
+
+	// MeasureText returns a positive width for non-empty text
+	w := theme.MeasureText("Hello World", 20, false)
+	if w <= 0 {
+		t.Fatalf("expected positive text width, got %v", w)
+	}
+}

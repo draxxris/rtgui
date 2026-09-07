@@ -87,6 +87,8 @@ const (
 	WidgetTooltip
 	// WidgetRichText displays wrapped multi-line segments with clickable links.
 	WidgetRichText
+	// WidgetCanvas delegates drawing to a custom application callback.
+	WidgetCanvas
 )
 
 // WidgetState is the visual state selected by UI interaction ownership.
@@ -117,7 +119,29 @@ type WidgetInfo struct {
 	Kind WidgetKind
 	// State is the visual state computed by the UI owner.
 	State WidgetState
+	// TextColor is the optional explicit text color for widgets with text.
+	TextColor Color
+	// HasTextColor reports whether TextColor was explicitly configured.
+	HasTextColor bool
+	// FontSize is the optional explicit font size in pixels (0 means auto-derive from height).
+	FontSize float32
+	// Italic reports whether to render text with the theme's italic font.
+	Italic bool
+	// Align is the horizontal alignment for widget text.
+	Align TextAlign
 }
+
+// TextAlign defines horizontal text alignment within widget bounds.
+type TextAlign int32
+
+const (
+	// AlignLeft aligns text to the left edge of the content area.
+	AlignLeft TextAlign = iota
+	// AlignCenter centers text horizontally in the content area.
+	AlignCenter
+	// AlignRight aligns text to the right edge of the content area.
+	AlignRight
+)
 
 // Viewport describes the physical viewport and fixed logical design size.
 type Viewport struct {

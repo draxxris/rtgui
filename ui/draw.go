@@ -1,10 +1,13 @@
 package ui
 
 import (
+	"fmt"
+
 	"github.com/draxxris/rtgui/core"
 	"github.com/draxxris/rtgui/render"
 	"github.com/draxxris/rtgui/skin"
 	"github.com/draxxris/rtgui/widgets"
+	rl "github.com/gen2brain/raylib-go/raylib"
 )
 
 // Draw reconciles disabled owners, starts one optional recorder frame, and
@@ -68,7 +71,17 @@ func (u *UI) drawOne(widget *widgets.Widget) {
 	if widget == nil {
 		return
 	}
+	if widget.Kind() == core.WidgetCanvas {
+		if fn := widget.CanvasDraw(); fn != nil {
+			fn(widget.Bounds())
+		}
+		return
+	}
 	state := u.visualState(widget)
+	if widget.Kind() == core.WidgetScrollPanel {
+		u.drawScrollPanel(widget, state)
+		return
+	}
 	if widget.Kind() == core.WidgetTabBar {
 		u.drawTabBar(widget, state)
 		return
@@ -88,6 +101,28 @@ func (u *UI) drawOne(widget *widgets.Widget) {
 	}
 	if widget.Kind() == core.WidgetDropdown {
 		u.drawDropdownArrow(widget, state)
+	}
+}
+
+// drawScrollPanel renders a scroll panel background, border, and scissored contents.
+func (u *UI) drawScrollPanel(widget *widgets.Widget, state core.WidgetState) {
+	info := widget.Snapshot(state)
+	u.theme.DrawWidget(info, "", widget.Value(), widget.Checked())
+	if needsBorder(widget.Kind()) {
+		u.theme.DrawWidgetPart(widget.Kind(), skin.PartBorder, widget.Bounds(), state)
+	}
+	drawer := widget.ScrollContentDrawer()
+	if drawer == nil {
+		return
+	}
+	bounds := widget.Bounds()
+	sx, sy := u.Scale()
+	if rl.IsWindowReady() {
+		rl.BeginScissorMode(int32(bounds.X*sx), int32(bounds.Y*sy), int32(bounds.W*sx), int32(bounds.H*sy))
+	}
+	drawer(bounds, widget.Scroll())
+	if rl.IsWindowReady() {
+		rl.EndScissorMode()
 	}
 }
 
@@ -166,6 +201,9 @@ func widgetText(widget *widgets.Widget) string {
 			return value
 		}
 		return ""
+	}
+	if (widget.Kind() == core.WidgetSlider || widget.Kind() == core.WidgetProgressBar) && widget.Format() != "" {
+		return fmt.Sprintf(widget.Format(), widget.Value()*100)
 	}
 	return widget.Text()
 }

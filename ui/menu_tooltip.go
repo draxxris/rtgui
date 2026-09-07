@@ -70,14 +70,18 @@ func (u *UI) SetTooltip(name, text string) {
 
 // TooltipText returns the mapped tooltip for name, or false when unmapped.
 func (u *UI) TooltipText(name string) (string, bool) {
-	if u == nil || u.tooltips == nil {
+	if u == nil {
 		return "", false
 	}
-	text, ok := u.tooltips[name]
-	if !ok || text == "" {
-		return "", false
+	if u.tooltips != nil {
+		if text, ok := u.tooltips[name]; ok && text != "" {
+			return text, true
+		}
 	}
-	return text, true
+	if w := u.widgets[name]; w != nil && w.Tooltip() != "" {
+		return w.Tooltip(), true
+	}
+	return "", false
 }
 
 // ShowTooltip shows an explicitly anchored plain-text tooltip at a logical

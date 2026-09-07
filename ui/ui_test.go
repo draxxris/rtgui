@@ -500,3 +500,68 @@ func hasDrawCall(calls []render.DrawCall, part skin.SkinPart, bounds core.Rect, 
 	}
 	return false
 }
+
+// TestDirectWidgetCallbacks verifies that handlers attached directly to widgets execute on activation.
+func TestDirectWidgetCallbacks(t *testing.T) {
+	u := New(200, 200)
+	btn := widgets.NewButton("btn", core.Rect{W: 50, H: 30}, "OK")
+	directClicked, stringClicked := false, false
+	btn.OnClick(func() { directClicked = true })
+	u.OnClick("btn", func() { stringClicked = true })
+	mustAdd(t, u, btn)
+
+	if !u.Activate("btn") || !directClicked || !stringClicked {
+		t.Fatalf("directClicked=%v stringClicked=%v", directClicked, stringClicked)
+	}
+
+	slider := widgets.NewSlider("slider", core.Rect{Y: 40, W: 100, H: 20}, 0.2)
+	var directVal float32
+	slider.OnChange(func(v float32) { directVal = v })
+	mustAdd(t, u, slider)
+	clickAt(u, core.Vec2{X: 80, Y: 50})
+	if directVal == 0 {
+		t.Fatal("expected slider direct callback on interaction")
+	}
+
+	tab := widgets.NewTabBar("tabs", core.Rect{Y: 70, W: 100, H: 30}, []string{"A", "B"}, 0)
+	var selectedIdx int
+	tab.OnTabSelect(func(idx int) { selectedIdx = idx })
+	mustAdd(t, u, tab)
+	u.SelectTab("tabs", 1)
+	if selectedIdx != 1 {
+		t.Fatalf("expected tab direct callback 1, got %d", selectedIdx)
+	}
+
+	btn.SetTooltip("Direct tip")
+	if tip, ok := u.TooltipText("btn"); !ok || tip != "Direct tip" {
+		t.Fatalf("expected direct tooltip %q, got %q", "Direct tip", tip)
+	}
+}
+
+// TestCanvasWidgetAndScrollPanelDrawer verifies that canvas and scroll content draw during UI.Draw.
+func TestCanvasWidgetAndScrollPanelDrawer(t *testing.T) {
+	u := New(200, 200)
+	canvasDrawn, scrollDrawn := false, false
+	canvas := widgets.NewCanvas("canvas", core.Rect{W: 50, H: 50}, func(b core.Rect) {
+		canvasDrawn = true
+	})
+	scroll := widgets.NewScrollPanel("scroll", core.Rect{Y: 60, W: 80, H: 80})
+	scroll.SetScrollContentDrawer(func(bounds core.Rect, offset core.Vec2) {
+		scrollDrawn = true
+	})
+	mustAdd(t, u, canvas, scroll)
+
+	u.Draw()
+	if !canvasDrawn || !scrollDrawn {
+		t.Fatalf("canvasDrawn=%v scrollDrawn=%v", canvasDrawn, scrollDrawn)
+	}
+}
+
+// TestPollRaylibInputHeadless verifies that PollRaylibInput safely returns zero without a display.
+func TestPollRaylibInputHeadless(t *testing.T) {
+	u := New(100, 100)
+	result := u.PollRaylibInput()
+	if result.MouseHandled || result.KeyHandled {
+		t.Fatalf("expected zero result in headless mode, got %+v", result)
+	}
+}

@@ -50,27 +50,48 @@ func (u *UI) storeCallback(name string, record callbackRecord) {
 	u.callbacks[name] = record
 }
 
+// fireOnClick invokes the widget's direct click callback and any registered UI callback.
 func (u *UI) fireOnClick(name string) {
-	if u != nil {
-		if fn := u.callbacks[name].onClick; fn != nil {
+	if u == nil {
+		return
+	}
+	if w := u.widgets[name]; w != nil {
+		if fn := w.OnClickHandler(); fn != nil {
 			fn()
 		}
 	}
-}
-
-func (u *UI) fireOnChange(name string, value float32) {
-	if u != nil {
-		if fn := u.callbacks[name].onChange; fn != nil {
-			fn(value)
-		}
+	if fn := u.callbacks[name].onClick; fn != nil {
+		fn()
 	}
 }
 
-func (u *UI) fireOnText(name, value string) {
-	if u != nil {
-		if fn := u.callbacks[name].onText; fn != nil {
+// fireOnChange invokes the widget's direct change callback and any registered UI callback.
+func (u *UI) fireOnChange(name string, value float32) {
+	if u == nil {
+		return
+	}
+	if w := u.widgets[name]; w != nil {
+		if fn := w.OnChangeHandler(); fn != nil {
 			fn(value)
 		}
+	}
+	if fn := u.callbacks[name].onChange; fn != nil {
+		fn(value)
+	}
+}
+
+// fireOnText invokes the widget's direct text-change callback and any registered UI callback.
+func (u *UI) fireOnText(name, value string) {
+	if u == nil {
+		return
+	}
+	if w := u.widgets[name]; w != nil {
+		if fn := w.OnTextHandler(); fn != nil {
+			fn(value)
+		}
+	}
+	if fn := u.callbacks[name].onText; fn != nil {
+		fn(value)
 	}
 }
 
@@ -85,11 +106,18 @@ func (u *UI) OnTabSelect(name string, fn func(int)) {
 	u.storeCallback(name, record)
 }
 
+// fireOnTabSelect invokes the widget's direct tab selection callback and any registered UI callback.
 func (u *UI) fireOnTabSelect(name string, index int) {
-	if u != nil {
-		if fn := u.callbacks[name].onTabSelect; fn != nil {
+	if u == nil {
+		return
+	}
+	if w := u.widgets[name]; w != nil {
+		if fn := w.OnTabSelectHandler(); fn != nil {
 			fn(index)
 		}
+	}
+	if fn := u.callbacks[name].onTabSelect; fn != nil {
+		fn(index)
 	}
 }
 
@@ -117,10 +145,17 @@ func (u *UI) OnLinkTooltipRequested(name string, fn func(core.Link) string) {
 	u.storeCallback(name, record)
 }
 
+// fireOnLinkClick invokes the widget's direct link click callback and any registered UI callback.
 func (u *UI) fireOnLinkClick(name string, link core.Link) {
-	if u != nil {
-		if fn := u.callbacks[name].onLinkClick; fn != nil {
+	if u == nil {
+		return
+	}
+	if w := u.widgets[name]; w != nil {
+		if fn := w.OnLinkClickHandler(); fn != nil {
 			fn(link)
 		}
+	}
+	if fn := u.callbacks[name].onLinkClick; fn != nil {
+		fn(link)
 	}
 }

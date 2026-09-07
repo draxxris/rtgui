@@ -2,6 +2,7 @@ package render
 
 import (
 	"errors"
+	"image/color"
 	"math"
 	"os"
 
@@ -245,6 +246,39 @@ func (t *Theme) UnloadFonts() {
 	}
 	t.font.unload()
 	t.italic.unload()
+}
+
+// MeasureText measures the pixel width of value at size using the theme or italic font.
+func (t *Theme) MeasureText(value string, size float32, italic bool) float32 {
+	if value == "" || size <= 0 {
+		return 0
+	}
+	if !rl.IsWindowReady() {
+		return float32(len(value)) * (size * 0.5)
+	}
+	if t != nil && italic && t.HasItalicFont() {
+		return rl.MeasureTextEx(t.ItalicForSize(size), value, size, size/10).X
+	}
+	if t != nil && t.HasFont() {
+		return rl.MeasureTextEx(t.FontForSize(size), value, size, size/10).X
+	}
+	return float32(rl.MeasureText(value, int32(size)))
+}
+
+// DrawText renders text using the loaded font (or italic font) at the given size, position, and tint.
+func (t *Theme) DrawText(value string, x, y, size float32, italic bool, tint color.RGBA) {
+	if value == "" || size <= 0 || !rl.IsWindowReady() {
+		return
+	}
+	if t != nil && italic && t.HasItalicFont() {
+		rl.DrawTextEx(t.ItalicForSize(size), value, rl.NewVector2(x, y), size, size/10, tint)
+		return
+	}
+	if t != nil && t.HasFont() {
+		rl.DrawTextEx(t.FontForSize(size), value, rl.NewVector2(x, y), size, size/10, tint)
+		return
+	}
+	rl.DrawText(value, int32(x), int32(y), int32(size), tint)
 }
 
 // SetTexture stores a borrowed raylib texture handle in a skin descriptor.
