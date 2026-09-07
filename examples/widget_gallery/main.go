@@ -13,7 +13,8 @@
 //
 // Gallery contract: two panels, button, checkbox (toggles button enabled),
 // textbox (typing + backspace including multi-byte UTF-8),
-// dropdown popup, slider driving progress, tab bar switching the demo label,
+// dropdown popup, slider driving progress, tab bar switching demo pages (label,
+// panel text, frame caption, scroll rows, right-panel heading),
 // chat message with clickable item/player/URL links plus link tooltips,
 // right-click context menu, hover tooltips plus a T-pinned tooltip scoped to
 // the focused demo frame, scroll panel with wheel + scissor,
@@ -78,6 +79,17 @@ type galleryLayout struct {
 	scroll                core.Rect
 }
 
+// tabPage is one app-side tab content set. The TabBar widget owns only
+// selection (SelectedTab + OnTabSelect); the gallery swaps these fields
+// on selection, browser-tab style. Index-aligned with demoTabs labels.
+type tabPage struct {
+	heading      string
+	label        string
+	panelText    string
+	frameCaption string
+	rowPrefix    string
+}
+
 type gallery struct {
 	facade *ui.UI
 
@@ -101,6 +113,7 @@ type gallery struct {
 	designWidth  float32
 	designHeight float32
 	layout       galleryLayout
+	tabPages     []tabPage
 	// lastMouse is the logical pointer at the latest input frame. Scoped
 	// hotkey callbacks read it so the T-pinned tooltip anchors where the
 	// user pressed T instead of capturing coordinates at registration.
@@ -458,16 +471,11 @@ func newGallery(facade *ui.UI) *gallery {
 		g.status = fmt.Sprintf("Slider value %.0f%%", v*100)
 	})
 	facade.OnTabSelect("demoTabs", func(index int) {
-		if label, ok := g.tabbar.TabSelection(); ok {
-			g.label.SetText("Tab: " + label)
-			g.status = fmt.Sprintf("Tab %q selected (index %d)", label, index)
-			return
-		}
-		g.status = fmt.Sprintf("Tab index %d selected", index)
+		g.applyTab(index)
 	})
 	facade.SetTooltip("primaryButton", "Primary action — fires OnClick")
 	facade.SetTooltip("valueSlider", "Drag to drive the progress bar")
-	facade.SetTooltip("demoTabs", "TabBar — click a tab to switch")
+	facade.SetTooltip("demoTabs", "TabBar — click a tab to switch demo pages")
 	facade.SetTooltip("classDropdown", "Dropdown — click to open")
 	facade.SetTooltip("chatMessage", "Chat log — hover a link")
 	facade.OnLinkClick("chatMessage", func(link core.Link) {
@@ -497,8 +505,74 @@ func newGallery(facade *ui.UI) *gallery {
 	logical := facade.Transform().Viewport.LogicalSize
 	g.designWidth, g.designHeight = logical.X, logical.Y
 	g.layout = calculateLayout(logical.X, logical.Y)
+	g.tabPages = defaultTabPages()
 	g.applyLayout()
+	g.applyTab(g.tabbar.SelectedTab())
 	return g
+}
+
+// defaultTabPages returns the index-aligned demo pages for demoTabs labels
+// Widgets, Style, and About. Each page drives the right-panel heading,
+// demo label, panel decoration, frame caption, and scroll-row prefix.
+func defaultTabPages() []tabPage {
+	return []tabPage{
+		{
+			heading:      "Widgets output",
+			label:        "Widgets — live control values",
+			panelText:    "Panel frame decoration",
+			frameCaption: "Frame child moves with its parent (focus + R / sine)",
+			rowPrefix:    "Widget row",
+		},
+		{
+			heading:      "Style sampler",
+			label:        "Style — state swatches below",
+			panelText:    "Style panel — six button states",
+			frameCaption: "Focused frame glows — click demoFrame",
+			rowPrefix:    "Style row",
+		},
+		{
+			heading:      "About gallery",
+			label:        "About — rtgui texture demo",
+			panelText:    "About this demo",
+			frameCaption: "T pins a tooltip — Esc dismisses it",
+			rowPrefix:    "About row",
+		},
+	}
+}
+
+// currentPage resolves the active demo page from the tab bar selection.
+// An empty or out-of-range selection falls back to the first page so
+// drawing never branches on missing content.
+func (g *gallery) currentPage() tabPage {
+	if g == nil || len(g.tabPages) == 0 {
+		return tabPage{heading: "Containers", rowPrefix: "Clipped row"}
+	}
+	index := g.tabbar.SelectedTab()
+	if index < 0 || index >= len(g.tabPages) {
+		return g.tabPages[0]
+	}
+	return g.tabPages[index]
+}
+
+// applyTab swaps app-side tab content for index and reports the selection.
+// The TabBar owns selection state; this owns the page swap (label text
+// plus status). Panel, frame, and scroll content read currentPage live
+// during draw, so no further widget mutation is needed here.
+func (g *gallery) applyTab(index int) {
+	if g == nil || len(g.tabPages) == 0 {
+		return
+	}
+	if index < 0 || index >= len(g.tabPages) {
+		g.status = fmt.Sprintf("Tab index %d selected", index)
+		return
+	}
+	page := g.tabPages[index]
+	g.label.SetText(page.label)
+	if label, ok := g.tabbar.TabSelection(); ok {
+		g.status = fmt.Sprintf("Tab %q selected (index %d)", label, index)
+		return
+	}
+	g.status = fmt.Sprintf("Tab index %d selected", index)
 }
 
 // applyLayout assigns cached design-resolution bounds and arranges the frame
@@ -737,8 +811,9 @@ func (g *gallery) draw() {
 
 	g.drawText("RTG textured widget gallery", 28, 24, 26, color.RGBA{R: 226, G: 239, B: 255, A: 255})
 	g.drawItalic("Every pixel needs a CSS texture; missing skins stay invisible and states inherit their base rule. Click demoFrame then R to MoveFrame, T to pin.", 30, 51, 18, color.RGBA{R: 153, G: 174, B: 202, A: 255})
+	page := g.currentPage()
 	g.panelTitle(g.layout.leftPanel, "Widgets")
-	g.panelTitle(g.layout.rightPanel, "Containers, clipping, and states")
+	g.panelTitle(g.layout.rightPanel, page.heading)
 
 	// Widgets first so app chrome can sit above them; the popup goes last
 	// so overlapping captions and values never paint over it.
@@ -760,12 +835,12 @@ func (g *gallery) draw() {
 	g.drawItalic("Slider drives the progress bar", int32(sliderBounds.X), int32(sliderBounds.Y-23), 20, color.RGBA{R: 153, G: 174, B: 202, A: 255})
 	g.drawText(fmt.Sprintf("%.0f%%", g.slider.Value()*100), int32(sliderBounds.X+sliderBounds.W-48), int32(sliderBounds.Y+13), 20, color.RGBA{R: 230, G: 242, B: 255, A: 255})
 	g.drawText(fmt.Sprintf("Progress: %.0f%%", g.progress.Value()*100), int32(progressBounds.X+12), int32(progressBounds.Y+13), 20, color.RGBA{R: 235, G: 255, B: 240, A: 255})
-	g.drawText("Panel frame decoration", int32(panelBounds.X+14), int32(panelBounds.Y+30), 22, color.RGBA{R: 218, G: 230, B: 248, A: 255})
-	g.drawItalic("Tab bar — click to switch tabs", int32(tabbarBounds.X), int32(tabbarBounds.Y-23), 20, color.RGBA{R: 153, G: 174, B: 202, A: 255})
+	g.drawText(page.panelText, int32(panelBounds.X+14), int32(panelBounds.Y+30), 22, color.RGBA{R: 218, G: 230, B: 248, A: 255})
+	g.drawItalic("Tab bar — click to switch demo pages", int32(tabbarBounds.X), int32(tabbarBounds.Y-23), 20, color.RGBA{R: 153, G: 174, B: 202, A: 255})
 	g.drawItalic("Chat message — links clickable", int32(chatBounds.X), int32(chatBounds.Y-23), 20, color.RGBA{R: 153, G: 174, B: 202, A: 255})
 	g.drawItalic("Right-click anywhere for the context menu", int32(scrollBounds.X+12), int32(scrollBounds.Y+scrollBounds.H+10), 20, color.RGBA{R: 153, G: 174, B: 202, A: 255})
 	g.drawItalic("Click demoFrame then T for a pinned tooltip (Esc dismisses)", int32(scrollBounds.X+12), int32(scrollBounds.Y+scrollBounds.H+28), 20, color.RGBA{R: 153, G: 174, B: 202, A: 255})
-	g.drawText("Frame child moves with its parent (focus + R / sine)", int32(frameBounds.X+18), int32(frameBounds.Y+20), 20, color.RGBA{R: 153, G: 174, B: 202, A: 255})
+	g.drawText(page.frameCaption, int32(frameBounds.X+18), int32(frameBounds.Y+20), 20, color.RGBA{R: 153, G: 174, B: 202, A: 255})
 
 	g.drawScrollContents()
 	g.drawStateSamples()
@@ -811,6 +886,10 @@ func (g *gallery) drawScrollContents() {
 	sx, sy := g.facade.Scale()
 	bounds := g.scroll.Bounds()
 	scroll := g.scroll.Scroll()
+	prefix := g.currentPage().rowPrefix
+	if prefix == "" {
+		prefix = "Clipped row"
+	}
 	rl.BeginScissorMode(int32(bounds.X*sx), int32(bounds.Y*sy), int32(bounds.W*sx), int32(bounds.H*sy))
 	start := bounds.Y + 12 - scroll.Y
 	for i := 0; i < 10; i++ {
@@ -820,7 +899,7 @@ func (g *gallery) drawScrollContents() {
 			fill = color.RGBA{R: 29, G: 40, B: 59, A: 255}
 		}
 		rl.DrawRectangleRec(rl.Rectangle{X: bounds.X + 10, Y: y, Width: bounds.W - 20, Height: 28}, fill)
-		g.drawText(fmt.Sprintf("Clipped row %02d  •  scroll offset %.0f", i+1, scroll.Y), int32(bounds.X+20), int32(y+6), 18, color.RGBA{R: 194, G: 211, B: 235, A: 255})
+		g.drawText(fmt.Sprintf("%s %02d  •  scroll offset %.0f", prefix, i+1, scroll.Y), int32(bounds.X+20), int32(y+6), 18, color.RGBA{R: 194, G: 211, B: 235, A: 255})
 	}
 	rl.EndScissorMode()
 	g.drawItalic("Scroll panel — wheel over this area", int32(bounds.X+12), int32(bounds.Y-22), 20, color.RGBA{R: 153, G: 174, B: 202, A: 255})
