@@ -54,7 +54,7 @@ func (t *Theme) logDrawCall(kind core.WidgetKind, part skin.SkinPart, state core
 	})
 }
 
-// drawTexturedPart selects simple or nine-patch drawing for descriptor.
+// drawTexturedPart selects simple, 3-patch, or nine-patch drawing for descriptor.
 // Descriptors without a texture draw nothing; missing skins stay invisible
 // (text still draws via drawTextInContent) and are reported via Fallback logs.
 func drawTexturedPart(descriptor skin.SkinDescriptor, dest core.Rect, tint color.RGBA) {
@@ -63,11 +63,31 @@ func drawTexturedPart(descriptor skin.SkinDescriptor, dest core.Rect, tint color
 	}
 	texture := toRaylibTexture(descriptor.Texture)
 	source := atlasRegion(descriptor, texture)
+	if descriptor.HasThreePatch {
+		drawThreePatch(texture, source, descriptor, dest, tint)
+		return
+	}
 	if !hasNinePatchBorders(descriptor) {
 		drawSingleTexture(texture, source, dest, tint)
 		return
 	}
 	drawNinePatch(texture, source, descriptor, dest, tint)
+}
+
+// drawThreePatch renders source across the three vertical destination rectangles (top, middle, bottom).
+func drawThreePatch(texture rl.Texture2D, source core.Rect, descriptor skin.SkinDescriptor, dest core.Rect, tint color.RGBA) {
+	sourceRects := ThreePatchSourceRects(source, descriptor.ThreePatch)
+	destRects := ThreePatchRects(ThreePatchConfig{
+		Top:    float32(descriptor.ThreePatch.Top),
+		Bottom: float32(descriptor.ThreePatch.Bottom),
+	}, dest)
+	for i := range destRects {
+		destination := destRects[i]
+		sourceRect := sourceRects[i]
+		if destination.W > 0 && destination.H > 0 && sourceRect.W > 0 && sourceRect.H > 0 {
+			drawSingleTexture(texture, sourceRect, destination, tint)
+		}
+	}
 }
 
 func drawFallbackPart(dest core.Rect, tint color.RGBA) {

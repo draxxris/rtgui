@@ -48,6 +48,44 @@ func NinePatchSourceRects(src core.Rect, patch skin.NinePatch) [9]core.Rect {
 	return tileRects(src.X, src.Y, left, top, midW, midH, right, bottom)
 }
 
+// ThreePatchConfig contains the destination cap heights for a vertical 3-patch.
+type ThreePatchConfig struct {
+	// Top and Bottom are the destination's top and bottom cap heights.
+	Top, Bottom float32
+}
+
+// ThreePatchRects returns the three vertical destination rectangles (top, middle, bottom).
+// If caps exceed destination height, they are scaled proportionally.
+func ThreePatchRects(caps ThreePatchConfig, dest core.Rect) [3]core.Rect {
+	top, bottom := nonNegative(caps.Top), nonNegative(caps.Bottom)
+	dest.W = nonNegative(dest.W)
+	dest.H = nonNegative(dest.H)
+
+	top, bottom = fitPair(top, bottom, dest.H)
+	midH := nonNegative(dest.H - top - bottom)
+
+	topRect := core.Rect{X: dest.X, Y: dest.Y, W: dest.W, H: top}
+	midRect := core.Rect{X: dest.X, Y: dest.Y + top, W: dest.W, H: midH}
+	botRect := core.Rect{X: dest.X, Y: dest.Y + top + midH, W: dest.W, H: bottom}
+	return [3]core.Rect{topRect, midRect, botRect}
+}
+
+// ThreePatchSourceRects returns the three vertical source rectangles (top, middle, bottom).
+func ThreePatchSourceRects(src core.Rect, patch skin.ThreePatch) [3]core.Rect {
+	top := nonNegative(float32(patch.Top))
+	bottom := nonNegative(float32(patch.Bottom))
+	src.W = nonNegative(src.W)
+	src.H = nonNegative(src.H)
+
+	top, bottom = fitPair(top, bottom, src.H)
+	midH := nonNegative(src.H - top - bottom)
+
+	topRect := core.Rect{X: src.X, Y: src.Y, W: src.W, H: top}
+	midRect := core.Rect{X: src.X, Y: src.Y + top, W: src.W, H: midH}
+	botRect := core.Rect{X: src.X, Y: src.Y + top + midH, W: src.W, H: bottom}
+	return [3]core.Rect{topRect, midRect, botRect}
+}
+
 // tileRects builds the shared row-major nine-patch rectangle layout.
 func tileRects(x, y, left, top, midW, midH, right, bottom float32) [9]core.Rect {
 	r0c0 := core.Rect{X: x, Y: y, W: left, H: top}

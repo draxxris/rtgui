@@ -367,3 +367,46 @@ func TestLoadCSSFileRequiresReadyBackendOnlyForUpload(t *testing.T) {
 		t.Fatal("nil theme must fail")
 	}
 }
+
+// TestScrollbarThreePatchCSS verifies ScrollPanel track and thumb descriptors support 3-patch.
+func TestScrollbarThreePatchCSS(t *testing.T) {
+	directory := t.TempDir()
+	writeTestPNG(t, directory, "track.png", color.RGBA{R: 20, G: 30, B: 40, A: 255})
+	writeTestPNG(t, directory, "thumb.png", color.RGBA{R: 100, G: 110, B: 120, A: 255})
+	cssText := `
+		ScrollPanel::track {
+			border-image-source: url("track.png");
+			border-image-slice: 8;
+		}
+		ScrollPanel::thumb {
+			border-image-source: url("thumb.png");
+			border-image-slice: 8;
+		}
+		ScrollPanel::thumb:hover {
+			border-image-source-tint: #E1F2FF;
+		}
+	`
+	cssPath := writeCSS(t, directory, cssText)
+	theme := newFakeTheme(&fakeTextureBackend{isReady: true})
+	if err := theme.LoadCSSFile(cssPath, ""); err != nil {
+		t.Fatalf("LoadCSSFile: %v", err)
+	}
+
+	trackDesc, ok := theme.Lookup(core.WidgetScrollPanel, skin.PartTrack, core.StateNormal)
+	if !ok || !trackDesc.HasThreePatch || trackDesc.ThreePatch.Top != 8 || trackDesc.ThreePatch.Bottom != 8 {
+		t.Fatalf("track descriptor mismatch: ok=%v desc=%+v", ok, trackDesc)
+	}
+
+	thumbDesc, ok := theme.Lookup(core.WidgetScrollPanel, skin.PartThumb, core.StateNormal)
+	if !ok || !thumbDesc.HasThreePatch || thumbDesc.ThreePatch.Top != 8 || thumbDesc.ThreePatch.Bottom != 8 {
+		t.Fatalf("thumb descriptor mismatch: ok=%v desc=%+v", ok, thumbDesc)
+	}
+
+	thumbHover, ok := theme.Lookup(core.WidgetScrollPanel, skin.PartThumb, core.StateHovered)
+	if !ok || !thumbHover.HasThreePatch || thumbHover.ThreePatch.Top != 8 || thumbHover.ThreePatch.Bottom != 8 {
+		t.Fatalf("thumb hover descriptor mismatch: ok=%v desc=%+v", ok, thumbHover)
+	}
+	if thumbHover.Tint != (core.Color{R: 0xE1, G: 0xF2, B: 0xFF, A: 255}) {
+		t.Fatalf("thumb hover tint mismatch: %v", thumbHover.Tint)
+	}
+}

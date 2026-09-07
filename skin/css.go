@@ -102,6 +102,7 @@ var partAllowlist = map[core.WidgetKind]map[string]bool{
 	core.WidgetTabBar:      {"tab": true},
 	core.WidgetMenu:        {"popup": true, "highlight": true},
 	core.WidgetRichText:    {"highlight": true},
+	core.WidgetScrollPanel: {"track": true, "thumb": true},
 }
 
 // ParseCSS parses LOOK-only CSS text into SkinRules in source order.
@@ -167,6 +168,20 @@ func parseSelector(selector string) (core.WidgetKind, string, SkinPart, core.Wid
 	return kind, partName, part, state, nil
 }
 
+// resolveRuleTargets determines image, border, and padding target parts and permissions.
+func resolveRuleTargets(kind core.WidgetKind, part SkinPart, hasPart bool) (imageTarget, borderTarget, paddingTarget SkinPart, allowBorder, allowPadding bool) {
+	if !hasPart {
+		return PartBackground, PartBorder, PartBackground, true, true
+	}
+	if part == PartPopup {
+		return PartPopup, PartPopupBorder, PartPopup, true, true
+	}
+	if kind == core.WidgetScrollPanel && (part == PartTrack || part == PartThumb) {
+		return part, part, PartBackground, true, false
+	}
+	return part, PartBorder, PartBackground, false, false
+}
+
 // parseBlock converts one rule block's declarations into per-part entries.
 // Whole-widget rules split into PartBackground and PartBorder entries.
 // Popup parts (Dropdown::popup, Menu::popup) are the exceptions that accept
@@ -185,16 +200,7 @@ func parseBlock(selector string, kind core.WidgetKind, part SkinPart, hasPart bo
 		order = append(order, part)
 		return entry
 	}
-	imageTarget, borderTarget, paddingTarget := PartBackground, PartBorder, PartBackground
-	allowBorder, allowPadding := true, true
-	if hasPart {
-		if part == PartPopup {
-			imageTarget, borderTarget, paddingTarget = PartPopup, PartPopupBorder, PartPopup
-		} else {
-			imageTarget = part
-			allowBorder, allowPadding = false, false
-		}
-	}
+	imageTarget, borderTarget, paddingTarget, allowBorder, allowPadding := resolveRuleTargets(kind, part, hasPart)
 	for _, style := range styles {
 		property := strings.TrimSpace(style.Property)
 		value := strings.TrimSpace(style.Value.Text())
@@ -205,7 +211,7 @@ func parseBlock(selector string, kind core.WidgetKind, part SkinPart, hasPart bo
 			}
 		case "border-image-source", "border-image-source-tint", "border-image-slice":
 			if !allowBorder {
-				return nil, fmt.Errorf("skin: %s in %q applies to widgets and ::popup parts, not other parts", property, selector)
+				return nil, fmt.Errorf("skin: %s in %q applies to widgets, ::popup, ::track, and ::thumb parts, not other parts", property, selector)
 			}
 			if err := applyBorderProp(take(borderTarget), selector, property, value); err != nil {
 				return nil, err

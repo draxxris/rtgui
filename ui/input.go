@@ -293,10 +293,19 @@ func (u *UI) reconcileInteraction() {
 	if u.activeFrame != nil && !u.activeFrame.Enabled() {
 		u.clearActiveFrame()
 	}
+	if u.scrollThumbDragging != nil && !u.scrollThumbDragging.Enabled() {
+		u.scrollThumbDragging = nil
+	}
+	if u.scrollThumbHovered != nil && !u.scrollThumbHovered.Enabled() {
+		u.scrollThumbHovered = nil
+	}
 }
 
 // updateHover stores only the topmost enabled pressable widget under pos.
-func (u *UI) updateHover(pos core.Vec2) { u.hovered = u.hitInteractive(pos) }
+func (u *UI) updateHover(pos core.Vec2) {
+	u.hovered = u.hitInteractive(pos)
+	u.updateScrollThumbHover(pos)
+}
 
 // handleWheel scrolls the topmost scroll panel under the pointer.
 func (u *UI) handleWheel(event MouseEvent) bool {
@@ -319,6 +328,9 @@ func (u *UI) handleWheel(event MouseEvent) bool {
 func (u *UI) handlePress(event MouseEvent) bool {
 	if !event.Pressed {
 		return false
+	}
+	if u.handleScrollbarPress(event.Pos) {
+		return true
 	}
 	target := u.hitInteractive(event.Pos)
 	frame := u.innermostFrameAt(event.Pos)
@@ -419,9 +431,15 @@ func (u *UI) releaseOpenDropdown(dropdown *widgets.Dropdown, pos core.Vec2) bool
 	return true
 }
 
-// handleDrag maps an active slider's pointer X through the shared value helper.
+// handleDrag maps an active slider's pointer X or scrollbar drag through the shared value helper.
 func (u *UI) handleDrag(event MouseEvent) bool {
-	if !event.Down || event.Pressed || u.pressed == nil {
+	if !event.Down || event.Pressed {
+		return false
+	}
+	if u.handleScrollbarDrag(event.Pos) {
+		return true
+	}
+	if u.pressed == nil {
 		return false
 	}
 	if sl, ok := u.pressed.(*widgets.Slider); ok {
@@ -435,7 +453,13 @@ func (u *UI) handleDrag(event MouseEvent) bool {
 // cell and rich text resolves the released segment before firing
 // kind-specific callbacks; other releases outside consume without activation.
 func (u *UI) handleRelease(event MouseEvent) bool {
-	if !event.Released || u.pressed == nil {
+	if !event.Released {
+		return false
+	}
+	if u.handleScrollbarRelease() {
+		return true
+	}
+	if u.pressed == nil {
 		return false
 	}
 	active := u.pressed

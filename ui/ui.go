@@ -55,6 +55,12 @@ type UI struct {
 	// activeFrame is the container focus slot. It highlights its bounds
 	// and scopes frame-bound hotkeys while keyboard focus keeps editing.
 	activeFrame widgets.Widget
+
+	scrollThumbHovered    *widgets.ScrollPanel
+	scrollThumbDragging   *widgets.ScrollPanel
+	scrollDragStartY      float32
+	scrollDragStartScroll float32
+
 	// hotkeys is the library-owned registry for scoped global actions.
 	// Iteration is linear and allocation-free on the hot path; N stays tiny.
 	hotkeys []hotkeyEntry

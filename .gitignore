@@ -15,6 +15,7 @@ screenshots/
 shots/
 *.png
 !testdata/golden/*.png
+!testdata/skins/**/*.png
 !testdata/skins/*.png
 !testdata/skins/*.png.sh
 

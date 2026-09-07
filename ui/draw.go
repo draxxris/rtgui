@@ -122,18 +122,22 @@ func (u *UI) drawScrollPanel(widget *widgets.ScrollPanel, state core.WidgetState
 		u.theme.DrawWidgetPart(widget.Kind(), skin.PartBorder, widget.Bounds(), state)
 	}
 	drawer := widget.ScrollContentDrawer()
-	if drawer == nil {
-		return
+	if drawer != nil {
+		bounds := widget.Bounds()
+		contentW := bounds.W
+		if widget.MaxScroll().Y > 0 {
+			contentW -= 16
+		}
+		sx, sy := u.Scale()
+		if rl.IsWindowReady() {
+			rl.BeginScissorMode(int32(bounds.X*sx), int32(bounds.Y*sy), int32(contentW*sx), int32(bounds.H*sy))
+		}
+		drawer(bounds, widget.Scroll())
+		if rl.IsWindowReady() {
+			rl.EndScissorMode()
+		}
 	}
-	bounds := widget.Bounds()
-	sx, sy := u.Scale()
-	if rl.IsWindowReady() {
-		rl.BeginScissorMode(int32(bounds.X*sx), int32(bounds.Y*sy), int32(bounds.W*sx), int32(bounds.H*sy))
-	}
-	drawer(bounds, widget.Scroll())
-	if rl.IsWindowReady() {
-		rl.EndScissorMode()
-	}
+	u.drawScrollbar(widget)
 }
 
 // drawTextbox renders one textbox with its selection and focus caret. The

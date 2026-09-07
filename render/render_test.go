@@ -62,6 +62,39 @@ func TestNinePatchGeometry(t *testing.T) {
 	}
 }
 
+// TestThreePatchGeometry verifies top-middle-bottom 3-patch geometry calculations.
+func TestThreePatchGeometry(t *testing.T) {
+	config := ThreePatchConfig{Top: 8, Bottom: 8}
+	for _, destination := range []core.Rect{
+		{W: 16, H: 10},
+		{W: 16, H: 16},
+		{W: 16, H: 64},
+		{X: 10, Y: 20, W: 16, H: 100},
+		{W: -10, H: -5},
+	} {
+		rects := ThreePatchRects(config, destination)
+		expectedHeight := destination.H
+		if expectedHeight < 0 {
+			expectedHeight = 0
+		}
+		height := rects[0].H + rects[1].H + rects[2].H
+		if !approxEqual(height, expectedHeight) {
+			t.Fatalf("destination=%v height sum=%v expected=%v", destination, height, expectedHeight)
+		}
+		for i, rect := range rects {
+			if rect.W < 0 || rect.H < 0 {
+				t.Fatalf("rect %d has negative size: %v", i, rect)
+			}
+		}
+	}
+
+	source := core.Rect{W: 16, H: 64}
+	sourceRects := ThreePatchSourceRects(source, skin.ThreePatch{Top: 8, Bottom: 8})
+	if !approxEqual(sourceRects[0].H, 8) || !approxEqual(sourceRects[1].H, 48) || !approxEqual(sourceRects[2].H, 8) {
+		t.Fatalf("source caps mismatch: top=%v mid=%v bot=%v", sourceRects[0], sourceRects[1], sourceRects[2])
+	}
+}
+
 // TestContentRect covers border and padding content insets.
 func TestContentRect(t *testing.T) {
 	bounds := core.Rect{X: 10, Y: 20, W: 100, H: 60}

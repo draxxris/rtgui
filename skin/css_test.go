@@ -47,10 +47,13 @@ func TestParseCSSSelectors(t *testing.T) {
 		"Dropdown::arrow":        {"Dropdown", PartArrow},
 		"Checkbox::checkmark":    {"Checkbox", PartCheckmark},
 		"Checkbox::box":          {"Checkbox", PartIcon},
-		"Slider::thumb:hover":    {"Slider", PartThumb},
-		"Checkbox::box:disabled": {"Checkbox", PartIcon},
-		"ProgressBar::fill":      {"ProgressBar", PartOverlay},
-		"Dropdown::highlight":    {"Dropdown", PartOverlay},
+		"Slider::thumb:hover":      {"Slider", PartThumb},
+		"Checkbox::box:disabled":   {"Checkbox", PartIcon},
+		"ProgressBar::fill":        {"ProgressBar", PartOverlay},
+		"Dropdown::highlight":      {"Dropdown", PartOverlay},
+		"ScrollPanel::track":       {"ScrollPanel", PartTrack},
+		"ScrollPanel::thumb":       {"ScrollPanel", PartThumb},
+		"ScrollPanel::thumb:hover": {"ScrollPanel", PartThumb},
 	}
 	for selector, want := range parts {
 		rules, err := ParseCSS(selector + ` { background-image: url("a.png"); }`)
@@ -138,5 +141,37 @@ func TestParseCSSOrder(t *testing.T) {
 	}
 	if len(rules) != 3 || rules[0].Padding[0] != 1 || rules[1].Padding[0] != 2 || rules[2].Padding[0] != 3 {
 		t.Fatalf("order not preserved: %+v", rules)
+	}
+}
+
+// TestParseScrollbarCSS verifies ScrollPanel track and thumb declarations with slicing.
+func TestParseScrollbarCSS(t *testing.T) {
+	rules, err := ParseCSS(`
+		ScrollPanel::track {
+			border-image-source: url("track.png");
+			border-image-slice: 8px;
+		}
+		ScrollPanel::thumb {
+			border-image-source: url("thumb.png");
+			border-image-slice: 8px;
+		}
+		ScrollPanel::thumb:hover {
+			border-image-source-tint: #E1F2FF;
+		}
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rules) != 3 {
+		t.Fatalf("expected 3 rules, got %d", len(rules))
+	}
+	if rules[0].Kind != core.WidgetScrollPanel || rules[0].Part != PartTrack || rules[0].Slice != 8 {
+		t.Fatalf("track rule mismatch: %+v", rules[0])
+	}
+	if rules[1].Kind != core.WidgetScrollPanel || rules[1].Part != PartThumb || rules[1].Slice != 8 {
+		t.Fatalf("thumb rule mismatch: %+v", rules[1])
+	}
+	if rules[2].Kind != core.WidgetScrollPanel || rules[2].Part != PartThumb || rules[2].State != core.StateHovered || !rules[2].HasTint {
+		t.Fatalf("thumb hover rule mismatch: %+v", rules[2])
 	}
 }

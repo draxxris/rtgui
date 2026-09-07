@@ -25,6 +25,12 @@ type NinePatch struct {
 	Right, Bottom int32
 }
 
+// ThreePatch stores cap thicknesses for a textured vertical 3-patch.
+type ThreePatch struct {
+	// Top and Bottom are the source and destination cap thicknesses.
+	Top, Bottom int32
+}
+
 // SkinPart identifies one drawable component of a widget skin.
 type SkinPart int32
 
@@ -82,6 +88,8 @@ type SkinDescriptor struct {
 	AtlasRegion core.Rect
 	// NinePatch contains border thicknesses when HasNinePatch is true.
 	NinePatch NinePatch
+	// ThreePatch contains cap thicknesses when HasThreePatch is true.
+	ThreePatch ThreePatch
 	// Tint is exact RGBA draw data; opaque white means no tint.
 	Tint core.Color
 	// Padding values add content insets in logical pixels.
@@ -90,6 +98,8 @@ type SkinDescriptor struct {
 	HasTexture bool
 	// HasNinePatch reports whether NinePatch geometry should be used.
 	HasNinePatch bool
+	// HasThreePatch reports whether ThreePatch geometry should be used.
+	HasThreePatch bool
 	// CenterFill controls whether the middle nine-patch tile is drawn.
 	CenterFill bool
 }

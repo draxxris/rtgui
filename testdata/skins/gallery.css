@@ -156,3 +156,22 @@ RichText::highlight {
     background-image: url("kenney/background.png");
     background-image-tint: #43719b;
 }
+
+ScrollPanel {
+    border-image-source: url("kenney/panel_border_grey.png");
+    border-image-slice: 8;
+}
+
+ScrollPanel::track {
+    border-image-source: url("kenney/scrollbar_future_transparent.png");
+    border-image-slice: 8;
+}
+
+ScrollPanel::thumb {
+    border-image-source: url("kenney/scrollbar_future_grey.png");
+    border-image-slice: 8;
+}
+
+ScrollPanel::thumb:hover {
+    border-image-source-tint: #e1f2ff;
+}

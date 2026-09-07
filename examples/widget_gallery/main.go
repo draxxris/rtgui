@@ -235,7 +235,9 @@ func runHeadlessSmoke() {
 		{Text: "hi "},
 		{Text: "item", Link: core.Link{Kind: core.LinkItem, Target: "item:1"}},
 	})
-	if err := facade.Add(button, checkbox, slider, field, tabs, chat); err != nil {
+	smokeScroll := widgets.NewScrollPanel("smokeScroll", core.Rect{X: 10, Y: 260, W: 200, H: 80})
+	smokeScroll.SetMaxScroll(core.Vec2{Y: 50})
+	if err := facade.Add(button, checkbox, slider, field, tabs, chat, smokeScroll); err != nil {
 		log.Fatal(err)
 	}
 	clicks := 0

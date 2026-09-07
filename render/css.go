@@ -267,6 +267,10 @@ func (t *Theme) buildCSSDescriptor(key skin.SkinKey, entry mergedRule, base stri
 		descriptor.NinePatch.Right, descriptor.NinePatch.Bottom = entry.slice, entry.slice
 		descriptor.HasNinePatch = true
 		descriptor.CenterFill = false
+	} else if (key.Widget == core.WidgetScrollPanel && (key.Part == skin.PartTrack || key.Part == skin.PartThumb)) && entry.hasSlice {
+		descriptor.ThreePatch.Top = entry.slice
+		descriptor.ThreePatch.Bottom = entry.slice
+		descriptor.HasThreePatch = true
 	}
 	if entry.hasPadding {
 		descriptor.PaddingTop, descriptor.PaddingRight = entry.padding[0], entry.padding[1]
