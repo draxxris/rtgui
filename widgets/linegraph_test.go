@@ -595,3 +595,71 @@ func TestLineGraphStreamingAvoidsAllocs(t *testing.T) {
 		t.Fatalf("streaming frame allocated %v times", allocs)
 	}
 }
+
+// fxFixture returns a single-series graph for FX tests.
+func fxFixture(t *testing.T) *widgets.LineGraph {
+	t.Helper()
+	graph := widgets.NewLineGraph("graph", core.Rect{W: 100, H: 60})
+	graph.AddSeries(core.Color{R: 120, G: 210, B: 130, A: 255}, 2)
+	return graph
+}
+
+// TestLineGraphSeriesFXDefaults verifies fresh series stay flat and
+// unknown indices fail both reads and writes.
+func TestLineGraphSeriesFXDefaults(t *testing.T) {
+	graph := fxFixture(t)
+	if fx, ok := graph.SeriesFX(0); !ok || fx.FillEnabled || fx.GlowEnabled {
+		t.Fatalf("fresh series FX must be disabled: %+v/%v", fx, ok)
+	}
+	if _, ok := graph.SeriesFX(9); ok {
+		t.Fatal("unknown series FX read must fail")
+	}
+	if graph.SetSeriesFX(9, widgets.LineSeriesFX{FillEnabled: true}) {
+		t.Fatal("unknown series FX write must fail")
+	}
+}
+
+// TestLineGraphSeriesFXNormalization verifies zero alphas and widths fall
+// back to visible defaults while explicit values stick.
+func TestLineGraphSeriesFXNormalization(t *testing.T) {
+	graph := fxFixture(t)
+	if !graph.SetSeriesFX(0, widgets.LineSeriesFX{FillEnabled: true, GlowEnabled: true}) {
+		t.Fatal("SetSeriesFX failed")
+	}
+	fx, ok := graph.SeriesFX(0)
+	if !ok || !fx.FillEnabled || !fx.GlowEnabled {
+		t.Fatalf("FX flags lost: %+v/%v", fx, ok)
+	}
+	if fx.FillTopAlpha != 96 || fx.GlowAlpha != 80 || fx.GlowWidth != 6 {
+		t.Fatalf("zero alphas/widths must default: %+v", fx)
+	}
+	explicit := widgets.LineSeriesFX{
+		FillEnabled: true, FillTopAlpha: 40,
+		GlowEnabled: true, GlowAlpha: 60, GlowWidth: 3,
+	}
+	if !graph.SetSeriesFX(0, explicit) {
+		t.Fatal("explicit SetSeriesFX failed")
+	}
+	if fx, _ := graph.SeriesFX(0); fx != explicit {
+		t.Fatalf("explicit FX must stick: %+v", fx)
+	}
+}
+
+// TestLineGraphSeriesFXDisableAndNil verifies clearing effects and nil safety.
+func TestLineGraphSeriesFXDisableAndNil(t *testing.T) {
+	graph := fxFixture(t)
+	graph.SetSeriesFX(0, widgets.LineSeriesFX{FillEnabled: true, GlowEnabled: true})
+	if !graph.SetSeriesFX(0, widgets.LineSeriesFX{}) {
+		t.Fatal("disabling FX failed")
+	}
+	if fx, _ := graph.SeriesFX(0); fx.FillEnabled || fx.GlowEnabled {
+		t.Fatalf("FX must disable: %+v", fx)
+	}
+	var nilGraph *widgets.LineGraph
+	if _, ok := nilGraph.SeriesFX(0); ok {
+		t.Fatal("nil FX read must fail")
+	}
+	if nilGraph.SetSeriesFX(0, widgets.LineSeriesFX{FillEnabled: true}) {
+		t.Fatal("nil FX write must fail")
+	}
+}

@@ -300,3 +300,146 @@ func TestDrawLineGraphAvoidsSteadyStateAllocs(t *testing.T) {
 		t.Fatal("allocation probe drew no calls")
 	}
 }
+
+// fxGraph returns a small two-segment graph with explicit ranges for FX tests.
+func fxGraph() *widgets.LineGraph {
+	graph := widgets.NewLineGraph("fx", core.Rect{W: 200, H: 120})
+	graph.AddSeries(core.Color{R: 120, G: 210, B: 130, A: 255}, 2)
+	graph.SetSeriesData(0, []core.Vec2{{X: 0, Y: 0}, {X: 5, Y: 20}, {X: 10, Y: 10}})
+	graph.SetXRange(0, 10)
+	graph.SetYRange(0, 20)
+	return graph
+}
+
+// overlayCalls filters recorded calls to series geometry.
+func overlayCalls(calls []DrawCall) []DrawCall {
+	var out []DrawCall
+	for _, call := range calls {
+		if call.Part == skin.PartOverlay {
+			out = append(out, call)
+		}
+	}
+	return out
+}
+
+// TestDrawLineGraphFillRecordsRun verifies one fill run reaches the plot base.
+func TestDrawLineGraphFillRecordsRun(t *testing.T) {
+	theme, recorder := lineGraphTheme(t, 256)
+	graph := fxGraph()
+	graph.SetSeriesFX(0, widgets.LineSeriesFX{FillEnabled: true})
+	info := lineGraphInfo(graph)
+	plot := theme.LineGraphPlot(info, graph)
+	graph.EnsureGeometry(plot)
+	theme.BeginFrame()
+	theme.DrawLineGraph(info, graph)
+	overlays := overlayCalls(recorder.Calls())
+	if len(overlays) != 3 {
+		t.Fatalf("overlay calls = %d, want 2 segments + 1 fill (%v)", len(overlays), recorder.Calls())
+	}
+	fill := overlays[0]
+	if fill.Tint.A != 96 {
+		t.Fatalf("fill top alpha = %d, want 96", fill.Tint.A)
+	}
+	if fill.Dest.X < plot.X || fill.Dest.X+fill.Dest.W > plot.X+plot.W+0.001 {
+		t.Fatalf("fill run outside plot: %+v plot %+v", fill.Dest, plot)
+	}
+	if fill.Dest.Y+fill.Dest.H != plot.Y+plot.H {
+		t.Fatalf("fill must reach plot base: %+v plot %+v", fill.Dest, plot)
+	}
+}
+
+// TestDrawLineGraphGlowTriplesSegments verifies halo passes precede the core.
+func TestDrawLineGraphGlowTriplesSegments(t *testing.T) {
+	theme, recorder := lineGraphTheme(t, 512)
+	graph := fxGraph()
+	graph.SetSeriesFX(0, widgets.LineSeriesFX{GlowEnabled: true})
+	info := lineGraphInfo(graph)
+	theme.BeginFrame()
+	theme.DrawLineGraph(info, graph)
+	overlays := overlayCalls(recorder.Calls())
+	if len(overlays) != 6 {
+		t.Fatalf("overlay calls = %d, want 2 segments x 3 passes", len(overlays))
+	}
+	first := overlays[:3]
+	if first[0].Bounds != first[1].Bounds || first[1].Bounds != first[2].Bounds {
+		t.Fatalf("halo passes must share the core span: %v", first)
+	}
+	if first[0].Tint.A != 20 || first[1].Tint.A != 40 || first[2].Tint.A != 255 {
+		t.Fatalf("halo alpha ladder = %d/%d/%d, want 20/40/255",
+			first[0].Tint.A, first[1].Tint.A, first[2].Tint.A)
+	}
+	if first[0].Tint.R != 120 || first[1].Tint.G != 210 || first[2].Tint.B != 130 {
+		t.Fatalf("halo must reuse the series RGB: %v", first)
+	}
+}
+
+// TestDrawLineGraphFillSplitsAtGaps verifies gaps split fill runs like strokes.
+func TestDrawLineGraphFillSplitsAtGaps(t *testing.T) {
+	theme, recorder := lineGraphTheme(t, 512)
+	graph := widgets.NewLineGraph("gaps", core.Rect{W: 200, H: 120})
+	graph.AddSeries(core.Color{R: 120, G: 210, B: 130, A: 255}, 2)
+	nan := float32(math.NaN())
+	graph.SetSeriesData(0, []core.Vec2{{X: 0, Y: 0}, {X: 2, Y: 4}, {X: nan, Y: nan}, {X: 6, Y: 8}, {X: 8, Y: 10}})
+	graph.SetXRange(0, 8)
+	graph.SetYRange(0, 10)
+	graph.SetSeriesFX(0, widgets.LineSeriesFX{FillEnabled: true})
+	info := lineGraphInfo(graph)
+	theme.BeginFrame()
+	theme.DrawLineGraph(info, graph)
+	overlays := overlayCalls(recorder.Calls())
+	if len(overlays) != 4 {
+		t.Fatalf("overlay calls = %d, want 2 fills + 2 segments", len(overlays))
+	}
+	fills := 0
+	for _, call := range overlays {
+		if call.Tint.A == 96 {
+			fills++
+			if call.Dest.H <= 2 {
+				t.Fatalf("fill run too short: %+v", call)
+			}
+		}
+	}
+	if fills != 2 {
+		t.Fatalf("fill runs = %d, want 2 (one per side of the gap)", fills)
+	}
+}
+
+// TestDrawLineGraphMarkerHalo verifies isolated points glow like segments.
+func TestDrawLineGraphMarkerHalo(t *testing.T) {
+	theme, recorder := lineGraphTheme(t, 64)
+	graph := widgets.NewLineGraph("single", core.Rect{W: 200, H: 120})
+	graph.AddSeries(core.Color{R: 120, G: 210, B: 130, A: 255}, 2)
+	graph.SetSeriesData(0, []core.Vec2{{X: 4, Y: 4}})
+	graph.SetSeriesFX(0, widgets.LineSeriesFX{GlowEnabled: true})
+	theme.BeginFrame()
+	theme.DrawLineGraph(lineGraphInfo(graph), graph)
+	sparks := 0
+	for _, call := range recorder.Calls() {
+		if call.Part == skin.PartSpark {
+			sparks++
+		}
+	}
+	if sparks != 3 {
+		t.Fatalf("spark calls = %d, want outer + mid + core", sparks)
+	}
+}
+
+// TestDrawLineGraphFXAvoidsSteadyStateAllocs verifies fill+glow stay alloc-free.
+func TestDrawLineGraphFXAvoidsSteadyStateAllocs(t *testing.T) {
+	theme, recorder := lineGraphTheme(t, 512)
+	graph := fxGraph()
+	graph.SetSeriesFX(0, widgets.LineSeriesFX{FillEnabled: true, GlowEnabled: true})
+	info := lineGraphInfo(graph)
+	theme.BeginFrame()
+	theme.DrawLineGraph(info, graph)
+	allocs := testing.AllocsPerRun(100, func() {
+		theme.BeginFrame()
+		theme.DrawLineGraph(info, graph)
+	})
+	if allocs != 0 {
+		t.Fatalf("steady-state FX draw allocated %v times", allocs)
+	}
+	if got := len(recorder.Calls()); got == 0 {
+		t.Fatal("allocation probe drew no calls")
+	}
+}

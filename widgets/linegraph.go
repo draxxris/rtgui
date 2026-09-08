@@ -36,7 +36,31 @@ const (
 	lineGraphMaxDivisions = 16
 	// lineGraphDefaultThickness is used when a series thickness is not positive.
 	lineGraphDefaultThickness = 2.0
+	// lineGraphDefaultFillAlpha is the gradient top opacity for enabled fills.
+	lineGraphDefaultFillAlpha = uint8(96)
+	// lineGraphDefaultGlowAlpha is the outer glow opacity for enabled glows.
+	lineGraphDefaultGlowAlpha = uint8(80)
+	// lineGraphDefaultGlowWidth is the extra pixel width of the outer glow pass.
+	lineGraphDefaultGlowWidth = float32(6)
 )
+
+// LineSeriesFX configures the area fill and line glow for one data series.
+// The zero value disables both effects, preserving the flat stroke look.
+// Fill shades the area from the polyline down to the plot bottom with a
+// vertical fade; glow strokes translucent passes under the core line.
+type LineSeriesFX struct {
+	// FillEnabled shades the area under the line when true.
+	FillEnabled bool
+	// FillTopAlpha is the fill opacity at the line; 0 selects the default.
+	FillTopAlpha uint8
+	// GlowEnabled strokes soft halo passes under the core line when true.
+	GlowEnabled bool
+	// GlowAlpha is the halo opacity budget; the mid pass uses half and the
+	// outer pass a quarter. Zero selects the default.
+	GlowAlpha uint8
+	// GlowWidth is the extra pixel width of the outer halo pass.
+	GlowWidth float32
+}
 
 // lineGraphPalette supplies default series colors when AddSeries receives
 // a zero color, so multi-series graphs stay distinguishable by default.
@@ -59,6 +83,8 @@ type lineSeries struct {
 	thickness float32
 	// visible selects whether the series draws and answers queries.
 	visible bool
+	// fx holds the normalized fill and glow configuration.
+	fx LineSeriesFX
 }
 
 // lineTickKey packs every input that tick values, pixels, and labels depend
@@ -253,6 +279,44 @@ func (g *LineGraph) SetSeriesThickness(series int, thickness float32) bool {
 		return false
 	}
 	g.series[series].thickness = normalizeThickness(thickness)
+	g.invalidate()
+	return true
+}
+
+// normalizeSeriesFX fills zero alphas and widths with defaults when the
+// corresponding effect is enabled, so LineSeriesFX{} stays off while
+// partially specified configs still render visibly.
+func normalizeSeriesFX(fx LineSeriesFX) LineSeriesFX {
+	if fx.FillEnabled && fx.FillTopAlpha == 0 {
+		fx.FillTopAlpha = lineGraphDefaultFillAlpha
+	}
+	if fx.GlowEnabled {
+		if fx.GlowAlpha == 0 {
+			fx.GlowAlpha = lineGraphDefaultGlowAlpha
+		}
+		if !(fx.GlowWidth > 0) {
+			fx.GlowWidth = lineGraphDefaultGlowWidth
+		}
+	}
+	return fx
+}
+
+// SeriesFX returns one series fill and glow configuration.
+func (g *LineGraph) SeriesFX(series int) (LineSeriesFX, bool) {
+	if g == nil || series < 0 || series >= len(g.series) {
+		return LineSeriesFX{}, false
+	}
+	return g.series[series].fx, true
+}
+
+// SetSeriesFX replaces one series fill and glow configuration and reports
+// success. Zero alphas and widths fall back to defaults when enabled;
+// a zero struct disables both effects.
+func (g *LineGraph) SetSeriesFX(series int, fx LineSeriesFX) bool {
+	if g == nil || series < 0 || series >= len(g.series) {
+		return false
+	}
+	g.series[series].fx = normalizeSeriesFX(fx)
 	g.invalidate()
 	return true
 }

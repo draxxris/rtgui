@@ -14,9 +14,10 @@ import (
 // marketGraph placement comes from the slot table on the next applyLayout pass.
 func (g *gallery) setupGameWidgets() {
 	g.setupRichDemo()
-	g.lineGraph = widgets.NewLineGraph("marketGraph", core.Rect{}).SetMaxPoints(128).SetShowLabels(true)
+	g.lineGraph = widgets.NewLineGraph("marketGraph", core.Rect{}).SetMaxPoints(128).SetShowGrid(false).SetShowLabels(false)
 	g.lineGraph.SetTextColor(core.Color{R: 220, G: 230, B: 240, A: 255})
 	series := g.lineGraph.AddSeries(core.Color{R: 120, G: 210, B: 130, A: 255}, 2)
+	g.lineGraph.SetSeriesFX(series, widgets.LineSeriesFX{FillEnabled: true, GlowEnabled: true})
 	g.lineGraph.SetSeriesData(series, []core.Vec2{{X: 0, Y: 12}, {X: 1, Y: 16}, {X: 2, Y: 13}, {X: 3, Y: 21}, {X: 4, Y: 19}, {X: 5, Y: 25}})
 	if err := g.facade.Add(g.lineGraph); err != nil {
 		panic(err)
