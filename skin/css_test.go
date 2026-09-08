@@ -300,3 +300,51 @@ func TestParseCSSBackgroundImageNone(t *testing.T) {
 		t.Fatalf("expected HasImage=false and HasGradient=false, got %+v", rules[0])
 	}
 }
+
+// TestParseCSSClassSelectors verifies universal and kind-scoped class selectors.
+func TestParseCSSClassSelectors(t *testing.T) {
+	cases := []struct {
+		css       string
+		wantKind  core.WidgetKind
+		wantClass string
+		wantState core.WidgetState
+	}{
+		{".danger { padding: 4; }", core.WidgetAny, "danger", core.StateNormal},
+		{".danger:hover { padding: 6; }", core.WidgetAny, "danger", core.StateHovered},
+		{".danger:active { padding: 2; }", core.WidgetAny, "danger", core.StatePressed},
+		{"Button.primary { padding: 8; }", core.WidgetButton, "primary", core.StateNormal},
+		{"Button.primary:hover { padding: 10; }", core.WidgetButton, "primary", core.StateHovered},
+		{"Slider.special::thumb { background-color: #112233; }", core.WidgetSlider, "special", core.StateNormal},
+	}
+	for _, tc := range cases {
+		rules, err := ParseCSS(tc.css)
+		if err != nil {
+			t.Fatalf("%s: %v", tc.css, err)
+		}
+		if len(rules) == 0 {
+			t.Fatalf("%s: no rules parsed", tc.css)
+		}
+		if rules[0].Kind != tc.wantKind || rules[0].Class != tc.wantClass || rules[0].State != tc.wantState {
+			t.Fatalf("%s: got kind=%v class=%q state=%v, want kind=%v class=%q state=%v",
+				tc.css, rules[0].Kind, rules[0].Class, rules[0].State, tc.wantKind, tc.wantClass, tc.wantState)
+		}
+	}
+}
+
+// TestParseCSSClassErrors verifies invalid class syntax produces descriptive hard errors.
+func TestParseCSSClassErrors(t *testing.T) {
+	cases := []string{
+		`. { padding: 1; }`,
+		`Button. { padding: 1; }`,
+		`.123 { padding: 1; }`,
+		`Button.123 { padding: 1; }`,
+		`.foo bar { padding: 1; }`,
+		`Unknown.danger { padding: 1; }`,
+		`.danger::thumb { background-color: #123456; }`,
+	}
+	for _, text := range cases {
+		if _, err := ParseCSS(text); err == nil {
+			t.Fatalf("expected error for %q", text)
+		}
+	}
+}

@@ -13,11 +13,11 @@ import (
 // (with normal fallback) and snaps when pixel snap is on. Callers must use
 // this — never raw popup bounds — so hovered, pressed, and drawn rows always
 // agree. It is safe on a nil theme, where it returns the normalized bounds.
-func (t *Theme) popupContent(kind core.WidgetKind, bounds core.Rect, state core.WidgetState) core.Rect {
+func (t *Theme) popupContent(kind core.WidgetKind, bounds core.Rect, state core.WidgetState, class ...string) core.Rect {
 	var background, border skin.SkinDescriptor
 	if t != nil {
-		background, _ = t.resolveDescriptor(kind, skin.PartPopup, state)
-		border, _ = t.resolveDescriptor(kind, skin.PartPopupBorder, state)
+		background, _ = t.resolveDescriptor(kind, skin.PartPopup, state, class...)
+		border, _ = t.resolveDescriptor(kind, skin.PartPopupBorder, state, class...)
 	}
 	return t.snap(ContentRect(bounds, background, border))
 }
@@ -52,8 +52,8 @@ func popupRowIndex(content core.Rect, count int, pos core.Vec2) int {
 
 // drawPopupShell renders a popup shell and records the widget snapshot.
 func (t *Theme) drawPopupShell(info core.WidgetInfo) {
-	t.DrawWidgetPart(info.Kind, skin.PartPopup, info.Bounds, info.State)
-	t.DrawWidgetPart(info.Kind, skin.PartPopupBorder, info.Bounds, info.State)
+	t.DrawWidgetPart(info.Kind, skin.PartPopup, info.Bounds, info.State, info.Class)
+	t.DrawWidgetPart(info.Kind, skin.PartPopupBorder, info.Bounds, info.State, info.Class)
 	if t.recorder != nil {
 		t.recorder.setLastWidgetInfo(info)
 	}
@@ -64,7 +64,7 @@ func (t *Theme) drawPopupShell(info core.WidgetInfo) {
 // draws so unskinned popups keep their hover feedback.
 func (t *Theme) drawPopupRowHighlight(info core.WidgetInfo, row core.Rect) {
 	destination := t.snap(row)
-	descriptor, fallback := t.resolveDescriptor(info.Kind, skin.PartOverlay, core.StateHovered)
+	descriptor, fallback := t.resolveDescriptor(info.Kind, skin.PartOverlay, core.StateHovered, info.Class)
 	if !fallback && hasVisualBackground(descriptor) {
 		tint := effectiveTint(descriptor, false)
 		t.logDrawCall(info.Kind, skin.PartOverlay, core.StateHovered, row, destination, descriptor, tint, false)

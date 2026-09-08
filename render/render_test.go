@@ -517,6 +517,26 @@ func TestDrawWidgetPartColorAndGradientAllocatesNothing(t *testing.T) {
 	}
 }
 
+// TestDrawWidgetPartWithClassAllocatesNothing verifies zero allocations when drawing with a class.
+func TestDrawWidgetPartWithClassAllocatesNothing(t *testing.T) {
+	theme := NewTheme(transform.New(core.Viewport{}))
+	theme.SetDrawRecorder(nil)
+	theme.SetSkinPart(skin.SkinKey{Widget: core.WidgetButton, Part: skin.PartBackground, State: core.StateNormal}, skin.SkinDescriptor{
+		BackgroundColor:    core.Color{R: 20, G: 40, B: 60, A: 200},
+		HasBackgroundColor: true,
+	})
+	theme.SetSkinPart(skin.SkinKey{Widget: core.WidgetButton, Class: "danger", Part: skin.PartBackground, State: core.StateNormal}, skin.SkinDescriptor{
+		BackgroundColor:    core.Color{R: 200, G: 20, B: 20, A: 255},
+		HasBackgroundColor: true,
+	})
+	allocations := testing.AllocsPerRun(100, func() {
+		theme.DrawWidgetPart(core.WidgetButton, skin.PartBackground, core.Rect{W: 100, H: 30}, core.StateNormal, "danger")
+	})
+	if allocations != 0 {
+		t.Fatalf("class DrawWidgetPart allocations = %v, want 0", allocations)
+	}
+}
+
 // TestThemeDrawTextAndLayout verifies text layout calculation and alignment for labels and widgets.
 func TestThemeDrawTextAndLayout(t *testing.T) {
 	theme := NewTheme(transform.New(core.Viewport{}))

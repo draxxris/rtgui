@@ -528,3 +528,100 @@ func TestCSSBackgroundColorAndGradientHeadlessLoadAndDraw(t *testing.T) {
 		t.Fatalf("expected alpha-preserved background tint in DrawCall, got: %v", bgCall.Tint)
 	}
 }
+
+// TestThemeCSSClassLookupAndOverlay verifies CSS class lookup, specificity, and property overlay.
+func TestThemeCSSClassLookupAndOverlay(t *testing.T) {
+	theme := setupClassTestTheme(t)
+
+	t.Run("BaseButton", func(t *testing.T) {
+		assertBaseButton(t, theme)
+	})
+	t.Run("DangerClass", func(t *testing.T) {
+		assertDangerClass(t, theme)
+	})
+	t.Run("PrimaryClass", func(t *testing.T) {
+		assertPrimaryClass(t, theme)
+	})
+	t.Run("DrawWidgetWithClass", func(t *testing.T) {
+		assertDrawWidgetWithClass(t, theme)
+	})
+}
+
+// setupClassTestTheme creates a theme loaded with CSS defining base Button, .danger, and Button.primary rules.
+func setupClassTestTheme(t *testing.T) *Theme {
+	directory := t.TempDir()
+	cssText := `
+		Button {
+			background-color: #112233;
+			padding: 8;
+		}
+		Button:hover {
+			background-color: #223344;
+		}
+		.danger {
+			background-color: #FF0000;
+		}
+		.danger:hover {
+			background-color: #AA0000;
+		}
+		Button.primary {
+			background-color: #0000FF;
+			padding: 12;
+		}
+	`
+	cssPath := writeCSS(t, directory, cssText)
+	theme := newFakeTheme(&fakeTextureBackend{isReady: false})
+	if err := theme.LoadCSSFile(cssPath, ""); err != nil {
+		t.Fatalf("LoadCSSFile failed: %v", err)
+	}
+	return theme
+}
+
+// assertBaseButton verifies normal and hover styles for the base Button selector.
+func assertBaseButton(t *testing.T, theme *Theme) {
+	normal, ok := theme.Lookup(core.WidgetButton, skin.PartBackground, core.StateNormal)
+	if !ok || normal.BackgroundColor != (core.Color{R: 0x11, G: 0x22, B: 0x33, A: 0xFF}) || normal.PaddingLeft != 8 {
+		t.Fatalf("base button normal mismatch: ok=%v, desc=%+v", ok, normal)
+	}
+	hover, ok := theme.Lookup(core.WidgetButton, skin.PartBackground, core.StateHovered)
+	if !ok || hover.BackgroundColor != (core.Color{R: 0x22, G: 0x33, B: 0x44, A: 0xFF}) {
+		t.Fatalf("base button hover mismatch: ok=%v, desc=%+v", ok, hover)
+	}
+}
+
+// assertDangerClass verifies universal .danger class overrides and overlays onto base Button properties.
+func assertDangerClass(t *testing.T, theme *Theme) {
+	normal, ok := theme.Lookup(core.WidgetButton, skin.PartBackground, core.StateNormal, "danger")
+	if !ok || normal.BackgroundColor != (core.Color{R: 0xFF, G: 0x00, B: 0x00, A: 0xFF}) || normal.PaddingLeft != 8 {
+		t.Fatalf("button.danger normal mismatch: ok=%v, desc=%+v", ok, normal)
+	}
+	hover, ok := theme.Lookup(core.WidgetButton, skin.PartBackground, core.StateHovered, "danger")
+	if !ok || hover.BackgroundColor != (core.Color{R: 0xAA, G: 0x00, B: 0x00, A: 0xFF}) || hover.PaddingLeft != 8 {
+		t.Fatalf("button.danger hover mismatch: ok=%v, desc=%+v", ok, hover)
+	}
+}
+
+// assertPrimaryClass verifies kind-scoped Button.primary class overrides.
+func assertPrimaryClass(t *testing.T, theme *Theme) {
+	normal, ok := theme.Lookup(core.WidgetButton, skin.PartBackground, core.StateNormal, "primary")
+	if !ok || normal.BackgroundColor != (core.Color{R: 0x00, G: 0x00, B: 0xFF, A: 0xFF}) || normal.PaddingLeft != 12 {
+		t.Fatalf("button.primary normal mismatch: ok=%v, desc=%+v", ok, normal)
+	}
+}
+
+// assertDrawWidgetWithClass verifies DrawWidget applies the class style when rendering.
+func assertDrawWidgetWithClass(t *testing.T, theme *Theme) {
+	recorder := newTestRecorder(t, 8)
+	theme.SetDrawRecorder(recorder)
+	btn := core.WidgetInfo{Name: "del", Bounds: core.Rect{W: 100, H: 30}, Kind: core.WidgetButton, State: core.StateNormal, Class: "danger"}
+	theme.BeginFrame()
+	theme.DrawWidget(btn, "Delete", 0, false)
+
+	calls := recorder.Calls()
+	if len(calls) < 2 {
+		t.Fatalf("expected at least 2 draw calls, got %v", calls)
+	}
+	if calls[0].Tint != (core.Color{R: 0xFF, G: 0x00, B: 0x00, A: 0xFF}) {
+		t.Fatalf("expected red tint for danger button, got: %v", calls[0].Tint)
+	}
+}

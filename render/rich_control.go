@@ -9,12 +9,16 @@ import (
 // definition between DrawWidget and the rich control paths. Checkboxes use
 // full bounds by design so missing box art stays invisible; other kinds
 // draw the background part and inset by the border descriptor.
-func (t *Theme) controlContentRect(kind core.WidgetKind, bounds core.Rect, state core.WidgetState) core.Rect {
+func (t *Theme) controlContentRect(kind core.WidgetKind, bounds core.Rect, state core.WidgetState, class ...string) core.Rect {
 	if kind == core.WidgetCheckbox {
 		return t.snap(bounds)
 	}
-	background, _ := t.drawPart(kind, skin.PartBackground, bounds, state)
-	border, _ := t.resolveDescriptor(kind, skin.PartBorder, state)
+	className := ""
+	if len(class) > 0 {
+		className = class[0]
+	}
+	background, _ := t.drawPart(kind, skin.PartBackground, bounds, state, className)
+	border, _ := t.resolveDescriptor(kind, skin.PartBorder, state, className)
 	return t.snap(ContentRect(bounds, background, border))
 }
 

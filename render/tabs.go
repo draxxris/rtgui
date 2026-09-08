@@ -10,11 +10,11 @@ import (
 // for state (with normal fallback) and snaps when pixel snap is on. Callers
 // must use this — never raw bar bounds — so hovered, pressed, and drawn
 // tabs always agree. It is safe on a nil theme, where it returns bounds.
-func (t *Theme) TabContent(bounds core.Rect, state core.WidgetState) core.Rect {
+func (t *Theme) TabContent(bounds core.Rect, state core.WidgetState, class ...string) core.Rect {
 	var background, border skin.SkinDescriptor
 	if t != nil {
-		background, _ = t.resolveDescriptor(core.WidgetTabBar, skin.PartBackground, state)
-		border, _ = t.resolveDescriptor(core.WidgetTabBar, skin.PartBorder, state)
+		background, _ = t.resolveDescriptor(core.WidgetTabBar, skin.PartBackground, state, class...)
+		border, _ = t.resolveDescriptor(core.WidgetTabBar, skin.PartBorder, state, class...)
 	}
 	return t.snap(ContentRect(bounds, background, border))
 }

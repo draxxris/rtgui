@@ -16,7 +16,7 @@ func (u *UI) scrollContentRect(sp *widgets.ScrollPanel) core.Rect {
 	if u == nil || u.theme == nil {
 		return sp.Bounds()
 	}
-	return u.theme.ScrollContent(sp.Bounds(), u.visualState(sp))
+	return u.theme.ScrollContent(sp.Bounds(), u.visualState(sp), sp.Class())
 }
 
 // scrollTrackRect computes the vertical scrollbar track rectangle along the right edge.
@@ -177,7 +177,7 @@ func (u *UI) drawScrollbar(widget *widgets.ScrollPanel) {
 	if trackRect.H <= 0 || trackRect.W <= 0 {
 		return
 	}
-	u.theme.DrawWidgetPart(core.WidgetScrollPanel, skin.PartTrack, trackRect, core.StateNormal)
+	u.theme.DrawWidgetPart(core.WidgetScrollPanel, skin.PartTrack, trackRect, core.StateNormal, widget.Class())
 
 	thumbState := core.StateNormal
 	if u.scrollThumbDragging == widget {
@@ -187,7 +187,7 @@ func (u *UI) drawScrollbar(widget *widgets.ScrollPanel) {
 	}
 	thumbRect := u.scrollThumbRect(widget)
 	if thumbRect.H > 0 {
-		u.theme.DrawWidgetPart(core.WidgetScrollPanel, skin.PartThumb, thumbRect, thumbState)
+		u.theme.DrawWidgetPart(core.WidgetScrollPanel, skin.PartThumb, thumbRect, thumbState, widget.Class())
 	}
 }
 

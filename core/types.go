@@ -91,6 +91,8 @@ const (
 	WidgetCanvas
 	// WidgetLineGraph displays one or more numeric data series.
 	WidgetLineGraph
+	// WidgetAny represents any widget kind for universal CSS rules.
+	WidgetAny WidgetKind = -1
 )
 
 // WidgetState is the visual state selected by UI interaction ownership.
@@ -121,6 +123,8 @@ type WidgetInfo struct {
 	Kind WidgetKind
 	// State is the visual state computed by the UI owner.
 	State WidgetState
+	// Class is the authored CSS class variant for styling; empty when none.
+	Class string
 	// TextColor is the optional explicit text color for widgets with text.
 	TextColor Color
 	// HasTextColor reports whether TextColor was explicitly configured.

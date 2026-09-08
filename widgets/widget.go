@@ -40,6 +40,8 @@ type Widget interface {
 	SetText(value string) bool
 	Tooltip() string
 	SetTooltipText(string)
+	Class() string
+	SetClass(name string)
 }
 
 // RichProvider is implemented by every widget carrying optional rich runs.
@@ -71,6 +73,7 @@ type Callbacks struct {
 type base struct {
 	name             string
 	kind             core.WidgetKind
+	class            string
 	frame            *layout.Node
 	enabled          bool
 	text             string
@@ -174,6 +177,7 @@ func (b *base) Snapshot(state core.WidgetState) core.WidgetInfo {
 		Bounds:   b.Bounds(),
 		Kind:     b.kind,
 		State:    state,
+		Class:    b.class,
 		FontSize: b.fontSize,
 		Italic:   b.italic,
 		Align:    b.align,
@@ -273,6 +277,21 @@ func (b *base) Tooltip() string {
 		return ""
 	}
 	return b.tooltip
+}
+
+// SetClass replaces the widget's CSS class variant. Passing empty string clears it.
+func (b *base) SetClass(name string) {
+	if b != nil {
+		b.class = name
+	}
+}
+
+// Class returns the widget's authored CSS class variant.
+func (b *base) Class() string {
+	if b == nil {
+		return ""
+	}
+	return b.class
 }
 
 // SetTextColor configures an explicit text color for the widget.

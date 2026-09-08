@@ -190,3 +190,30 @@ ScrollPanel::thumb {
 ScrollPanel::thumb:hover {
     border-image-source-tint: #e1f2ff;
 }
+
+/* Class definitions: universal .danger and kind-scoped Button.accent */
+.danger {
+    background-color: #5c1d24;
+    border-image-source: url("kenney/red/button_rectangle_border.png");
+    border-image-slice: 8;
+}
+.danger:hover {
+    background-color: #8b2635;
+    border-image-source: url("kenney/red/button_rectangle_border.png");
+    border-image-source-tint: #ff8585;
+}
+.danger:active {
+    background-color: #3b1015;
+}
+
+Button.accent {
+    background-color: #1e3d59;
+    background-image: linear-gradient(to bottom, #17b978, #086972);
+    border-image-source: url("kenney/blue/button_rectangle_border.png");
+    border-image-source-tint: #43e8d8;
+    border-image-slice: 8;
+}
+Button.accent:hover {
+    background-image: linear-gradient(to bottom, #20d88c, #0a828d);
+    border-image-source-tint: #80ffea;
+}

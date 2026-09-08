@@ -29,8 +29,8 @@ func (t *Theme) snap(rect core.Rect) core.Rect {
 	return t.transform.SnapRect(rect)
 }
 
-func (t *Theme) resolveDescriptor(kind core.WidgetKind, part skin.SkinPart, state core.WidgetState) (skin.SkinDescriptor, bool) {
-	descriptor, ok := t.Lookup(kind, part, state)
+func (t *Theme) resolveDescriptor(kind core.WidgetKind, part skin.SkinPart, state core.WidgetState, class ...string) (skin.SkinDescriptor, bool) {
+	descriptor, ok := t.Lookup(kind, part, state, class...)
 	return descriptor, !ok
 }
 
@@ -330,8 +330,8 @@ func defaultWidgetTextColor(info core.WidgetInfo, state core.WidgetState) color.
 }
 
 // drawPart resolves, records, and optionally draws one widget skin part.
-func (t *Theme) drawPart(kind core.WidgetKind, part skin.SkinPart, bounds core.Rect, state core.WidgetState) (skin.SkinDescriptor, bool) {
-	descriptor, fallback := t.resolveDescriptor(kind, part, state)
+func (t *Theme) drawPart(kind core.WidgetKind, part skin.SkinPart, bounds core.Rect, state core.WidgetState, class ...string) (skin.SkinDescriptor, bool) {
+	descriptor, fallback := t.resolveDescriptor(kind, part, state, class...)
 	tint := effectiveTint(descriptor, fallback)
 	destination := t.snap(bounds)
 	t.logDrawCall(kind, part, state, bounds, destination, descriptor, tint, fallback)
@@ -340,9 +340,9 @@ func (t *Theme) drawPart(kind core.WidgetKind, part skin.SkinPart, bounds core.R
 }
 
 // DrawWidgetPart draws one part of a widget.
-func (t *Theme) DrawWidgetPart(kind core.WidgetKind, part skin.SkinPart, bounds core.Rect, state core.WidgetState) {
+func (t *Theme) DrawWidgetPart(kind core.WidgetKind, part skin.SkinPart, bounds core.Rect, state core.WidgetState, class ...string) {
 	if t != nil {
-		t.drawPart(kind, part, bounds, state)
+		t.drawPart(kind, part, bounds, state, class...)
 	}
 }
 
@@ -362,7 +362,7 @@ func (t *Theme) DrawControl(info core.WidgetInfo, value string, segments []core.
 	if t == nil {
 		return
 	}
-	content := t.controlContentRect(info.Kind, info.Bounds, info.State)
+	content := t.controlContentRect(info.Kind, info.Bounds, info.State, info.Class)
 	if t.recorder != nil {
 		t.recorder.setLastWidgetInfo(info)
 	}
@@ -459,7 +459,7 @@ func (t *Theme) drawCheckbox(info core.WidgetInfo, value string, content core.Re
 // registered for checkboxes. Without one it draws nothing, preserving the
 // old no-skin behavior of an empty unchecked box.
 func (t *Theme) drawUncheckedBox(info core.WidgetInfo, content core.Rect) {
-	descriptor, fallback := t.resolveDescriptor(info.Kind, skin.PartIcon, info.State)
+	descriptor, fallback := t.resolveDescriptor(info.Kind, skin.PartIcon, info.State, info.Class)
 	if !hasTexture(descriptor, fallback) {
 		return
 	}
@@ -467,7 +467,7 @@ func (t *Theme) drawUncheckedBox(info core.WidgetInfo, content core.Rect) {
 }
 
 func (t *Theme) drawCheckmark(info core.WidgetInfo, content core.Rect) {
-	descriptor, fallback := t.resolveDescriptor(info.Kind, skin.PartCheckmark, info.State)
+	descriptor, fallback := t.resolveDescriptor(info.Kind, skin.PartCheckmark, info.State, info.Class)
 	if hasTexture(descriptor, fallback) {
 		t.drawCenteredIcon(info, content, skin.PartCheckmark, descriptor)
 		return
@@ -527,13 +527,13 @@ func (t *Theme) drawGeometryCheckmark(info core.WidgetInfo, missingSkin bool) {
 
 // drawSlider renders the track and thumb at amount's clamped position.
 func (t *Theme) drawSlider(info core.WidgetInfo, value string, content core.Rect, amount float32) {
-	track, fallback := t.resolveDescriptor(info.Kind, skin.PartTrack, info.State)
+	track, fallback := t.resolveDescriptor(info.Kind, skin.PartTrack, info.State, info.Class)
 	trackTint := effectiveTint(track, fallback)
 	trackRect := sliderTrackRect(t, info, content, track, fallback)
 	t.logDrawCall(info.Kind, skin.PartTrack, info.State, trackRect, trackRect, track, trackTint, fallback)
 	t.renderDescriptorOrFallback(track, trackRect, trackTint, fallback, 100)
 
-	thumb, thumbFallback := t.resolveDescriptor(info.Kind, skin.PartThumb, info.State)
+	thumb, thumbFallback := t.resolveDescriptor(info.Kind, skin.PartThumb, info.State, info.Class)
 	thumbTint := effectiveTint(thumb, thumbFallback)
 	thumbRect := sliderThumbRect(t, trackRect, thumb, thumbFallback, amount)
 	t.logDrawCall(info.Kind, skin.PartThumb, info.State, thumbRect, thumbRect, thumb, thumbTint, thumbFallback)
@@ -595,7 +595,7 @@ func sliderThumbRect(t *Theme, track core.Rect, descriptor skin.SkinDescriptor, 
 // The fill is ProgressBar::fill, which shares the PartOverlay key with
 // Dropdown::highlight; registry keys are widget-scoped so they never meet.
 func (t *Theme) drawProgressBar(info core.WidgetInfo, value string, content core.Rect, amount float32) {
-	track, fallback := t.resolveDescriptor(info.Kind, skin.PartTrack, info.State)
+	track, fallback := t.resolveDescriptor(info.Kind, skin.PartTrack, info.State, info.Class)
 	trackTint := effectiveTint(track, fallback)
 	trackRect := content
 	if trackRect.W == 0 || trackRect.H == 0 {
@@ -616,7 +616,7 @@ func (t *Theme) drawProgressBar(info core.WidgetInfo, value string, content core
 // drawProgressBarFill renders the proportional fill overlay for a progress bar.
 func (t *Theme) drawProgressBarFill(info core.WidgetInfo, trackRect core.Rect, amount float32) float32 {
 	amount = clamp01(amount)
-	fill, fillFallback := t.resolveDescriptor(info.Kind, skin.PartOverlay, info.State)
+	fill, fillFallback := t.resolveDescriptor(info.Kind, skin.PartOverlay, info.State, info.Class)
 	fillTint := effectiveTint(fill, fillFallback)
 	fillWidth := trackRect.W * amount
 	if fillWidth <= 0 {
@@ -631,7 +631,7 @@ func (t *Theme) drawProgressBarFill(info core.WidgetInfo, trackRect core.Rect, a
 // drawProgressSpark renders the ::spark marker centered on the fill edge.
 // Without a spark descriptor it draws nothing, preserving unskinned bars.
 func (t *Theme) drawProgressSpark(info core.WidgetInfo, track core.Rect, fillWidth float32) {
-	spark, fallback := t.resolveDescriptor(info.Kind, skin.PartSpark, info.State)
+	spark, fallback := t.resolveDescriptor(info.Kind, skin.PartSpark, info.State, info.Class)
 	if !hasTexture(spark, fallback) {
 		return
 	}

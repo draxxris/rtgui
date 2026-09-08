@@ -25,7 +25,7 @@ func (t *Theme) DrawRichText(info core.WidgetInfo, segments []core.RichSegment, 
 	if t == nil || len(segments) == 0 {
 		return
 	}
-	t.drawPart(info.Kind, skin.PartBackground, info.Bounds, info.State)
+	t.drawPart(info.Kind, skin.PartBackground, info.Bounds, info.State, info.Class)
 	if t.recorder != nil {
 		t.recorder.setLastWidgetInfo(info)
 	}
@@ -48,7 +48,7 @@ func (t *Theme) DrawRichTextLayout(info core.WidgetInfo, cache *RichLayoutCache,
 	if t == nil || cache == nil || cache.Len() == 0 {
 		return
 	}
-	t.drawPart(info.Kind, skin.PartBackground, info.Bounds, info.State)
+	t.drawPart(info.Kind, skin.PartBackground, info.Bounds, info.State, info.Class)
 	if t.recorder != nil {
 		t.recorder.setLastWidgetInfo(info)
 	}

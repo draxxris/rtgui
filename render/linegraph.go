@@ -29,7 +29,7 @@ func (t *Theme) DrawLineGraph(info core.WidgetInfo, graph *widgets.LineGraph) {
 	if t == nil || graph == nil {
 		return
 	}
-	t.drawPart(info.Kind, skin.PartBackground, info.Bounds, info.State)
+	t.drawPart(info.Kind, skin.PartBackground, info.Bounds, info.State, info.Class)
 	if t.recorder != nil {
 		t.recorder.setLastWidgetInfo(info)
 	}
@@ -57,8 +57,8 @@ func (t *Theme) DrawLineGraph(info core.WidgetInfo, graph *widgets.LineGraph) {
 
 // LineGraphPlot resolves the same skin-aware plot for drawing and nearest-point queries.
 func (t *Theme) LineGraphPlot(info core.WidgetInfo, graph *widgets.LineGraph) core.Rect {
-	background, _ := t.resolveDescriptor(info.Kind, skin.PartBackground, info.State)
-	border, _ := t.resolveDescriptor(info.Kind, skin.PartBorder, info.State)
+	background, _ := t.resolveDescriptor(info.Kind, skin.PartBackground, info.State, info.Class)
+	border, _ := t.resolveDescriptor(info.Kind, skin.PartBorder, info.State, info.Class)
 	return t.snap(graph.PlotRect(ContentRect(info.Bounds, background, border)))
 }
 

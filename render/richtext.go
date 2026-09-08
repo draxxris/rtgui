@@ -230,8 +230,8 @@ func (c *RichLayoutCache) UpdateSegments(theme *Theme, bounds core.Rect, segment
 // normal fallback and snaps when pixel snap is on. Callers must use this —
 // never raw message bounds — so wrapped, drawn, and hit rows always agree.
 // It is safe on a nil theme, where it returns the normalized bounds.
-func (t *Theme) RichContent(bounds core.Rect, state core.WidgetState) core.Rect {
-	return themeRichContent(t, bounds, state)
+func (t *Theme) RichContent(bounds core.Rect, state core.WidgetState, class ...string) core.Rect {
+	return themeRichContent(t, bounds, state, class...)
 }
 
 // LayoutRichSpans wraps segments into single-line fragments inside the
@@ -275,12 +275,12 @@ func RichSpanAt(spans []RichSpanLayout, pos core.Vec2) (RichSpanLayout, bool) {
 
 // themeRichContent resolves the skin-aware content rect without allocating.
 // It is nil-safe so caches keep working headless and with a nil theme.
-func themeRichContent(theme *Theme, bounds core.Rect, state core.WidgetState) core.Rect {
+func themeRichContent(theme *Theme, bounds core.Rect, state core.WidgetState, class ...string) core.Rect {
 	if theme == nil {
 		return bounds
 	}
-	background, _ := theme.resolveDescriptor(core.WidgetRichText, skin.PartBackground, state)
-	border, _ := theme.resolveDescriptor(core.WidgetRichText, skin.PartBorder, state)
+	background, _ := theme.resolveDescriptor(core.WidgetRichText, skin.PartBackground, state, class...)
+	border, _ := theme.resolveDescriptor(core.WidgetRichText, skin.PartBorder, state, class...)
 	return theme.snap(ContentRect(bounds, background, border))
 }
 

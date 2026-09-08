@@ -15,18 +15,18 @@ func (t *Theme) DrawTabBar(info core.WidgetInfo, labels []string, selected, hove
 	if t == nil || len(labels) == 0 {
 		return
 	}
-	t.drawPart(info.Kind, skin.PartBackground, info.Bounds, info.State)
+	t.drawPart(info.Kind, skin.PartBackground, info.Bounds, info.State, info.Class)
 	if t.recorder != nil {
 		t.recorder.setLastWidgetInfo(info)
 	}
-	content := t.TabContent(info.Bounds, info.State)
+	content := t.TabContent(info.Bounds, info.State, info.Class)
 	for index, label := range labels {
 		cell, ok := TabTabRect(content, len(labels), index)
 		if !ok {
 			continue
 		}
 		state := tabCellState(info.State, index, selected, hovered, pressed)
-		t.drawPart(info.Kind, skin.PartTab, cell, state)
+		t.drawPart(info.Kind, skin.PartTab, cell, state, info.Class)
 		t.drawTextInContent(info, label, cell, state)
 	}
 }

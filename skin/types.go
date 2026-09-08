@@ -106,10 +106,12 @@ const (
 	PartCaret
 )
 
-// SkinKey selects a descriptor by widget kind, part, and visual state.
+// SkinKey selects a descriptor by widget kind, class, part, and visual state.
 type SkinKey struct {
 	// Widget selects the widget kind.
 	Widget core.WidgetKind
+	// Class selects the CSS class variant; empty for base kind rules.
+	Class string
 	// Part selects the visual component.
 	Part SkinPart
 	// State selects the visual state.
@@ -132,6 +134,8 @@ type SkinDescriptor struct {
 	Tint core.Color
 	// Padding values add content insets in logical pixels.
 	PaddingLeft, PaddingTop, PaddingRight, PaddingBottom float32
+	// HasPadding reports whether padding values were explicitly declared.
+	HasPadding bool
 	// HasTexture reports whether Texture should be drawn.
 	HasTexture bool
 	// HasNinePatch reports whether NinePatch geometry should be used.
@@ -148,4 +152,39 @@ type SkinDescriptor struct {
 	Gradient LinearGradient
 	// HasGradient reports whether Gradient should be drawn.
 	HasGradient bool
+}
+
+// Overlay returns a copy of d with visual properties declared in other applied on top.
+func (d SkinDescriptor) Overlay(other SkinDescriptor) SkinDescriptor {
+	if other.HasTexture {
+		d.Texture = other.Texture
+		d.AtlasRegion = other.AtlasRegion
+		d.Tint = other.Tint
+		d.HasTexture = true
+	}
+	if other.HasNinePatch {
+		d.NinePatch = other.NinePatch
+		d.HasNinePatch = true
+		d.CenterFill = other.CenterFill
+	}
+	if other.HasThreePatch {
+		d.ThreePatch = other.ThreePatch
+		d.HasThreePatch = true
+	}
+	if other.HasBackgroundColor {
+		d.BackgroundColor = other.BackgroundColor
+		d.HasBackgroundColor = true
+	}
+	if other.HasGradient {
+		d.Gradient = other.Gradient
+		d.HasGradient = true
+	}
+	if other.HasPadding {
+		d.PaddingLeft = other.PaddingLeft
+		d.PaddingTop = other.PaddingTop
+		d.PaddingRight = other.PaddingRight
+		d.PaddingBottom = other.PaddingBottom
+		d.HasPadding = true
+	}
+	return d
 }

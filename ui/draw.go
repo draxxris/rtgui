@@ -84,7 +84,7 @@ func (u *UI) drawOne(widget widgets.Widget) {
 	info := widget.Snapshot(state)
 	u.theme.DrawControl(info, widgetText(widget), u.controlSegments(widget), val, chk)
 	if needsBorder(widget.Kind()) {
-		u.theme.DrawWidgetPart(widget.Kind(), skin.PartBorder, widget.Bounds(), state)
+		u.theme.DrawWidgetPart(widget.Kind(), skin.PartBorder, widget.Bounds(), state, widget.Class())
 	}
 	if dd, ok := widget.(*widgets.Dropdown); ok {
 		u.drawDropdownArrow(dd, state)
@@ -120,7 +120,7 @@ func (u *UI) drawScrollPanel(widget *widgets.ScrollPanel, state core.WidgetState
 	}
 	u.drawScrollbar(widget)
 	if needsBorder(widget.Kind()) {
-		u.theme.DrawWidgetPart(widget.Kind(), skin.PartBorder, widget.Bounds(), state)
+		u.theme.DrawWidgetPart(widget.Kind(), skin.PartBorder, widget.Bounds(), state, widget.Class())
 	}
 }
 
@@ -137,7 +137,7 @@ func (u *UI) drawTextbox(widget *widgets.Textbox, state core.WidgetState) {
 	showCaret := u.focused == widget && widget.Enabled()
 	u.theme.DrawTextbox(info, widget.Text(), widget.Caret(), selStart, selEnd, showCaret)
 	if needsBorder(widget.Kind()) {
-		u.theme.DrawWidgetPart(widget.Kind(), skin.PartBorder, widget.Bounds(), state)
+		u.theme.DrawWidgetPart(widget.Kind(), skin.PartBorder, widget.Bounds(), state, widget.Class())
 	}
 }
 
@@ -164,7 +164,7 @@ func (u *UI) visualState(widget widgets.Widget) core.WidgetState {
 func (u *UI) drawDropdownArrow(widget *widgets.Dropdown, state core.WidgetState) {
 	bounds := widget.Bounds()
 	arrow := core.Rect{X: bounds.X + bounds.W - 34, Y: bounds.Y + 7, W: 28, H: 28}
-	u.theme.DrawWidgetPart(widget.Kind(), skin.PartArrow, arrow, state)
+	u.theme.DrawWidgetPart(widget.Kind(), skin.PartArrow, arrow, state, widget.Class())
 }
 
 // dropdownPopupIndex resolves one skin-aware popup row under pos. The
@@ -237,13 +237,13 @@ func (u *UI) drawRichText(message *widgets.RichText, state core.WidgetState) {
 	if cache.Len() == 0 {
 		u.theme.DrawWidget(info, "", 0, false)
 		if needsBorder(message.Kind()) {
-			u.theme.DrawWidgetPart(message.Kind(), skin.PartBorder, message.Bounds(), state)
+			u.theme.DrawWidgetPart(message.Kind(), skin.PartBorder, message.Bounds(), state, message.Class())
 		}
 		return
 	}
 	u.theme.DrawRichTextLayout(info, cache, u.richHoverSeg(message))
 	if needsBorder(message.Kind()) {
-		u.theme.DrawWidgetPart(message.Kind(), skin.PartBorder, message.Bounds(), state)
+		u.theme.DrawWidgetPart(message.Kind(), skin.PartBorder, message.Bounds(), state, message.Class())
 	}
 }
 
@@ -266,13 +266,13 @@ func (u *UI) drawTabBar(bar *widgets.TabBar, state core.WidgetState) {
 	if len(labels) == 0 {
 		u.theme.DrawWidget(info, "", 0, false)
 		if needsBorder(bar.Kind()) {
-			u.theme.DrawWidgetPart(bar.Kind(), skin.PartBorder, bar.Bounds(), state)
+			u.theme.DrawWidgetPart(bar.Kind(), skin.PartBorder, bar.Bounds(), state, bar.Class())
 		}
 		return
 	}
 	u.theme.DrawTabBar(info, labels, bar.SelectedTab(), u.tabHoverIndex(bar), u.tabPressedIndex(bar))
 	if needsBorder(bar.Kind()) {
-		u.theme.DrawWidgetPart(bar.Kind(), skin.PartBorder, bar.Bounds(), state)
+		u.theme.DrawWidgetPart(bar.Kind(), skin.PartBorder, bar.Bounds(), state, bar.Class())
 	}
 }
 
@@ -322,7 +322,7 @@ func (u *UI) drawTooltipPopup() {
 func (u *UI) drawLineGraph(graph *widgets.LineGraph) {
 	state := u.visualState(graph)
 	u.theme.DrawLineGraph(graph.Snapshot(state), graph)
-	u.theme.DrawWidgetPart(graph.Kind(), skin.PartBorder, graph.Bounds(), state)
+	u.theme.DrawWidgetPart(graph.Kind(), skin.PartBorder, graph.Bounds(), state, graph.Class())
 }
 
 // tooltipPadding returns the maximum authored tooltip content inset so

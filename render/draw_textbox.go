@@ -31,12 +31,12 @@ var (
 // selection, caret drawing, and click mapping. It resolves background and
 // border with normal fallback and snaps when pixel snap is on. Callers must
 // use this — never raw textbox bounds — so drawn and hit rows always agree.
-func (t *Theme) TextboxContent(bounds core.Rect, state core.WidgetState) core.Rect {
+func (t *Theme) TextboxContent(bounds core.Rect, state core.WidgetState, class ...string) core.Rect {
 	if t == nil {
 		return bounds
 	}
-	background, _ := t.resolveDescriptor(core.WidgetTextbox, skin.PartBackground, state)
-	border, _ := t.resolveDescriptor(core.WidgetTextbox, skin.PartBorder, state)
+	background, _ := t.resolveDescriptor(core.WidgetTextbox, skin.PartBackground, state, class...)
+	border, _ := t.resolveDescriptor(core.WidgetTextbox, skin.PartBorder, state, class...)
 	return t.snap(ContentRect(bounds, background, border))
 }
 
@@ -48,8 +48,8 @@ func (t *Theme) DrawTextbox(info core.WidgetInfo, value string, caret, selStart,
 	if t == nil {
 		return
 	}
-	t.drawPart(info.Kind, skin.PartBackground, info.Bounds, info.State)
-	content := t.TextboxContent(info.Bounds, info.State)
+	t.drawPart(info.Kind, skin.PartBackground, info.Bounds, info.State, info.Class)
+	content := t.TextboxContent(info.Bounds, info.State, info.Class)
 	if t.recorder != nil {
 		t.recorder.setLastWidgetInfo(info)
 	}

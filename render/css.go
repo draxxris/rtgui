@@ -126,7 +126,7 @@ func mergeSkinRules(rules []skin.SkinRule) (map[skin.SkinKey]mergedRule, []skin.
 	merged := map[skin.SkinKey]mergedRule{}
 	var order []skin.SkinKey
 	for _, rule := range rules {
-		key := skin.SkinKey{Widget: rule.Kind, Part: rule.Part, State: rule.State}
+		key := skin.SkinKey{Widget: rule.Kind, Class: rule.Class, Part: rule.Part, State: rule.State}
 		entry, seen := merged[key]
 		if !seen {
 			order = append(order, key)
@@ -161,7 +161,7 @@ func inheritNormalRules(merged map[skin.SkinKey]mergedRule, order []skin.SkinKey
 		if key.State == core.StateNormal {
 			continue
 		}
-		base, ok := merged[skin.SkinKey{Widget: key.Widget, Part: key.Part, State: core.StateNormal}]
+		base, ok := merged[skin.SkinKey{Widget: key.Widget, Class: key.Class, Part: key.Part, State: core.StateNormal}]
 		if !ok {
 			continue
 		}
@@ -292,6 +292,7 @@ func (t *Theme) buildCSSDescriptor(key skin.SkinKey, entry mergedRule, base stri
 	if entry.hasPadding {
 		descriptor.PaddingTop, descriptor.PaddingRight = entry.padding[0], entry.padding[1]
 		descriptor.PaddingBottom, descriptor.PaddingLeft = entry.padding[2], entry.padding[3]
+		descriptor.HasPadding = true
 	}
 	if entry.hasBackgroundColor {
 		descriptor.BackgroundColor = entry.backgroundColor

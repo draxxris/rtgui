@@ -498,18 +498,29 @@ func newGallery(facade *ui.UI) *gallery {
 	g.progress.SetFormat("Progress: %.0f%%").SetFontSize(20).SetTextColor(core.Color{R: 235, G: 255, B: 240, A: 255})
 
 	// Direct callback attachment on widget instances replaces stringly registration:
+	buttonClasses := []string{"accent", "danger", ""}
+	buttonClassIdx := 0
+	g.button.SetClass(buttonClasses[buttonClassIdx])
 	g.button.OnClick(func() {
-		g.setStatus("Primary button clicked")
-	}).SetTooltip("Primary action — fires OnClick")
+		buttonClassIdx = (buttonClassIdx + 1) % len(buttonClasses)
+		cls := buttonClasses[buttonClassIdx]
+		g.button.SetClass(cls)
+		desc := cls
+		if desc == "" {
+			desc = "default"
+		}
+		g.setStatus(fmt.Sprintf("Primary button clicked — class set to %q", desc))
+	}).SetTooltip("Click to cycle class (accent -> danger -> default)")
 
 	g.checkbox.OnClick(func() {
 		g.button.SetEnabled(g.checkbox.Checked())
 		g.setStatus(fmt.Sprintf("Checkbox is %v; primary button enabled=%v", g.checkbox.Checked(), g.button.Enabled()))
 	})
 
+	g.frameButton.SetClass("danger")
 	g.frameButton.OnClick(func() {
-		g.setStatus("Frame child button clicked")
-	})
+		g.setStatus("Frame child button clicked (styled with .danger class)")
+	}).SetTooltip("Frame child styled with .danger class")
 
 	g.slider.OnChange(func(v float32) {
 		g.progress.SetValue(v)

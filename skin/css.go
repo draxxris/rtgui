@@ -25,6 +25,8 @@ import (
 type SkinRule struct {
 	// Kind is the widget kind selected by the CSS selector.
 	Kind core.WidgetKind
+	// Class is the CSS class variant name; empty for base kind rules.
+	Class string
 	// Part is the visual component selected by the CSS selector.
 	Part SkinPart
 	// State is the pseudo-class state selected by the CSS selector.
@@ -124,11 +126,11 @@ func ParseCSS(text string) ([]SkinRule, error) {
 	var rules []SkinRule
 	for _, rule := range sheet.GetCSSRuleList() {
 		selector := strings.TrimSpace(rule.Style.Selector.Text())
-		kind, partName, part, state, err := parseSelector(selector)
+		kind, className, partName, part, state, err := parseSelector(selector)
 		if err != nil {
 			return nil, err
 		}
-		block, err := parseBlock(selector, kind, part, partName != "", state, rule.Style.Styles)
+		block, err := parseBlock(selector, kind, className, part, partName != "", state, rule.Style.Styles)
 		if err != nil {
 			return nil, err
 		}
@@ -137,10 +139,54 @@ func ParseCSS(text string) ([]SkinRule, error) {
 	return rules, nil
 }
 
-// parseSelector splits Kind[::part][:pseudo] against the frozen vocabularies.
-// It returns the kind, the ::part name ("" when whole-widget), the resolved
-// part for declaration routing, and the state.
-func parseSelector(selector string) (core.WidgetKind, string, SkinPart, core.WidgetState, error) {
+// isValidClassName reports whether name conforms to standard CSS class identifier rules.
+func isValidClassName(name string) bool {
+	if name == "" {
+		return false
+	}
+	for i, r := range name {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || r == '_' || r == '-' {
+			continue
+		}
+		if i > 0 && (r >= '0' && r <= '9') {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+// parseKindAndClass extracts optional widget kind and optional class name from kindName.
+func parseKindAndClass(kindName, selector string) (core.WidgetKind, string, error) {
+	if dot := strings.Index(kindName, "."); dot >= 0 {
+		kName := kindName[:dot]
+		className := kindName[dot+1:]
+		if className == "" {
+			return 0, "", fmt.Errorf("skin: empty class in selector %q", selector)
+		}
+		if !isValidClassName(className) {
+			return 0, "", fmt.Errorf("skin: invalid class %q in selector %q", className, selector)
+		}
+		if kName == "" {
+			return core.WidgetAny, className, nil
+		}
+		k, ok := kindSelectors[kName]
+		if !ok {
+			return 0, "", fmt.Errorf("skin: unknown kind selector %q in %q", kName, selector)
+		}
+		return k, className, nil
+	}
+	k, ok := kindSelectors[kindName]
+	if !ok {
+		return 0, "", fmt.Errorf("skin: unknown kind selector %q", selector)
+	}
+	return k, "", nil
+}
+
+// parseSelector splits [Kind][.class][::part][:pseudo] against the frozen vocabularies.
+// It returns the kind, the class name ("" when unclassed), the ::part name ("" when whole-widget),
+// the resolved part for declaration routing, and the state.
+func parseSelector(selector string) (core.WidgetKind, string, string, SkinPart, core.WidgetState, error) {
 	rest := selector
 	kindName := rest
 	partName := ""
@@ -157,26 +203,30 @@ func parseSelector(selector string) (core.WidgetKind, string, SkinPart, core.Wid
 	} else {
 		rest = ""
 	}
-	kind, ok := kindSelectors[kindName]
-	if !ok {
-		return 0, "", 0, 0, fmt.Errorf("skin: unknown kind selector %q", selector)
+	kind, className, err := parseKindAndClass(kindName, selector)
+	if err != nil {
+		return 0, "", "", 0, 0, err
 	}
 	var part SkinPart
 	if partName != "" {
-		part, ok = partSelectors[partName]
+		p, ok := partSelectors[partName]
 		if !ok {
-			return 0, "", 0, 0, fmt.Errorf("skin: unknown part %q in selector %q", partName, selector)
+			return 0, "", "", 0, 0, fmt.Errorf("skin: unknown part %q in selector %q", partName, selector)
+		}
+		part = p
+		if kind == core.WidgetAny {
+			return 0, "", "", 0, 0, fmt.Errorf("skin: part %q requires a kind selector in %q", partName, selector)
 		}
 		allowed, ok := partAllowlist[kind]
 		if !ok || !allowed[partName] {
-			return 0, "", 0, 0, fmt.Errorf("skin: part %q not allowed on %q", partName, kindName)
+			return 0, "", "", 0, 0, fmt.Errorf("skin: part %q not allowed on %q", partName, kindName)
 		}
 	}
 	state, ok := pseudoSelectors[rest]
 	if !ok {
-		return 0, "", 0, 0, fmt.Errorf("skin: unknown pseudo-class %q in selector %q", rest, selector)
+		return 0, "", "", 0, 0, fmt.Errorf("skin: unknown pseudo-class %q in selector %q", rest, selector)
 	}
-	return kind, partName, part, state, nil
+	return kind, className, partName, part, state, nil
 }
 
 // resolveRuleTargets determines image, border, and padding target parts and permissions.
@@ -199,14 +249,14 @@ func resolveRuleTargets(kind core.WidgetKind, part SkinPart, hasPart bool) (imag
 // both looks and fan out to PartPopup and PartPopupBorder entries; other parts
 // take only background-image declarations, and only whole widgets and popup
 // parts take padding.
-func parseBlock(selector string, kind core.WidgetKind, part SkinPart, hasPart bool, state core.WidgetState, styles []*css.CSSStyleDeclaration) ([]SkinRule, error) {
+func parseBlock(selector string, kind core.WidgetKind, className string, part SkinPart, hasPart bool, state core.WidgetState, styles []*css.CSSStyleDeclaration) ([]SkinRule, error) {
 	byPart := map[SkinPart]*SkinRule{}
 	order := []SkinPart{}
 	take := func(part SkinPart) *SkinRule {
 		if entry, ok := byPart[part]; ok {
 			return entry
 		}
-		entry := &SkinRule{Kind: kind, Part: part, State: state}
+		entry := &SkinRule{Kind: kind, Class: className, Part: part, State: state}
 		byPart[part] = entry
 		order = append(order, part)
 		return entry

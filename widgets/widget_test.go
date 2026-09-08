@@ -294,3 +294,27 @@ func TestStyledLabelTypographyAndAlignment(t *testing.T) {
 		t.Fatalf("unexpected updated snapshot: %+v", snap2)
 	}
 }
+
+// TestWidgetClass verifies setting, reading, and clearing the CSS class variant.
+func TestWidgetClass(t *testing.T) {
+	btn := widgets.NewButton("testBtn", core.Rect{}, "Button")
+	if btn.Class() != "" {
+		t.Fatalf("initial class = %q, want empty", btn.Class())
+	}
+	btn.SetClass("danger")
+	if btn.Class() != "danger" {
+		t.Fatalf("class = %q, want danger", btn.Class())
+	}
+	snap := btn.Snapshot(core.StateNormal)
+	if snap.Class != "danger" {
+		t.Fatalf("snapshot class = %q, want danger", snap.Class)
+	}
+	btn.SetClass("")
+	if btn.Class() != "" {
+		t.Fatalf("cleared class = %q, want empty", btn.Class())
+	}
+	snap2 := btn.Snapshot(core.StateNormal)
+	if snap2.Class != "" {
+		t.Fatalf("snapshot class after clear = %q, want empty", snap2.Class)
+	}
+}
