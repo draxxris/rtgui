@@ -187,7 +187,6 @@ func main() {
 		}
 		log.Printf("skin texture cleanup complete")
 	}()
-	loadGalleryFonts(facade.Theme())
 	defer facade.Theme().UnloadFonts()
 
 	g := newGallery(facade)
@@ -332,28 +331,6 @@ func createPlaceholderScreenshot(path string) error {
 	}
 	defer f.Close()
 	return png.Encode(f, img)
-}
-
-// loadGalleryFonts loads the checked-in Grenze TTFs into the theme.
-// Widget text uses Grenze-Regular via drawTextInContent; captions and the
-// status line use Grenze-Italic through the gallery draw helpers.
-func loadGalleryFonts(theme *render.Theme) {
-	fonts := []struct {
-		file string
-		load func(string) error
-	}{
-		{"Grenze-Regular.ttf", theme.LoadFont},
-		{"Grenze-Italic.ttf", theme.LoadItalicFont},
-	}
-	for _, f := range fonts {
-		path := findFontFile(f.file)
-		if path == "" {
-			log.Fatalf("gallery font not found; expected testdata/fonts/%s (searched cwd and exe parents)", f.file)
-		}
-		if err := f.load(path); err != nil {
-			log.Fatalf("could not load gallery font %q: %v", path, err)
-		}
-	}
 }
 
 // findFontFile locates a checked-in gallery font, honoring RTG_FONT_DIR first.

@@ -3,10 +3,10 @@
 // SkinRules without touching GL, so everything here is unit-testable without
 // a display. Texture upload and registry writes live in render/css.go.
 //
-// Supported grammar: Kind[::part][:pseudo] selectors with a closed property
-// set (border-image-source, border-image-slice, background-image,
-// background-image-tint, background-color, border-image-source-tint, padding).
-// Anything else is a hard error, never a silent skip.
+// Supported grammar: Kind[::part][:pseudo] and * selectors with properties
+// (border-image-source, border-image-slice, background-image, background-image-tint,
+// background-color, border-image-source-tint, padding, color, font-size,
+// font-family, font-italic-family). Anything else is a hard error.
 package skin
 
 import (
@@ -61,6 +61,26 @@ type SkinRule struct {
 	Gradient LinearGradient
 	// HasGradient reports whether Gradient was declared.
 	HasGradient bool
+
+	// Font stores the font-family specification (url path or face name).
+	Font string
+	// HasFont reports whether Font was declared.
+	HasFont bool
+
+	// ItalicFont stores the font-italic-family specification (url path or face name).
+	ItalicFont string
+	// HasItalicFont reports whether ItalicFont was declared.
+	HasItalicFont bool
+
+	// FontSize is the authored font size in pixels.
+	FontSize float32
+	// HasFontSize reports whether FontSize was declared.
+	HasFontSize bool
+
+	// TextColor is the authored text color.
+	TextColor core.Color
+	// HasTextColor reports whether TextColor was declared.
+	HasTextColor bool
 }
 
 // kindSelectors maps CSS kind spellings to widget kinds. Exact case.
@@ -167,7 +187,7 @@ func parseKindAndClass(kindName, selector string) (core.WidgetKind, string, erro
 		if !isValidClassName(className) {
 			return 0, "", fmt.Errorf("skin: invalid class %q in selector %q", className, selector)
 		}
-		if kName == "" {
+		if kName == "" || kName == "*" {
 			return core.WidgetAny, className, nil
 		}
 		k, ok := kindSelectors[kName]
@@ -175,6 +195,9 @@ func parseKindAndClass(kindName, selector string) (core.WidgetKind, string, erro
 			return 0, "", fmt.Errorf("skin: unknown kind selector %q in %q", kName, selector)
 		}
 		return k, className, nil
+	}
+	if kindName == "*" {
+		return core.WidgetAny, "", nil
 	}
 	k, ok := kindSelectors[kindName]
 	if !ok {
@@ -287,6 +310,10 @@ func parseBlock(selector string, kind core.WidgetKind, className string, part Sk
 			}
 			entry := take(paddingTarget)
 			entry.Padding, entry.HasPadding = padding, true
+		case "color", "font-size", "font-family", "font-italic-family":
+			if err := applyTextProp(take(imageTarget), selector, property, value); err != nil {
+				return nil, err
+			}
 		default:
 			return nil, fmt.Errorf("skin: unsupported property %q in %q (LOOK-only subset)", property, selector)
 		}
@@ -367,6 +394,63 @@ func applyBorderProp(entry *SkinRule, selector, property, value string) error {
 		}
 		entry.Slice, entry.HasSlice = slice, true
 		return nil
+	}
+}
+
+// applyTextProp stores color, font-size, font-family, or font-italic-family on entry.
+func applyTextProp(entry *SkinRule, selector, property, value string) error {
+	switch property {
+	case "color":
+		col, err := parseTint(selector, property, value)
+		if err != nil {
+			return err
+		}
+		entry.TextColor, entry.HasTextColor = col, true
+		return nil
+	case "font-size":
+		size, err := parsePixels(selector, property, value, false)
+		if err != nil {
+			return err
+		}
+		if size <= 0 {
+			return fmt.Errorf("skin: font-size in %q must be positive, got %q", selector, value)
+		}
+		entry.FontSize, entry.HasFontSize = float32(size), true
+		return nil
+	case "font-family":
+		trimmed := strings.TrimSpace(value)
+		if strings.HasPrefix(strings.ToLower(trimmed), "url(") {
+			urlPath, err := extractURL(selector, property, value)
+			if err != nil {
+				return err
+			}
+			entry.Font, entry.HasFont = urlPath, true
+			return nil
+		}
+		name := strings.Trim(trimmed, "\"'")
+		if name == "" {
+			return fmt.Errorf("skin: %s in %q cannot be empty", property, selector)
+		}
+		entry.Font, entry.HasFont = name, true
+		return nil
+	case "font-italic-family":
+		trimmed := strings.TrimSpace(value)
+		if strings.HasPrefix(strings.ToLower(trimmed), "url(") {
+			urlPath, err := extractURL(selector, property, value)
+			if err != nil {
+				return err
+			}
+			entry.ItalicFont, entry.HasItalicFont = urlPath, true
+			return nil
+		}
+		name := strings.Trim(trimmed, "\"'")
+		if name == "" {
+			return fmt.Errorf("skin: %s in %q cannot be empty", property, selector)
+		}
+		entry.ItalicFont, entry.HasItalicFont = name, true
+		return nil
+	default:
+		return fmt.Errorf("skin: unknown text property %q in %q", property, selector)
 	}
 }
 

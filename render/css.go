@@ -10,6 +10,7 @@ import (
 	_ "image/png" // Register PNG decoding for CSS asset validation.
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/draxxris/rtgui/core"
 	"github.com/draxxris/rtgui/skin"
@@ -64,6 +65,14 @@ type mergedRule struct {
 	hasBackgroundColor bool
 	gradient           skin.LinearGradient
 	hasGradient        bool
+	font               string
+	hasFont            bool
+	italicFont         string
+	hasItalicFont      bool
+	fontSize           float32
+	hasFontSize        bool
+	textColor          core.Color
+	hasTextColor       bool
 }
 
 type cssImage struct {
@@ -92,6 +101,9 @@ func (t *Theme) LoadCSSFile(cssPath, assetDir string) error {
 		return err
 	}
 	merged, order := mergeSkinRules(rules)
+	if err := t.loadCSSFonts(base, merged, order); err != nil {
+		return err
+	}
 	images, imageOrder, err := loadRuleImages(base, merged, order)
 	if err != nil {
 		return err
@@ -149,6 +161,18 @@ func mergeSkinRules(rules []skin.SkinRule) (map[skin.SkinKey]mergedRule, []skin.
 		if rule.HasGradient {
 			entry.gradient, entry.hasGradient = rule.Gradient, true
 		}
+		if rule.HasFont {
+			entry.font, entry.hasFont = rule.Font, true
+		}
+		if rule.HasItalicFont {
+			entry.italicFont, entry.hasItalicFont = rule.ItalicFont, true
+		}
+		if rule.HasFontSize {
+			entry.fontSize, entry.hasFontSize = rule.FontSize, true
+		}
+		if rule.HasTextColor {
+			entry.textColor, entry.hasTextColor = rule.TextColor, true
+		}
 		merged[key] = entry
 	}
 	inheritNormalRules(merged, order)
@@ -166,25 +190,47 @@ func inheritNormalRules(merged map[skin.SkinKey]mergedRule, order []skin.SkinKey
 			continue
 		}
 		entry := merged[key]
-		if !entry.hasImage {
-			entry.image, entry.hasImage = base.image, base.hasImage
-		}
-		if !entry.hasSlice {
-			entry.slice, entry.hasSlice = base.slice, base.hasSlice
-		}
-		if !entry.hasTint {
-			entry.tint, entry.hasTint = base.tint, base.hasTint
-		}
-		if !entry.hasPadding {
-			entry.padding, entry.hasPadding = base.padding, base.hasPadding
-		}
-		if !entry.hasBackgroundColor {
-			entry.backgroundColor, entry.hasBackgroundColor = base.backgroundColor, base.hasBackgroundColor
-		}
-		if !entry.hasGradient {
-			entry.gradient, entry.hasGradient = base.gradient, base.hasGradient
-		}
+		inheritNormalVisuals(&entry, base)
+		inheritNormalText(&entry, base)
 		merged[key] = entry
+	}
+}
+
+// inheritNormalVisuals copies omitted visual declarations from the normal-state rule.
+func inheritNormalVisuals(entry *mergedRule, base mergedRule) {
+	if !entry.hasImage {
+		entry.image, entry.hasImage = base.image, base.hasImage
+	}
+	if !entry.hasSlice {
+		entry.slice, entry.hasSlice = base.slice, base.hasSlice
+	}
+	if !entry.hasTint {
+		entry.tint, entry.hasTint = base.tint, base.hasTint
+	}
+	if !entry.hasPadding {
+		entry.padding, entry.hasPadding = base.padding, base.hasPadding
+	}
+	if !entry.hasBackgroundColor {
+		entry.backgroundColor, entry.hasBackgroundColor = base.backgroundColor, base.hasBackgroundColor
+	}
+	if !entry.hasGradient {
+		entry.gradient, entry.hasGradient = base.gradient, base.hasGradient
+	}
+}
+
+// inheritNormalText copies omitted text and font declarations from the normal-state rule.
+func inheritNormalText(entry *mergedRule, base mergedRule) {
+	if !entry.hasFont {
+		entry.font, entry.hasFont = base.font, base.hasFont
+	}
+	if !entry.hasItalicFont {
+		entry.italicFont, entry.hasItalicFont = base.italicFont, base.hasItalicFont
+	}
+	if !entry.hasFontSize {
+		entry.fontSize, entry.hasFontSize = base.fontSize, base.hasFontSize
+	}
+	if !entry.hasTextColor {
+		entry.textColor, entry.hasTextColor = base.textColor, base.hasTextColor
 	}
 }
 
@@ -302,7 +348,60 @@ func (t *Theme) buildCSSDescriptor(key skin.SkinKey, entry mergedRule, base stri
 		descriptor.Gradient = entry.gradient
 		descriptor.HasGradient = true
 	}
+	applyDescriptorText(&descriptor, entry)
 	return descriptor, nil
+}
+
+// applyDescriptorText populates optional text styling from merged rule declarations.
+func applyDescriptorText(descriptor *skin.SkinDescriptor, entry mergedRule) {
+	if entry.hasTextColor {
+		descriptor.TextColor = entry.textColor
+		descriptor.HasTextColor = true
+	}
+	if entry.hasFontSize {
+		descriptor.FontSize = entry.fontSize
+		descriptor.HasFontSize = true
+	}
+	if entry.hasFont {
+		descriptor.Font = entry.font
+		descriptor.HasFont = true
+	}
+	if entry.hasItalicFont {
+		descriptor.ItalicFont = entry.italicFont
+		descriptor.HasItalicFont = true
+	}
+}
+
+// loadCSSFonts loads any TTF/OTF font files authored in CSS font-family or font-italic-family rules.
+func (t *Theme) loadCSSFonts(base string, merged map[skin.SkinKey]mergedRule, order []skin.SkinKey) error {
+	for _, key := range order {
+		entry := merged[key]
+		if entry.hasFont && isFontFilePath(entry.font) {
+			path := entry.font
+			if !filepath.IsAbs(path) {
+				path = filepath.Join(base, path)
+			}
+			if err := t.LoadFont(path); err != nil {
+				return fmt.Errorf("render: load font %q: %w", entry.font, err)
+			}
+		}
+		if entry.hasItalicFont && isFontFilePath(entry.italicFont) {
+			path := entry.italicFont
+			if !filepath.IsAbs(path) {
+				path = filepath.Join(base, path)
+			}
+			if err := t.LoadItalicFont(path); err != nil {
+				return fmt.Errorf("render: load italic font %q: %w", entry.italicFont, err)
+			}
+		}
+	}
+	return nil
+}
+
+// isFontFilePath reports whether value looks like a file path to a font rather than a font face name.
+func isFontFilePath(value string) bool {
+	ext := strings.ToLower(filepath.Ext(value))
+	return ext == ".ttf" || ext == ".otf" || strings.Contains(value, "/") || strings.Contains(value, "\\")
 }
 
 // cssTint returns exact authored tint or explicit no-tint opaque white.

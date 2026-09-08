@@ -120,15 +120,14 @@ func (t *Theme) GetSkinPart(key skin.SkinKey) (skin.SkinDescriptor, error) {
 	return skin.SkinDescriptor{}, core.StatusMissingSkin
 }
 
-// lookupBase resolves exact CSS, normal CSS, exact programmatic, then normal
-// programmatic descriptors for the base widget kind (without class).
-func (t *Theme) lookupBase(kind core.WidgetKind, part skin.SkinPart, state core.WidgetState) (skin.SkinDescriptor, bool) {
-	key := skin.SkinKey{Widget: kind, Part: part, State: state}
+// lookupExactOrNormal checks CSS state, CSS normal, programmatic state, and programmatic normal for the given key.
+func (t *Theme) lookupExactOrNormal(kind core.WidgetKind, class string, part skin.SkinPart, state core.WidgetState) (skin.SkinDescriptor, bool) {
+	key := skin.SkinKey{Widget: kind, Class: class, Part: part, State: state}
 	if descriptor, ok := t.css.Get(key); ok {
 		return descriptor, true
 	}
 	if state != core.StateNormal {
-		normal := skin.SkinKey{Widget: kind, Part: part, State: core.StateNormal}
+		normal := skin.SkinKey{Widget: kind, Class: class, Part: part, State: core.StateNormal}
 		if descriptor, ok := t.css.Get(normal); ok {
 			return descriptor, true
 		}
@@ -145,34 +144,40 @@ func (t *Theme) lookupBase(kind core.WidgetKind, part skin.SkinPart, state core.
 	return skin.SkinDescriptor{}, false
 }
 
-// lookupClass searches for a class descriptor in specificity order:
-// Kind.class:state, Kind.class:normal, .class:state, .class:normal.
+// lookupBase resolves universal '*' rules overlaid with kind-specific rules.
+func (t *Theme) lookupBase(kind core.WidgetKind, part skin.SkinPart, state core.WidgetState) (skin.SkinDescriptor, bool) {
+	anyDesc, anyFound := t.lookupExactOrNormal(core.WidgetAny, "", part, state)
+	if kind == core.WidgetAny {
+		return anyDesc, anyFound
+	}
+	kindDesc, kindFound := t.lookupExactOrNormal(kind, "", part, state)
+	if anyFound && kindFound {
+		return anyDesc.Overlay(kindDesc), true
+	}
+	if kindFound {
+		return kindDesc, true
+	}
+	return anyDesc, anyFound
+}
+
+// lookupClass searches for a class descriptor in specificity order (.class overlaid with Kind.class).
 func (t *Theme) lookupClass(kind core.WidgetKind, class string, part skin.SkinPart, state core.WidgetState) (skin.SkinDescriptor, bool) {
 	if class == "" {
 		return skin.SkinDescriptor{}, false
 	}
-	candidates := [4]skin.SkinKey{
-		{Widget: kind, Class: class, Part: part, State: state},
-		{Widget: kind, Class: class, Part: part, State: core.StateNormal},
-		{Widget: core.WidgetAny, Class: class, Part: part, State: state},
-		{Widget: core.WidgetAny, Class: class, Part: part, State: core.StateNormal},
+	anyDesc, anyFound := t.lookupExactOrNormal(core.WidgetAny, class, part, state)
+	kindDesc, kindFound := t.lookupExactOrNormal(kind, class, part, state)
+	if anyFound && kindFound {
+		return anyDesc.Overlay(kindDesc), true
 	}
-	for _, k := range candidates {
-		if descriptor, ok := t.css.Get(k); ok {
-			return descriptor, true
-		}
+	if kindFound {
+		return kindDesc, true
 	}
-	for _, k := range candidates {
-		if descriptor, ok := t.programmatic.Get(k); ok {
-			return descriptor, true
-		}
-	}
-	return skin.SkinDescriptor{}, false
+	return anyDesc, anyFound
 }
 
-// Lookup resolves exact CSS, normal CSS, exact programmatic, then normal
-// programmatic descriptors in that order. When class is specified, matching
-// class rules overlay onto the base descriptor.
+// Lookup resolves descriptors in CSS specificity order: * -> WidgetName -> .class -> WidgetName.class.
+// Each level overlays onto lower-specificity properties.
 func (t *Theme) Lookup(kind core.WidgetKind, part skin.SkinPart, state core.WidgetState, class ...string) (skin.SkinDescriptor, bool) {
 	if t == nil {
 		return skin.SkinDescriptor{}, false

@@ -5,6 +5,13 @@
    PartCheckmark; plain Checkbox has no background by design. Frame:focus is
    the container-focus glow that scopes the gallery R/T hotkeys. */
 
+/* Universal selector: global default font-family, italic family, and default text color */
+* {
+    font-family: url("../fonts/Grenze-Regular.ttf");
+    font-italic-family: url("../fonts/Grenze-Italic.ttf");
+    color: #e6f0ff;
+}
+
 Button {
     background-color: #1a2639;
     background-image: linear-gradient(to bottom, #2b3d54, #141c28);

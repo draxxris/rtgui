@@ -152,6 +152,22 @@ type SkinDescriptor struct {
 	Gradient LinearGradient
 	// HasGradient reports whether Gradient should be drawn.
 	HasGradient bool
+	// TextColor stores the authored text color when HasTextColor is true.
+	TextColor core.Color
+	// HasTextColor reports whether TextColor was explicitly declared.
+	HasTextColor bool
+	// FontSize stores the authored font size in pixels when HasFontSize is true.
+	FontSize float32
+	// HasFontSize reports whether FontSize was explicitly declared.
+	HasFontSize bool
+	// Font stores the font face name or font file path when HasFont is true.
+	Font string
+	// HasFont reports whether Font was explicitly declared.
+	HasFont bool
+	// ItalicFont stores the accent/italic font path when HasItalicFont is true.
+	ItalicFont string
+	// HasItalicFont reports whether ItalicFont was explicitly declared.
+	HasItalicFont bool
 }
 
 // Overlay returns a copy of d with visual properties declared in other applied on top.
@@ -185,6 +201,22 @@ func (d SkinDescriptor) Overlay(other SkinDescriptor) SkinDescriptor {
 		d.PaddingRight = other.PaddingRight
 		d.PaddingBottom = other.PaddingBottom
 		d.HasPadding = true
+	}
+	if other.HasTextColor {
+		d.TextColor = other.TextColor
+		d.HasTextColor = true
+	}
+	if other.HasFontSize {
+		d.FontSize = other.FontSize
+		d.HasFontSize = true
+	}
+	if other.HasFont {
+		d.Font = other.Font
+		d.HasFont = true
+	}
+	if other.HasItalicFont {
+		d.ItalicFont = other.ItalicFont
+		d.HasItalicFont = true
 	}
 	return d
 }

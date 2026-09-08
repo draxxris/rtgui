@@ -625,3 +625,133 @@ func assertDrawWidgetWithClass(t *testing.T, theme *Theme) {
 		t.Fatalf("expected red tint for danger button, got: %v", calls[0].Tint)
 	}
 }
+
+// TestUniversalSelectorAndFontLoading verifies universal * cascade and CSS font loading.
+func TestUniversalSelectorAndFontLoading(t *testing.T) {
+	theme := setupUniversalTestTheme(t)
+
+	t.Run("FontsLoaded", func(t *testing.T) {
+		assertFontsLoaded(t, theme)
+	})
+	t.Run("UniversalDefaultOnLabel", func(t *testing.T) {
+		assertUniversalLabel(t, theme)
+	})
+	t.Run("KindOverrideOnButton", func(t *testing.T) {
+		assertKindButton(t, theme)
+	})
+	t.Run("ClassOverrideOnLabel", func(t *testing.T) {
+		assertClassLabel(t, theme)
+	})
+	t.Run("ScopedClassOverrideOnButton", func(t *testing.T) {
+		assertScopedButton(t, theme)
+	})
+}
+
+// setupUniversalTestTheme initializes a theme loaded with universal selector CSS and fonts.
+func setupUniversalTestTheme(t *testing.T) *Theme {
+	directory := t.TempDir()
+	cssText := `
+		* {
+			background-color: #101010;
+			color: #eeeeee;
+			font-size: 20;
+			font-family: url("../fonts/Grenze-Regular.ttf");
+			font-italic-family: url("../fonts/Grenze-Italic.ttf");
+			padding: 4;
+		}
+		Button {
+			background-color: #202020;
+			padding: 8;
+		}
+		.danger {
+			color: #ff0000;
+		}
+		Button.danger {
+			background-color: #990000;
+		}
+	`
+	cssPath := writeCSS(t, directory, cssText)
+	theme := newFakeTheme(&fakeTextureBackend{isReady: false})
+	if err := theme.LoadCSSFile(cssPath, "../testdata/skins"); err != nil {
+		t.Fatalf("LoadCSSFile failed: %v", err)
+	}
+	return theme
+}
+
+// assertFontsLoaded checks that CSS font-family and font-italic-family were registered.
+func assertFontsLoaded(t *testing.T, theme *Theme) {
+	if !theme.HasFont() {
+		t.Fatal("expected theme.HasFont() to be true after loading CSS font-family")
+	}
+	if !theme.HasItalicFont() {
+		t.Fatal("expected theme.HasItalicFont() to be true after loading CSS font-italic-family")
+	}
+}
+
+// assertUniversalLabel checks universal property inheritance on an unstyled widget kind.
+func assertUniversalLabel(t *testing.T, theme *Theme) {
+	desc, ok := theme.Lookup(core.WidgetLabel, skin.PartBackground, core.StateNormal)
+	if !ok {
+		t.Fatal("expected lookup for WidgetLabel to succeed via universal selector")
+	}
+	if desc.BackgroundColor != (core.Color{R: 0x10, G: 0x10, B: 0x10, A: 0xFF}) {
+		t.Errorf("label background mismatch: got %+v", desc.BackgroundColor)
+	}
+	if desc.TextColor != (core.Color{R: 0xEE, G: 0xEE, B: 0xEE, A: 0xFF}) {
+		t.Errorf("label text color mismatch: got %+v", desc.TextColor)
+	}
+	if desc.FontSize != 20 || desc.PaddingLeft != 4 {
+		t.Errorf("label font size/padding mismatch: size=%v pad=%v", desc.FontSize, desc.PaddingLeft)
+	}
+}
+
+// assertKindButton checks element kind overrides onto universal selector defaults.
+func assertKindButton(t *testing.T, theme *Theme) {
+	desc, ok := theme.Lookup(core.WidgetButton, skin.PartBackground, core.StateNormal)
+	if !ok {
+		t.Fatal("expected lookup for WidgetButton to succeed")
+	}
+	if desc.BackgroundColor != (core.Color{R: 0x20, G: 0x20, B: 0x20, A: 0xFF}) {
+		t.Errorf("button background mismatch: got %+v", desc.BackgroundColor)
+	}
+	if desc.PaddingLeft != 8 {
+		t.Errorf("button padding mismatch: got %v", desc.PaddingLeft)
+	}
+	if desc.TextColor != (core.Color{R: 0xEE, G: 0xEE, B: 0xEE, A: 0xFF}) {
+		t.Errorf("button inherited text color mismatch: got %+v", desc.TextColor)
+	}
+	if desc.FontSize != 20 {
+		t.Errorf("button inherited font size mismatch: got %v", desc.FontSize)
+	}
+}
+
+// assertClassLabel checks universal class overrides on an element kind.
+func assertClassLabel(t *testing.T, theme *Theme) {
+	desc, ok := theme.Lookup(core.WidgetLabel, skin.PartBackground, core.StateNormal, "danger")
+	if !ok {
+		t.Fatal("expected lookup for WidgetLabel.danger to succeed")
+	}
+	if desc.TextColor != (core.Color{R: 0xFF, G: 0x00, B: 0x00, A: 0xFF}) {
+		t.Errorf("label.danger text color mismatch: got %+v", desc.TextColor)
+	}
+	if desc.BackgroundColor != (core.Color{R: 0x10, G: 0x10, B: 0x10, A: 0xFF}) {
+		t.Errorf("label.danger background mismatch: got %+v", desc.BackgroundColor)
+	}
+}
+
+// assertScopedButton checks kind-scoped class overrides in the full cascade.
+func assertScopedButton(t *testing.T, theme *Theme) {
+	desc, ok := theme.Lookup(core.WidgetButton, skin.PartBackground, core.StateNormal, "danger")
+	if !ok {
+		t.Fatal("expected lookup for WidgetButton.danger to succeed")
+	}
+	if desc.BackgroundColor != (core.Color{R: 0x99, G: 0x00, B: 0x00, A: 0xFF}) {
+		t.Errorf("button.danger background mismatch: got %+v", desc.BackgroundColor)
+	}
+	if desc.TextColor != (core.Color{R: 0xFF, G: 0x00, B: 0x00, A: 0xFF}) {
+		t.Errorf("button.danger text color mismatch: got %+v", desc.TextColor)
+	}
+	if desc.PaddingLeft != 8 || desc.FontSize != 20 {
+		t.Errorf("button.danger padding/size mismatch: pad=%v size=%v", desc.PaddingLeft, desc.FontSize)
+	}
+}

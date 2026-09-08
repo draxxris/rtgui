@@ -264,6 +264,11 @@ func widgetTextOrigin(content core.Rect) (int32, float32, float32) {
 // textLayout computes the font size and origin for widget text considering explicit size and alignment.
 func (t *Theme) textLayout(info core.WidgetInfo, value string, content core.Rect) (float32, float32, float32) {
 	fontSize := info.FontSize
+	if fontSize <= 0 && t != nil {
+		if desc, ok := t.Lookup(info.Kind, skin.PartBackground, info.State, info.Class); ok && desc.HasFontSize && desc.FontSize > 0 {
+			fontSize = desc.FontSize
+		}
+	}
 	if fontSize <= 0 {
 		autoSize, defX, defY := widgetTextOrigin(content)
 		if info.Align == core.AlignLeft {
@@ -307,9 +312,34 @@ func (t *Theme) drawTextInContent(info core.WidgetInfo, value string, content co
 		return
 	}
 	fontSize, x, y := t.textLayout(info, value, content)
-	textColor := defaultWidgetTextColor(info, state)
+	desc, _ := t.Lookup(info.Kind, skin.PartBackground, state, info.Class)
+	textColor := t.resolveWidgetTextColor(info, state, desc)
 	t.logDrawCall(info.Kind, skin.PartText, state, content, content, skin.SkinDescriptor{}, textColor, false)
+	if desc.HasFont && t != nil && t.HasNamedFont(desc.Font) && rl.IsWindowReady() {
+		face := t.namedFonts[desc.Font]
+		rl.DrawTextEx(face.forSize(fontSize), value, rl.NewVector2(x, y), fontSize, fontSize/10, textColor)
+		return
+	}
 	t.DrawText(value, x, y, fontSize, info.Italic, textColor)
+}
+
+// resolveWidgetTextColor resolves the text tint from explicit widget color, CSS color, or state default.
+func (t *Theme) resolveWidgetTextColor(info core.WidgetInfo, state core.WidgetState, desc skin.SkinDescriptor) color.RGBA {
+	if info.HasTextColor {
+		base := info.TextColor.RGBA()
+		if state == core.StateDisabled {
+			return color.RGBA{R: base.R / 2, G: base.G / 2, B: base.B / 2, A: base.A}
+		}
+		return base
+	}
+	if desc.HasTextColor {
+		base := desc.TextColor.RGBA()
+		if state == core.StateDisabled {
+			return color.RGBA{R: base.R / 2, G: base.G / 2, B: base.B / 2, A: base.A}
+		}
+		return base
+	}
+	return defaultWidgetTextColor(info, state)
 }
 
 // defaultWidgetTextColor resolves the text tint from explicit widget color or state default.

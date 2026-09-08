@@ -348,3 +348,99 @@ func TestParseCSSClassErrors(t *testing.T) {
 		}
 	}
 }
+
+// TestParseCSSUniversalSelector verifies '*' and '*:pseudo' selectors parse to WidgetAny with empty class.
+func TestParseCSSUniversalSelector(t *testing.T) {
+	cases := []struct {
+		css       string
+		wantKind  core.WidgetKind
+		wantClass string
+		wantState core.WidgetState
+	}{
+		{"* { padding: 4; }", core.WidgetAny, "", core.StateNormal},
+		{"*:hover { padding: 6; }", core.WidgetAny, "", core.StateHovered},
+		{"*:active { padding: 2; }", core.WidgetAny, "", core.StatePressed},
+		{"*.danger { padding: 8; }", core.WidgetAny, "danger", core.StateNormal},
+	}
+	for _, tc := range cases {
+		rules, err := ParseCSS(tc.css)
+		if err != nil {
+			t.Fatalf("%s: %v", tc.css, err)
+		}
+		if len(rules) == 0 {
+			t.Fatalf("%s: no rules parsed", tc.css)
+		}
+		if rules[0].Kind != tc.wantKind || rules[0].Class != tc.wantClass || rules[0].State != tc.wantState {
+			t.Fatalf("%s: got kind=%v class=%q state=%v, want kind=%v class=%q state=%v",
+				tc.css, rules[0].Kind, rules[0].Class, rules[0].State, tc.wantKind, tc.wantClass, tc.wantState)
+		}
+	}
+}
+
+// TestParseCSSTextAndFontProperties verifies color, font-size, font-family, and font-italic-family declarations.
+func TestParseCSSTextAndFontProperties(t *testing.T) {
+	cssText := `
+		* {
+			color: #aabbcc;
+			font-size: 18px;
+			font-family: url("../fonts/Custom.ttf");
+			font-italic-family: url("../fonts/Custom-Italic.ttf");
+		}
+		Button {
+			font-family: "ValleySans";
+			color: #11223344;
+		}
+	`
+	rules, err := ParseCSS(cssText)
+	if err != nil {
+		t.Fatalf("ParseCSS failed: %v", err)
+	}
+	if len(rules) < 2 {
+		t.Fatalf("expected at least 2 rules, got %d", len(rules))
+	}
+	assertUniversalTextRule(t, rules[0])
+	assertButtonTextRule(t, rules[1])
+}
+
+// assertUniversalTextRule checks parsed declarations for the universal selector rule.
+func assertUniversalTextRule(t *testing.T, r SkinRule) {
+	if !r.HasTextColor || r.TextColor != (core.Color{R: 0xaa, G: 0xbb, B: 0xcc, A: 0xff}) {
+		t.Errorf("r0 text color mismatch: %+v", r)
+	}
+	if !r.HasFontSize || r.FontSize != 18 {
+		t.Errorf("r0 font size mismatch: %+v", r)
+	}
+	if !r.HasFont || r.Font != "../fonts/Custom.ttf" {
+		t.Errorf("r0 font mismatch: %+v", r)
+	}
+	if !r.HasItalicFont || r.ItalicFont != "../fonts/Custom-Italic.ttf" {
+		t.Errorf("r0 italic font mismatch: %+v", r)
+	}
+}
+
+// assertButtonTextRule checks parsed declarations for the Button text rule.
+func assertButtonTextRule(t *testing.T, r SkinRule) {
+	if !r.HasFont || r.Font != "ValleySans" {
+		t.Errorf("r1 font mismatch: %+v", r)
+	}
+	if !r.HasTextColor || r.TextColor != (core.Color{R: 0x11, G: 0x22, B: 0x33, A: 0x44}) {
+		t.Errorf("r1 text color mismatch: %+v", r)
+	}
+}
+
+// TestParseCSSTextPropertyErrors verifies errors on invalid text or font syntax.
+func TestParseCSSTextPropertyErrors(t *testing.T) {
+	cases := []string{
+		`*::part { color: #fff; }`,
+		`* { font-size: -5px; }`,
+		`* { font-size: 0; }`,
+		`* { font-size: abc; }`,
+		`* { font-family: ""; }`,
+		`* { color: not-a-color; }`,
+	}
+	for _, text := range cases {
+		if _, err := ParseCSS(text); err == nil {
+			t.Fatalf("expected error for %q", text)
+		}
+	}
+}
