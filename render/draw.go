@@ -11,10 +11,13 @@ import (
 )
 
 // effectiveTint returns either the fixed fallback tint or the descriptor's
-// exact RGBA tint. Zero descriptor tint intentionally remains transparent black.
+// exact RGBA tint or solid background color when no texture is present.
 func effectiveTint(descriptor skin.SkinDescriptor, fallback bool) color.RGBA {
 	if fallback {
 		return color.RGBA{R: 200, G: 200, B: 200, A: 255}
+	}
+	if !descriptor.HasTexture && descriptor.HasBackgroundColor {
+		return descriptor.BackgroundColor.RGBA()
 	}
 	return descriptor.Tint.RGBA()
 }
@@ -110,6 +113,87 @@ func drawFallbackPart(dest core.Rect, tint color.RGBA) {
 	}
 	rl.DrawRectangleRec(toRaylibRect(dest), tint)
 	rl.DrawRectangleLinesEx(toRaylibRect(dest), 1, color.RGBA{R: 255, G: 0, B: 255, A: 255})
+}
+
+// drawDescriptorBackground renders the solid color, linear gradient, and texture layers of descriptor into dest.
+func drawDescriptorBackground(descriptor skin.SkinDescriptor, dest core.Rect, tint color.RGBA) {
+	if descriptor.HasBackgroundColor && descriptor.BackgroundColor.A > 0 {
+		rl.DrawRectangleRec(toRaylibRect(dest), descriptor.BackgroundColor.RGBA())
+	}
+	if descriptor.HasGradient {
+		drawLinearGradient(descriptor.Gradient, dest)
+	}
+	if descriptor.HasTexture && descriptor.Texture.ID != 0 {
+		drawTexturedPart(descriptor, dest, tint)
+	}
+}
+
+// hasVisualBackground reports whether descriptor contains a drawable color, gradient, or texture.
+func hasVisualBackground(descriptor skin.SkinDescriptor) bool {
+	return (descriptor.HasBackgroundColor && descriptor.BackgroundColor.A > 0) ||
+		descriptor.HasGradient ||
+		(descriptor.HasTexture && descriptor.Texture.ID != 0)
+}
+
+// drawLinearGradient renders a 2-stop linear gradient across dest using vertex colors.
+func drawLinearGradient(grad skin.LinearGradient, dest core.Rect) {
+	if dest.W <= 0 || dest.H <= 0 {
+		return
+	}
+	c0 := grad.Stops[0].Color.RGBA()
+	c1 := grad.Stops[1].Color.RGBA()
+	topLeft, bottomLeft, bottomRight, topRight := gradientQuadColors(grad.Direction, c0, c1)
+	rl.DrawRectangleGradientEx(toRaylibRect(dest), topLeft, bottomLeft, bottomRight, topRight)
+}
+
+// gradientQuadColors returns the 4-corner vertex colors for a linear gradient direction.
+func gradientQuadColors(dir skin.GradientDirection, c0, c1 color.RGBA) (topLeft, bottomLeft, bottomRight, topRight color.RGBA) {
+	switch dir {
+	case skin.GradientToBottom:
+		return c0, c1, c1, c0
+	case skin.GradientToTop:
+		return c1, c0, c0, c1
+	case skin.GradientToRight:
+		return c0, c0, c1, c1
+	case skin.GradientToLeft:
+		return c1, c1, c0, c0
+	case skin.GradientToBottomRight:
+		mid := blendColor(c0, c1)
+		return c0, mid, c1, mid
+	case skin.GradientToBottomLeft:
+		mid := blendColor(c0, c1)
+		return mid, c1, mid, c0
+	case skin.GradientToTopRight:
+		mid := blendColor(c0, c1)
+		return mid, c0, mid, c1
+	case skin.GradientToTopLeft:
+		mid := blendColor(c0, c1)
+		return c1, mid, c0, mid
+	default:
+		return c0, c1, c1, c0
+	}
+}
+
+// blendColor computes the 50% linear midpoint between two RGBA colors.
+func blendColor(c0, c1 color.RGBA) color.RGBA {
+	return color.RGBA{
+		R: uint8((int(c0.R) + int(c1.R)) / 2),
+		G: uint8((int(c0.G) + int(c1.G)) / 2),
+		B: uint8((int(c0.B) + int(c1.B)) / 2),
+		A: uint8((int(c0.A) + int(c1.A)) / 2),
+	}
+}
+
+// renderDescriptorOrFallback renders descriptor visuals or a debug fallback box.
+func (t *Theme) renderDescriptorOrFallback(descriptor skin.SkinDescriptor, dest core.Rect, tint color.RGBA, fallback bool, fallbackAlpha uint8) {
+	if !rl.IsWindowReady() {
+		return
+	}
+	if hasVisualBackground(descriptor) {
+		drawDescriptorBackground(descriptor, dest, tint)
+	} else if fallback && t != nil && t.debugMode {
+		drawFallbackPart(dest, color.RGBA{R: 255, G: 0, B: 255, A: fallbackAlpha})
+	}
 }
 
 func atlasRegion(descriptor skin.SkinDescriptor, texture rl.Texture2D) core.Rect {
@@ -251,13 +335,7 @@ func (t *Theme) drawPart(kind core.WidgetKind, part skin.SkinPart, bounds core.R
 	tint := effectiveTint(descriptor, fallback)
 	destination := t.snap(bounds)
 	t.logDrawCall(kind, part, state, bounds, destination, descriptor, tint, fallback)
-	if rl.IsWindowReady() {
-		if descriptor.HasTexture && descriptor.Texture.ID != 0 {
-			drawTexturedPart(descriptor, destination, tint)
-		} else if fallback && t != nil && t.debugMode {
-			drawFallbackPart(destination, color.RGBA{R: 255, G: 0, B: 255, A: 100})
-		}
-	}
+	t.renderDescriptorOrFallback(descriptor, destination, tint, fallback, 100)
 	return descriptor, fallback
 }
 
@@ -449,25 +527,13 @@ func (t *Theme) drawSlider(info core.WidgetInfo, value string, content core.Rect
 	trackTint := effectiveTint(track, fallback)
 	trackRect := sliderTrackRect(t, info, content, track, fallback)
 	t.logDrawCall(info.Kind, skin.PartTrack, info.State, trackRect, trackRect, track, trackTint, fallback)
-	if rl.IsWindowReady() {
-		if track.HasTexture && track.Texture.ID != 0 {
-			drawTexturedPart(track, trackRect, trackTint)
-		} else if fallback && t != nil && t.debugMode {
-			drawFallbackPart(trackRect, color.RGBA{R: 255, G: 0, B: 255, A: 100})
-		}
-	}
+	t.renderDescriptorOrFallback(track, trackRect, trackTint, fallback, 100)
 
 	thumb, thumbFallback := t.resolveDescriptor(info.Kind, skin.PartThumb, info.State)
 	thumbTint := effectiveTint(thumb, thumbFallback)
 	thumbRect := sliderThumbRect(t, trackRect, thumb, thumbFallback, amount)
 	t.logDrawCall(info.Kind, skin.PartThumb, info.State, thumbRect, thumbRect, thumb, thumbTint, thumbFallback)
-	if rl.IsWindowReady() {
-		if thumb.HasTexture && thumb.Texture.ID != 0 {
-			drawTexturedPart(thumb, thumbRect, thumbTint)
-		} else if thumbFallback && t != nil && t.debugMode {
-			drawFallbackPart(thumbRect, color.RGBA{R: 255, G: 0, B: 255, A: 150})
-		}
-	}
+	t.renderDescriptorOrFallback(thumb, thumbRect, thumbTint, thumbFallback, 150)
 	if value != "" {
 		t.drawTextInContent(info, value, content, info.State)
 	}
@@ -532,13 +598,7 @@ func (t *Theme) drawProgressBar(info core.WidgetInfo, value string, content core
 		trackRect = t.snap(info.Bounds)
 	}
 	t.logDrawCall(info.Kind, skin.PartTrack, info.State, trackRect, trackRect, track, trackTint, fallback)
-	if rl.IsWindowReady() {
-		if track.HasTexture && track.Texture.ID != 0 {
-			drawTexturedPart(track, trackRect, trackTint)
-		} else if fallback && t != nil && t.debugMode {
-			drawFallbackPart(trackRect, color.RGBA{R: 255, G: 0, B: 255, A: 100})
-		}
-	}
+	t.renderDescriptorOrFallback(track, trackRect, trackTint, fallback, 100)
 
 	fillWidth := t.drawProgressBarFill(info, trackRect, amount)
 	if fillWidth > 0 {
@@ -560,13 +620,7 @@ func (t *Theme) drawProgressBarFill(info core.WidgetInfo, trackRect core.Rect, a
 	}
 	fillRect := t.snap(core.Rect{X: trackRect.X, Y: trackRect.Y, W: fillWidth, H: trackRect.H})
 	t.logDrawCall(info.Kind, skin.PartOverlay, info.State, fillRect, fillRect, fill, fillTint, fillFallback)
-	if rl.IsWindowReady() {
-		if fill.HasTexture && fill.Texture.ID != 0 {
-			drawTexturedPart(fill, fillRect, fillTint)
-		} else if fillFallback && t != nil && t.debugMode {
-			drawFallbackPart(fillRect, color.RGBA{R: 255, G: 0, B: 255, A: 150})
-		}
-	}
+	t.renderDescriptorOrFallback(fill, fillRect, fillTint, fillFallback, 150)
 	return fillWidth
 }
 

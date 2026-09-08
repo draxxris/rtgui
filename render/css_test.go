@@ -427,3 +427,104 @@ func TestScrollbarThreePatchCSS(t *testing.T) {
 		t.Fatalf("thumb hover tint mismatch: %v", thumbHover.Tint)
 	}
 }
+
+// TestCSSBackgroundColorAndGradientMergeAndInherit tests merge rules and state inheritance for color and gradient.
+func TestCSSBackgroundColorAndGradientMergeAndInherit(t *testing.T) {
+	rules := []skin.SkinRule{
+		{
+			Kind: core.WidgetButton, Part: skin.PartBackground, State: core.StateNormal,
+			BackgroundColor:   core.Color{R: 0x10, G: 0x20, B: 0x30, A: 0xFF},
+			HasBackgroundColor: true,
+			Gradient: skin.LinearGradient{
+				Direction: skin.GradientToBottom,
+				Stops: [2]skin.ColorStop{
+					{Color: core.Color{R: 0x00, G: 0x11, B: 0x22, A: 0x80}},
+					{Color: core.Color{R: 0x33, G: 0x44, B: 0x55, A: 0x80}},
+				},
+			},
+			HasGradient: true,
+		},
+		{
+			Kind: core.WidgetButton, Part: skin.PartBackground, State: core.StateHovered,
+			BackgroundColor:   core.Color{R: 0x50, G: 0x60, B: 0x70, A: 0xFF},
+			HasBackgroundColor: true,
+		},
+		{
+			Kind: core.WidgetButton, Part: skin.PartBackground, State: core.StatePressed,
+			Gradient: skin.LinearGradient{
+				Direction: skin.GradientToTop,
+				Stops: [2]skin.ColorStop{
+					{Color: core.Color{R: 0xAA, G: 0xBB, B: 0xCC, A: 0xFF}},
+					{Color: core.Color{R: 0xDD, G: 0xEE, B: 0xFF, A: 0xFF}},
+				},
+			},
+			HasGradient: true,
+		},
+	}
+	merged, _ := mergeSkinRules(rules)
+	hoverKey := skin.SkinKey{Widget: core.WidgetButton, Part: skin.PartBackground, State: core.StateHovered}
+	hover := merged[hoverKey]
+	if !hover.hasBackgroundColor || hover.backgroundColor != (core.Color{R: 0x50, G: 0x60, B: 0x70, A: 0xFF}) {
+		t.Fatalf("hover background-color mismatch: %+v", hover)
+	}
+	if !hover.hasGradient || hover.gradient.Direction != skin.GradientToBottom {
+		t.Fatalf("hover inherited gradient mismatch: %+v", hover)
+	}
+
+	pressKey := skin.SkinKey{Widget: core.WidgetButton, Part: skin.PartBackground, State: core.StatePressed}
+	press := merged[pressKey]
+	if !press.hasBackgroundColor || press.backgroundColor != (core.Color{R: 0x10, G: 0x20, B: 0x30, A: 0xFF}) {
+		t.Fatalf("pressed inherited background-color mismatch: %+v", press)
+	}
+	if !press.hasGradient || press.gradient.Direction != skin.GradientToTop {
+		t.Fatalf("pressed gradient mismatch: %+v", press)
+	}
+}
+
+// TestCSSBackgroundColorAndGradientHeadlessLoadAndDraw verifies CSS files with color and gradient load headlessly and draw.
+func TestCSSBackgroundColorAndGradientHeadlessLoadAndDraw(t *testing.T) {
+	directory := t.TempDir()
+	cssText := `
+		Button {
+			background-color: #20406080;
+			background-image: linear-gradient(to bottom, #112233AA, #445566BB);
+		}
+		Button:hover {
+			background-color: #306090;
+		}
+		Slider::track {
+			background-color: #101010;
+		}
+	`
+	cssPath := writeCSS(t, directory, cssText)
+	theme := newFakeTheme(&fakeTextureBackend{isReady: false})
+	if err := theme.LoadCSSFile(cssPath, ""); err != nil {
+		t.Fatalf("LoadCSSFile failed on headless theme without images: %v", err)
+	}
+
+	btnDesc, ok := theme.Lookup(core.WidgetButton, skin.PartBackground, core.StateNormal)
+	if !ok || !btnDesc.HasBackgroundColor || !btnDesc.HasGradient {
+		t.Fatalf("expected button descriptor with color and gradient, got: ok=%v desc=%+v", ok, btnDesc)
+	}
+	if btnDesc.BackgroundColor != (core.Color{R: 0x20, G: 0x40, B: 0x60, A: 0x80}) {
+		t.Fatalf("button background-color mismatch: %v", btnDesc.BackgroundColor)
+	}
+
+	recorder := newTestRecorder(t, 8)
+	theme.SetDrawRecorder(recorder)
+	button := core.WidgetInfo{Name: "submit", Bounds: core.Rect{W: 100, H: 30}, Kind: core.WidgetButton, State: core.StateNormal}
+	theme.BeginFrame()
+	theme.DrawWidget(button, "Submit", 0, false)
+
+	calls := recorder.Calls()
+	if len(calls) < 2 {
+		t.Fatalf("expected at least 2 draw calls, got %v", calls)
+	}
+	bgCall := calls[0]
+	if bgCall.Part != skin.PartBackground || bgCall.Fallback {
+		t.Fatalf("expected skinned background without fallback, got: %+v", bgCall)
+	}
+	if bgCall.Tint != (core.Color{R: 0x20, G: 0x40, B: 0x60, A: 0x80}) {
+		t.Fatalf("expected alpha-preserved background tint in DrawCall, got: %v", bgCall.Tint)
+	}
+}

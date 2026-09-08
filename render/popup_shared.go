@@ -60,16 +60,16 @@ func (t *Theme) drawPopupShell(info core.WidgetInfo) {
 }
 
 // drawPopupRowHighlight records and draws one hovered popup row background.
-// A textured ::highlight replaces the fixed fill; without one the fixed fill
+// An authored ::highlight replaces the fixed fill; without one the fixed fill
 // draws so unskinned popups keep their hover feedback.
 func (t *Theme) drawPopupRowHighlight(info core.WidgetInfo, row core.Rect) {
 	destination := t.snap(row)
 	descriptor, fallback := t.resolveDescriptor(info.Kind, skin.PartOverlay, core.StateHovered)
-	if hasTexture(descriptor, fallback) {
+	if !fallback && hasVisualBackground(descriptor) {
 		tint := effectiveTint(descriptor, false)
 		t.logDrawCall(info.Kind, skin.PartOverlay, core.StateHovered, row, destination, descriptor, tint, false)
 		if rl.IsWindowReady() {
-			drawTexturedPart(descriptor, destination, tint)
+			drawDescriptorBackground(descriptor, destination, tint)
 		}
 		return
 	}

@@ -111,16 +111,16 @@ func dimRichTint(tint color.RGBA) color.RGBA {
 }
 
 // drawRichHighlight records and draws one hovered link-fragment backdrop.
-// A textured RichText::highlight replaces the fixed fill; without one the
+// An authored RichText::highlight replaces the fixed fill; without one the
 // fixed fill draws so unskinned messages keep their hover feedback.
 func (t *Theme) drawRichHighlight(info core.WidgetInfo, row core.Rect) {
 	descriptor, fallback := t.resolveDescriptor(info.Kind, skin.PartOverlay, core.StateHovered)
-	if hasTexture(descriptor, fallback) {
+	if !fallback && hasVisualBackground(descriptor) {
 		destination := t.snap(row)
 		tint := effectiveTint(descriptor, false)
 		t.logDrawCall(info.Kind, skin.PartOverlay, core.StateHovered, row, destination, descriptor, tint, false)
 		if rl.IsWindowReady() {
-			drawTexturedPart(descriptor, destination, tint)
+			drawDescriptorBackground(descriptor, destination, tint)
 		}
 		return
 	}

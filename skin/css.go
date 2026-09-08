@@ -5,8 +5,8 @@
 //
 // Supported grammar: Kind[::part][:pseudo] selectors with a closed property
 // set (border-image-source, border-image-slice, background-image,
-// background-image-tint, border-image-source-tint, padding). Anything else is
-// a hard error, never a silent skip.
+// background-image-tint, background-color, border-image-source-tint, padding).
+// Anything else is a hard error, never a silent skip.
 package skin
 
 import (
@@ -49,6 +49,16 @@ type SkinRule struct {
 	Padding [4]float32
 	// HasPadding reports whether Padding was declared.
 	HasPadding bool
+
+	// BackgroundColor is the authored background-color when HasBackgroundColor is true.
+	BackgroundColor core.Color
+	// HasBackgroundColor reports whether BackgroundColor was declared.
+	HasBackgroundColor bool
+
+	// Gradient is the parsed linear-gradient descriptor when HasGradient is true.
+	Gradient LinearGradient
+	// HasGradient reports whether Gradient was declared.
+	HasGradient bool
 }
 
 // kindSelectors maps CSS kind spellings to widget kinds. Exact case.
@@ -206,7 +216,7 @@ func parseBlock(selector string, kind core.WidgetKind, part SkinPart, hasPart bo
 		property := strings.TrimSpace(style.Property)
 		value := strings.TrimSpace(style.Value.Text())
 		switch property {
-		case "background-image", "background-image-tint":
+		case "background-image", "background-image-tint", "background-color":
 			if err := applyBackgroundProp(take(imageTarget), selector, property, value); err != nil {
 				return nil, err
 			}
@@ -238,15 +248,40 @@ func parseBlock(selector string, kind core.WidgetKind, part SkinPart, hasPart bo
 	return entries, nil
 }
 
-// applyBackgroundProp stores a background-image declaration on the entry.
+// applyBackgroundProp stores background-image, background-image-tint, or background-color on entry.
 func applyBackgroundProp(entry *SkinRule, selector, property, value string) error {
 	switch property {
 	case "background-image":
-		path, err := extractURL(selector, property, value)
+		trimmed := strings.TrimSpace(value)
+		lower := strings.ToLower(trimmed)
+		if strings.HasPrefix(lower, "url(") {
+			path, err := extractURL(selector, property, value)
+			if err != nil {
+				return err
+			}
+			entry.Image, entry.HasImage = path, true
+			return nil
+		}
+		if strings.HasPrefix(lower, "linear-gradient(") {
+			grad, err := parseLinearGradient(selector, property, value)
+			if err != nil {
+				return err
+			}
+			entry.Gradient, entry.HasGradient = grad, true
+			return nil
+		}
+		if lower == "none" {
+			entry.Image, entry.HasImage = "", false
+			entry.Gradient, entry.HasGradient = LinearGradient{}, false
+			return nil
+		}
+		return fmt.Errorf("skin: %s in %q must be url(...) or linear-gradient(...), got %q", property, selector, value)
+	case "background-color":
+		col, err := parseTint(selector, property, value)
 		if err != nil {
 			return err
 		}
-		entry.Image, entry.HasImage = path, true
+		entry.BackgroundColor, entry.HasBackgroundColor = col, true
 		return nil
 	default:
 		tint, err := parseTint(selector, property, value)
@@ -370,4 +405,129 @@ func parseTint(selector, property, value string) (core.Color, error) {
 		tint.A = bytes[3]
 	}
 	return tint, nil
+}
+
+// gradientDirections maps CSS direction keywords to GradientDirection enum values.
+var gradientDirections = map[string]GradientDirection{
+	"to bottom":       GradientToBottom,
+	"to top":          GradientToTop,
+	"to right":        GradientToRight,
+	"to left":         GradientToLeft,
+	"to bottom right": GradientToBottomRight,
+	"to bottom left":  GradientToBottomLeft,
+	"to top right":    GradientToTopRight,
+	"to top left":     GradientToTopLeft,
+}
+
+// parseLinearGradient parses a linear-gradient(...) CSS declaration.
+func parseLinearGradient(selector, property, value string) (LinearGradient, error) {
+	trimmed := strings.TrimSpace(value)
+	if !strings.HasSuffix(trimmed, ")") {
+		return LinearGradient{}, fmt.Errorf("skin: %s in %q has unclosed linear-gradient", property, selector)
+	}
+	prefix := "linear-gradient("
+	inner := strings.TrimSpace(trimmed[len(prefix) : len(trimmed)-1])
+	if inner == "" {
+		return LinearGradient{}, fmt.Errorf("skin: %s in %q has empty linear-gradient", property, selector)
+	}
+	args, err := splitParenArgs(inner)
+	if err != nil {
+		return LinearGradient{}, fmt.Errorf("skin: %s in %q: %w", property, selector, err)
+	}
+	dir, stop0Str, stop1Str, err := resolveGradientArgs(args)
+	if err != nil {
+		return LinearGradient{}, fmt.Errorf("skin: %s in %q: %w", property, selector, err)
+	}
+	stop0, err := parseColorStop(selector, property, stop0Str, 0.0)
+	if err != nil {
+		return LinearGradient{}, err
+	}
+	stop1, err := parseColorStop(selector, property, stop1Str, 1.0)
+	if err != nil {
+		return LinearGradient{}, err
+	}
+	return LinearGradient{
+		Direction: dir,
+		Stops:     [2]ColorStop{stop0, stop1},
+	}, nil
+}
+
+// splitParenArgs splits s by comma only when parentheses are balanced.
+func splitParenArgs(s string) ([]string, error) {
+	var args []string
+	start := 0
+	depth := 0
+	for i, r := range s {
+		switch r {
+		case '(':
+			depth++
+		case ')':
+			depth--
+			if depth < 0 {
+				return nil, fmt.Errorf("unmatched ')' in %q", s)
+			}
+		case ',':
+			if depth == 0 {
+				item := strings.TrimSpace(s[start:i])
+				if item == "" {
+					return nil, fmt.Errorf("empty argument in %q", s)
+				}
+				args = append(args, item)
+				start = i + 1
+			}
+		}
+	}
+	if depth != 0 {
+		return nil, fmt.Errorf("unclosed '(' in %q", s)
+	}
+	last := strings.TrimSpace(s[start:])
+	if last == "" {
+		return nil, fmt.Errorf("trailing comma or empty argument in %q", s)
+	}
+	args = append(args, last)
+	return args, nil
+}
+
+// resolveGradientArgs resolves direction and the two stop strings from parsed arguments.
+func resolveGradientArgs(args []string) (GradientDirection, string, string, error) {
+	if len(args) == 2 {
+		return GradientToBottom, args[0], args[1], nil
+	}
+	if len(args) == 3 {
+		dirStr := strings.Join(strings.Fields(strings.ToLower(args[0])), " ")
+		dir, ok := gradientDirections[dirStr]
+		if !ok {
+			return 0, "", "", fmt.Errorf("invalid gradient direction %q", args[0])
+		}
+		return dir, args[1], args[2], nil
+	}
+	return 0, "", "", fmt.Errorf("expected 2 color stops (got %d arguments)", len(args))
+}
+
+// parseColorStop parses a single color stop with optional percentage position.
+func parseColorStop(selector, property, stopStr string, defaultPos float32) (ColorStop, error) {
+	fields := strings.Fields(stopStr)
+	if len(fields) == 0 {
+		return ColorStop{}, fmt.Errorf("skin: %s in %q has empty color stop", property, selector)
+	}
+	col, err := parseTint(selector, property, fields[0])
+	if err != nil {
+		return ColorStop{}, err
+	}
+	pos := defaultPos
+	if len(fields) == 2 {
+		posStr := fields[1]
+		if !strings.HasSuffix(posStr, "%") {
+			return ColorStop{}, fmt.Errorf("skin: %s in %q has invalid color stop position %q (must be percentage)", property, selector, posStr)
+		}
+		numStr := strings.TrimSuffix(posStr, "%")
+		p, err := strconv.ParseFloat(numStr, 32)
+		if err != nil || p < 0 || p > 100 {
+			return ColorStop{}, fmt.Errorf("skin: %s in %q has invalid color stop position %q", property, selector, posStr)
+		}
+		pos = float32(p / 100.0)
+	} else if len(fields) > 2 {
+		return ColorStop{}, fmt.Errorf("skin: %s in %q has malformed color stop %q", property, selector, stopStr)
+	}
+	return ColorStop{Color: col, Position: pos}, nil
 }

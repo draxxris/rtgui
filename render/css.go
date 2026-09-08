@@ -52,14 +52,18 @@ func (raylibTextureBackend) unload(texture skin.Texture) {
 
 // mergedRule is one registry key's resolved declarations.
 type mergedRule struct {
-	image      string
-	hasImage   bool
-	slice      int32
-	hasSlice   bool
-	tint       core.Color
-	hasTint    bool
-	padding    [4]float32
-	hasPadding bool
+	image              string
+	hasImage           bool
+	slice              int32
+	hasSlice           bool
+	tint               core.Color
+	hasTint            bool
+	padding            [4]float32
+	hasPadding         bool
+	backgroundColor    core.Color
+	hasBackgroundColor bool
+	gradient           skin.LinearGradient
+	hasGradient        bool
 }
 
 type cssImage struct {
@@ -139,6 +143,12 @@ func mergeSkinRules(rules []skin.SkinRule) (map[skin.SkinKey]mergedRule, []skin.
 		if rule.HasPadding {
 			entry.padding, entry.hasPadding = rule.Padding, true
 		}
+		if rule.HasBackgroundColor {
+			entry.backgroundColor, entry.hasBackgroundColor = rule.BackgroundColor, true
+		}
+		if rule.HasGradient {
+			entry.gradient, entry.hasGradient = rule.Gradient, true
+		}
 		merged[key] = entry
 	}
 	inheritNormalRules(merged, order)
@@ -167,6 +177,12 @@ func inheritNormalRules(merged map[skin.SkinKey]mergedRule, order []skin.SkinKey
 		}
 		if !entry.hasPadding {
 			entry.padding, entry.hasPadding = base.padding, base.hasPadding
+		}
+		if !entry.hasBackgroundColor {
+			entry.backgroundColor, entry.hasBackgroundColor = base.backgroundColor, base.hasBackgroundColor
+		}
+		if !entry.hasGradient {
+			entry.gradient, entry.hasGradient = base.gradient, base.hasGradient
 		}
 		merged[key] = entry
 	}
@@ -276,6 +292,14 @@ func (t *Theme) buildCSSDescriptor(key skin.SkinKey, entry mergedRule, base stri
 	if entry.hasPadding {
 		descriptor.PaddingTop, descriptor.PaddingRight = entry.padding[0], entry.padding[1]
 		descriptor.PaddingBottom, descriptor.PaddingLeft = entry.padding[2], entry.padding[3]
+	}
+	if entry.hasBackgroundColor {
+		descriptor.BackgroundColor = entry.backgroundColor
+		descriptor.HasBackgroundColor = true
+	}
+	if entry.hasGradient {
+		descriptor.Gradient = entry.gradient
+		descriptor.HasGradient = true
 	}
 	return descriptor, nil
 }

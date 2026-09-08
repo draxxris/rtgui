@@ -6,17 +6,21 @@
    the container-focus glow that scopes the gallery R/T hotkeys. */
 
 Button {
+    background-color: #1a2639;
+    background-image: linear-gradient(to bottom, #2b3d54, #141c28);
     border-image-source: url("kenney/blue/button_rectangle_line.png");
     border-image-slice: 8;
     padding: 8;
 }
 Button:hover {
+    background-color: #24354c;
+    background-image: linear-gradient(to bottom, #3b5373, #1c2738);
     border-image-source: url("kenney/blue/button_rectangle_border.png");
-    background-image: url("kenney/background.png");
-    background-image-tint: #ff0000;
     border-image-source-tint: #00ff00;
 }
 Button:active {
+    background-color: #101721;
+    background-image: linear-gradient(to bottom, #141c28, #2b3d54);
     border-image-source: url("kenney/red/button_rectangle_border.png");
 }
 Button:focus {
@@ -65,6 +69,16 @@ Slider::thumb {
 }
 Slider::thumb:disabled {
     background-image-tint: #b9b9c3;
+}
+Slider::track {
+    background-color: #1e2838;
+}
+
+ProgressBar::track {
+    background-color: #151d2a;
+}
+ProgressBar::fill {
+    background-image: linear-gradient(to right, #00b4d8, #90e0ef);
 }
 
 Dropdown {

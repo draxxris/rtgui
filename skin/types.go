@@ -31,6 +31,44 @@ type ThreePatch struct {
 	Top, Bottom int32
 }
 
+// GradientDirection specifies the orientation of a linear gradient.
+type GradientDirection uint8
+
+const (
+	// GradientToBottom renders vertically from top to bottom (CSS default).
+	GradientToBottom GradientDirection = iota
+	// GradientToTop renders vertically from bottom to top.
+	GradientToTop
+	// GradientToRight renders horizontally from left to right.
+	GradientToRight
+	// GradientToLeft renders horizontally from right to left.
+	GradientToLeft
+	// GradientToBottomRight renders diagonally from top-left to bottom-right.
+	GradientToBottomRight
+	// GradientToBottomLeft renders diagonally from top-right to bottom-left.
+	GradientToBottomLeft
+	// GradientToTopRight renders diagonally from bottom-left to top-right.
+	GradientToTopRight
+	// GradientToTopLeft renders diagonally from bottom-right to top-left.
+	GradientToTopLeft
+)
+
+// ColorStop specifies one color stop in a linear gradient.
+type ColorStop struct {
+	// Color is the exact RGBA color of the stop.
+	Color core.Color
+	// Position is the normalized position in [0, 1], or -1 for default.
+	Position float32
+}
+
+// LinearGradient stores a 2-stop linear gradient specification as a value type.
+type LinearGradient struct {
+	// Direction selects the orientation of the gradient.
+	Direction GradientDirection
+	// Stops stores the start and end color stops.
+	Stops [2]ColorStop
+}
+
 // SkinPart identifies one drawable component of a widget skin.
 type SkinPart int32
 
@@ -102,4 +140,12 @@ type SkinDescriptor struct {
 	HasThreePatch bool
 	// CenterFill controls whether the middle nine-patch tile is drawn.
 	CenterFill bool
+	// BackgroundColor stores the solid fill color when HasBackgroundColor is true.
+	BackgroundColor core.Color
+	// HasBackgroundColor reports whether BackgroundColor should be drawn.
+	HasBackgroundColor bool
+	// Gradient stores the linear gradient fill when HasGradient is true.
+	Gradient LinearGradient
+	// HasGradient reports whether Gradient should be drawn.
+	HasGradient bool
 }

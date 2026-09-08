@@ -188,3 +188,115 @@ func TestParseScrollbarCSS(t *testing.T) {
 		t.Fatalf("thumb hover rule mismatch: %+v", rules[4])
 	}
 }
+
+// TestParseCSSBackgroundColor verifies background-color hex parsing with and without alpha.
+func TestParseCSSBackgroundColor(t *testing.T) {
+	rules, err := ParseCSS(`
+		Button { background-color: #334455; }
+		Frame { background-color: #AABBCC80; }
+		Slider::track { background-color: #112233; }
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rules) != 3 {
+		t.Fatalf("expected 3 rules, got %d", len(rules))
+	}
+	if !rules[0].HasBackgroundColor || rules[0].BackgroundColor != (core.Color{R: 0x33, G: 0x44, B: 0x55, A: 255}) {
+		t.Fatalf("Button background-color mismatch: %+v", rules[0])
+	}
+	if !rules[1].HasBackgroundColor || rules[1].BackgroundColor != (core.Color{R: 0xaa, G: 0xbb, B: 0xcc, A: 0x80}) {
+		t.Fatalf("Frame background-color mismatch: %+v", rules[1])
+	}
+	if rules[2].Part != PartTrack || !rules[2].HasBackgroundColor || rules[2].BackgroundColor != (core.Color{R: 0x11, G: 0x22, B: 0x33, A: 255}) {
+		t.Fatalf("Slider::track background-color mismatch: %+v", rules[2])
+	}
+}
+
+// TestParseCSSLinearGradientDefault verifies linear-gradient default direction and stops.
+func TestParseCSSLinearGradientDefault(t *testing.T) {
+	rules, err := ParseCSS(`Button { background-image: linear-gradient(#112233, #445566); }`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rules) != 1 || !rules[0].HasGradient || rules[0].Gradient.Direction != GradientToBottom {
+		t.Fatalf("expected GradientToBottom, got %+v", rules)
+	}
+	stops := rules[0].Gradient.Stops
+	if stops[0].Color != (core.Color{R: 0x11, G: 0x22, B: 0x33, A: 255}) || stops[1].Color != (core.Color{R: 0x44, G: 0x55, B: 0x66, A: 255}) {
+		t.Fatalf("unexpected stops: %+v", stops)
+	}
+}
+
+// TestParseCSSLinearGradientCardinal verifies cardinal direction linear-gradient with alpha stops.
+func TestParseCSSLinearGradientCardinal(t *testing.T) {
+	rules, err := ParseCSS(`Frame { background-image: linear-gradient(to right, #11223380, #445566CC); }`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rules) != 1 || !rules[0].HasGradient || rules[0].Gradient.Direction != GradientToRight {
+		t.Fatalf("expected GradientToRight, got %+v", rules)
+	}
+	stops := rules[0].Gradient.Stops
+	if stops[0].Color.A != 0x80 || stops[1].Color.A != 0xcc {
+		t.Fatalf("expected alpha stops, got %+v", stops)
+	}
+}
+
+// TestParseCSSLinearGradientCorner verifies diagonal corner linear-gradient with positions.
+func TestParseCSSLinearGradientCorner(t *testing.T) {
+	rules, err := ParseCSS(`Slider::thumb { background-image: linear-gradient(to bottom right, #112233 0%, #445566 100%); }`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rules) != 1 || !rules[0].HasGradient || rules[0].Gradient.Direction != GradientToBottomRight {
+		t.Fatalf("expected GradientToBottomRight, got %+v", rules)
+	}
+	stops := rules[0].Gradient.Stops
+	if stops[0].Position != 0.0 || stops[1].Position != 1.0 {
+		t.Fatalf("expected percentage positions, got %+v", stops)
+	}
+}
+
+// TestParseCSSLinearGradientToTop verifies to top linear-gradient direction.
+func TestParseCSSLinearGradientToTop(t *testing.T) {
+	rules, err := ParseCSS(`ProgressBar::fill { background-image: linear-gradient(to top, #001122, #334455); }`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rules) != 1 || !rules[0].HasGradient || rules[0].Gradient.Direction != GradientToTop {
+		t.Fatalf("expected GradientToTop, got %+v", rules)
+	}
+}
+
+// TestParseCSSLinearGradientErrors verifies malformed gradient syntax produces hard errors.
+func TestParseCSSLinearGradientErrors(t *testing.T) {
+	cases := []string{
+		`Button { background-image: linear-gradient(); }`,
+		`Button { background-image: linear-gradient(#112233); }`,
+		`Button { background-image: linear-gradient(to nowhere, #112233, #445566); }`,
+		`Button { background-image: linear-gradient(to bottom, red, #445566); }`,
+		`Button { background-image: linear-gradient(to bottom, #112233, blue); }`,
+		`Button { background-image: linear-gradient(to bottom, #112233 150%, #445566); }`,
+		`Button { background-image: linear-gradient(to bottom, #112233, #445566, #778899, #aabbcc); }`,
+		`Button { background-color: red; }`,
+		`Button { background-color: #123; }`,
+		`Button { background-color: #12345; }`,
+	}
+	for _, text := range cases {
+		if _, err := ParseCSS(text); err == nil {
+			t.Fatalf("expected error for %q", text)
+		}
+	}
+}
+
+// TestParseCSSBackgroundImageNone verifies none clears image and gradient declarations.
+func TestParseCSSBackgroundImageNone(t *testing.T) {
+	rules, err := ParseCSS(`Button { background-image: none; }`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rules) != 1 || rules[0].HasImage || rules[0].HasGradient {
+		t.Fatalf("expected HasImage=false and HasGradient=false, got %+v", rules[0])
+	}
+}
