@@ -4,11 +4,11 @@ import (
 	"github.com/draxxris/rtgui/core"
 )
 
-// RichText is a formatted text widget supporting colored spans and clickable links.
+// RichText is a formatted text widget supporting colored spans, inline
+// whitelisted icons, and clickable links. Links stay interactive only here;
+// other widgets render the same segments without link activation.
 type RichText struct {
 	base
-	richSegments []core.RichSegment
-	richRevision uint64
 }
 
 // NewRichText returns an enabled rich-text message and copies segments safely.
@@ -18,64 +18,63 @@ func NewRichText(name string, bounds core.Rect, segments []core.RichSegment) *Ri
 	return rt
 }
 
+// Nil-safe forwards: promoted base methods panic on a nil *RichText when
+// evaluating &r.base, so each accessor below guards nil explicitly.
+
+// HasRichText reports whether the message carries display segments.
+func (r *RichText) HasRichText() bool {
+	if r == nil {
+		return false
+	}
+	return r.base.HasRichText()
+}
+
 // RichSegments returns a safe snapshot of the formatted segments.
 func (r *RichText) RichSegments() []core.RichSegment {
 	if r == nil {
 		return nil
 	}
-	return append([]core.RichSegment(nil), r.richSegments...)
+	return r.base.RichSegments()
 }
 
-// SetRichSegments copies segments and reports whether segment content changed.
-// A successful change bumps the revision read by RichRevision and clears any
-// truncated backing tail so shortened messages release old string references.
+// SetRichSegments copies segments and reports whether content changed.
 func (r *RichText) SetRichSegments(segments []core.RichSegment) bool {
 	if r == nil {
 		return false
 	}
-	if equalRichSegments(r.richSegments, segments) {
+	return r.base.SetRichSegments(segments)
+}
+
+// ClearRichText drops display segments and reports a change.
+func (r *RichText) ClearRichText() bool {
+	if r == nil {
 		return false
 	}
-	oldLen := len(r.richSegments)
-	r.richSegments = append(r.richSegments[:0], segments...)
-	newLen := len(r.richSegments)
-	if newLen < oldLen && cap(r.richSegments) >= oldLen {
-		full := r.richSegments[:oldLen]
-		clear(full[newLen:oldLen])
-		r.richSegments = full[:newLen]
-	}
-	r.richRevision++
-	if r.richRevision == 0 {
-		r.richRevision = 1
-	}
-	return true
-}
-
-// RichSegmentCount returns the number of formatted segments without copying.
-// It is nil-safe and allocation-free for indexed cache reads.
-func (r *RichText) RichSegmentCount() int {
-	if r == nil {
-		return 0
-	}
-	return len(r.richSegments)
-}
-
-// RichSegmentAt returns a copy of the indexed segment for cache reads.
-// It reports false for nil widgets and out-of-range indexes without allocating.
-func (r *RichText) RichSegmentAt(index int) (core.RichSegment, bool) {
-	if r == nil || index < 0 || index >= len(r.richSegments) {
-		return core.RichSegment{}, false
-	}
-	return r.richSegments[index], true
+	return r.base.ClearRichText()
 }
 
 // RichRevision returns the content revision bumped by SetRichSegments.
-// Caches trust it to skip deep compares on the steady-state path.
 func (r *RichText) RichRevision() uint64 {
 	if r == nil {
 		return 0
 	}
-	return r.richRevision
+	return r.base.RichRevision()
+}
+
+// RichSegmentCount returns the number of formatted segments without copying.
+func (r *RichText) RichSegmentCount() int {
+	if r == nil {
+		return 0
+	}
+	return r.base.RichSegmentCount()
+}
+
+// RichSegmentAt returns a copy of the indexed segment for cache reads.
+func (r *RichText) RichSegmentAt(index int) (core.RichSegment, bool) {
+	if r == nil {
+		return core.RichSegment{}, false
+	}
+	return r.base.RichSegmentAt(index)
 }
 
 // CopyRichSegmentsInto copies segments into dst reusing its backing store.
@@ -87,7 +86,7 @@ func (r *RichText) CopyRichSegmentsInto(dst []core.RichSegment) []core.RichSegme
 		clearRichSegments(dst)
 		return dst[:0]
 	}
-	return copyRichSegmentsInto(dst, r.richSegments)
+	return copyRichSegmentsInto(dst, r.base.richSegments)
 }
 
 // RichPlainText concatenates segment text for search and copy operations.
@@ -95,11 +94,7 @@ func (r *RichText) RichPlainText() string {
 	if r == nil {
 		return ""
 	}
-	text := ""
-	for _, segment := range r.richSegments {
-		text += segment.Text
-	}
-	return text
+	return r.base.RichPlainText()
 }
 
 // LinkCount returns the number of linked segments in the message.
@@ -108,7 +103,7 @@ func (r *RichText) LinkCount() int {
 		return 0
 	}
 	count := 0
-	for _, segment := range r.richSegments {
+	for _, segment := range r.base.richSegments {
 		if segment.Link.Kind != core.LinkNone {
 			count++
 		}
@@ -121,7 +116,7 @@ func (r *RichText) LinkAt(index int) (core.Link, bool) {
 	if r == nil || index < 0 {
 		return core.Link{}, false
 	}
-	for _, segment := range r.richSegments {
+	for _, segment := range r.base.richSegments {
 		if segment.Link.Kind == core.LinkNone {
 			continue
 		}
@@ -169,19 +164,6 @@ func (r *RichText) OnLinkTooltipHandler() func(core.Link) string {
 func (r *RichText) SetTooltip(text string) *RichText {
 	r.base.SetTooltip(text)
 	return r
-}
-
-// equalRichSegments compares message segment snapshots field by field.
-func equalRichSegments(left, right []core.RichSegment) bool {
-	if len(left) != len(right) {
-		return false
-	}
-	for i := range left {
-		if left[i] != right[i] {
-			return false
-		}
-	}
-	return true
 }
 
 // copyRichSegmentsInto copies src into dst reusing backing storage and

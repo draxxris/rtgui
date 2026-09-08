@@ -1,14 +1,19 @@
 package main
 
 import (
+	"image/color"
+
 	"github.com/draxxris/rtgui/core"
 	"github.com/draxxris/rtgui/dragdrop"
 	"github.com/draxxris/rtgui/layout"
+	"github.com/draxxris/rtgui/text"
 	"github.com/draxxris/rtgui/widgets"
+	rl "github.com/gen2brain/raylib-go/raylib"
 )
 
 // setupGameWidgets demonstrates cached graphs, rich tooltips, and drag ownership.
 func (g *gallery) setupGameWidgets() {
+	g.setupRichDemo()
 	g.lineGraph = widgets.NewLineGraph("marketGraph", g.layout.scroll).SetMaxPoints(128).SetShowLabels(true)
 	g.lineGraph.SetTextColor(core.Color{R: 220, G: 230, B: 240, A: 255})
 	series := g.lineGraph.AddSeries(core.Color{R: 120, G: 210, B: 130, A: 255}, 2)
@@ -55,4 +60,67 @@ func (g *gallery) selectGraphPage(index int) {
 		text = "Line graph — cached price history"
 	}
 	g.scrollCaption.SetText(text)
+}
+
+// setupRichDemo registers the parent-owned icon whitelist, named faces, and
+// per-kind link colors, then drives chat, button, and dropdown rows through
+// one parser plus Go-authored style runs. The gallery acts as the game: it
+// owns OnLinkClick, tooltips, and colors.
+func (g *gallery) setupRichDemo() {
+	g.facade.SetLinkColor(core.LinkURL, core.Color{R: 100, G: 170, B: 255, A: 255})
+	g.facade.SetLinkColor(core.LinkItem, core.Color{R: 255, G: 180, B: 70, A: 255})
+	g.facade.SetLinkColor(core.LinkPlayer, core.Color{R: 120, G: 220, B: 130, A: 255})
+	icon := makeIronPlateIcon()
+	g.facade.RegisterInlineIcon("iron-plate", icon)
+	g.facade.RegisterInlineIcon("item/iron-plate", icon)
+	if path := findFontFile("ValleySans-Regular.ttf"); path != "" {
+		if err := g.facade.RegisterFont("ValleySans", path); err != nil {
+			g.setStatus("ValleySans registration failed; font demo falls back")
+		}
+	}
+	if path := findFontFile("ValleySans-Italic.ttf"); path != "" {
+		if err := g.facade.RegisterFont("ValleySans-Italic", path); err != nil {
+			g.setStatus("ValleySans-Italic registration failed; italic demo falls back")
+		}
+	}
+	if g.chat != nil {
+		allowed := func(name string) bool {
+			_, ok := g.facade.LookupInlineIcon(name)
+			return ok
+		}
+		g.chat.SetRichSegments(append(text.ParsePlayerMarkup("Guild: need [link=item:iron-plate]iron plate[/link] [icon=iron-plate] — whisper [link=player:Mor'nor]Mor'nor[/link] or see [link=url:https://example.com/guide]the wiki[/link].", allowed),
+			core.RichSegment{Text: " BOLD", Bold: true},
+			core.RichSegment{Text: " big", HasFontSize: true, FontSize: 26},
+			core.RichSegment{Text: " valley", HasFont: true, Font: "ValleySans"},
+			core.RichSegment{Text: " italic", HasFont: true, Font: "ValleySans-Italic"},
+		))
+	}
+	if g.frameButton != nil {
+		g.frameButton.SetRichSegments([]core.RichSegment{{Icon: "iron-plate", HasIcon: true}, {Text: " Frame child", Bold: true}})
+	}
+	if g.dropdown != nil {
+		g.dropdown.SetRichDropdownItem(0, []core.RichSegment{{Icon: "iron-plate", HasIcon: true}, {Text: " Warrior", HasFont: true, Font: "ValleySans"}})
+	}
+}
+
+// makeIronPlateIcon builds a procedural placeholder plate for the demo.
+// Factorio art is proprietary, so the gallery never commits it; this gray
+// plate proves whitelist lookup, layout, and draw without licensed pixels.
+func makeIronPlateIcon() core.TooltipIcon {
+	const size = int32(32)
+	if !rl.IsWindowReady() {
+		return core.TooltipIcon{Width: size, Height: size}
+	}
+	img := rl.GenImageColor(int(size), int(size), color.RGBA{R: 178, G: 188, B: 198, A: 255})
+	if img == nil {
+		return core.TooltipIcon{Width: size, Height: size}
+	}
+	defer rl.UnloadImage(img)
+	rl.ImageDrawRectangle(img, 0, 0, size, 4, color.RGBA{R: 120, G: 130, B: 140, A: 255})
+	rl.ImageDrawRectangle(img, 0, size-4, size, 4, color.RGBA{R: 120, G: 130, B: 140, A: 255})
+	rl.ImageDrawRectangle(img, 0, 0, 4, size, color.RGBA{R: 120, G: 130, B: 140, A: 255})
+	rl.ImageDrawRectangle(img, size-4, 0, 4, size, color.RGBA{R: 120, G: 130, B: 140, A: 255})
+	rl.ImageDrawRectangle(img, 8, 12, size-16, 8, color.RGBA{R: 225, G: 232, B: 238, A: 255})
+	texture := rl.LoadTextureFromImage(img)
+	return core.TooltipIcon{ID: texture.ID, Width: texture.Width, Height: texture.Height}
 }

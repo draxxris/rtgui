@@ -67,6 +67,8 @@ func (u *UI) drawPopup() {
 }
 
 // drawOne creates the sole renderer-facing widget snapshot with UI state.
+// Rich segments render single-line rich runs for buttons, labels, checks,
+// and dropdowns; links stay inert there and activate only in RichText.
 // Tab bars render through the dedicated tab path so per-cell skins apply.
 // Textboxes render through the caret path so selection and caret draw with
 // the same content area used for click mapping.
@@ -74,44 +76,13 @@ func (u *UI) drawOne(widget widgets.Widget) {
 	if isNilWidget(widget) {
 		return
 	}
-	switch w := widget.(type) {
-	case *widgets.Canvas:
-		if fn := w.CanvasDraw(); fn != nil {
-			fn(w.Bounds())
-		}
-		return
-	case *widgets.ScrollPanel:
-		state := u.visualState(w)
-		u.drawScrollPanel(w, state)
-		return
-	case *widgets.TabBar:
-		state := u.visualState(w)
-		u.drawTabBar(w, state)
-		return
-	case *widgets.RichText:
-		state := u.visualState(w)
-		u.drawRichText(w, state)
-		return
-	case *widgets.Textbox:
-		state := u.visualState(w)
-		u.drawTextbox(w, state)
-		return
-	case *widgets.LineGraph:
-		u.drawLineGraph(w)
+	if u.drawOneSpecial(widget) {
 		return
 	}
 	state := u.visualState(widget)
-	var val float32
-	var chk bool
-	if s, ok := widget.(*widgets.Slider); ok {
-		val = s.Value()
-	} else if p, ok := widget.(*widgets.ProgressBar); ok {
-		val = p.Value()
-	} else if c, ok := widget.(*widgets.Checkbox); ok {
-		chk = c.Checked()
-	}
+	val, chk := drawOneValue(widget)
 	info := widget.Snapshot(state)
-	u.theme.DrawWidget(info, widgetText(widget), val, chk)
+	u.theme.DrawControl(info, widgetText(widget), u.controlSegments(widget), val, chk)
 	if needsBorder(widget.Kind()) {
 		u.theme.DrawWidgetPart(widget.Kind(), skin.PartBorder, widget.Bounds(), state)
 	}
@@ -119,6 +90,10 @@ func (u *UI) drawOne(widget widgets.Widget) {
 		u.drawDropdownArrow(dd, state)
 	}
 }
+
+// drawOneSpecial renders widgets with dedicated paths and reports handling.
+// Rich checkbox and dropdown rows report handling only when rich runs drew;
+// otherwise the generic control path draws them.
 
 // drawScrollPanel renders a scroll panel background, border, and scissored contents.
 func (u *UI) drawScrollPanel(widget *widgets.ScrollPanel, state core.WidgetState) {
@@ -204,6 +179,7 @@ func (u *UI) dropdownPopupIndex(dropdown *widgets.Dropdown, pos core.Vec2) int {
 }
 
 // drawDropdownPopup renders a copied item snapshot above all registered widgets.
+// Rows with rich runs draw icons and colors without link activation.
 func (u *UI) drawDropdownPopup(widget *widgets.Dropdown) {
 	popup := widget.DropdownPopupBounds()
 	if popup.H <= 0 {
@@ -211,6 +187,12 @@ func (u *UI) drawDropdownPopup(widget *widgets.Dropdown) {
 	}
 	info := widget.Snapshot(core.StatePressed)
 	info.Bounds = popup
+	if widget.HasRichDropdownItems() {
+		u.stringScratch = widget.AppendDropdownItems(u.stringScratch[:0])
+		u.theme.DrawRichDropdownPopup(info, u.stringScratch, widget.RichDropdownRows(), u.dropdownPopupIndex(widget, u.pointer))
+		clear(u.stringScratch)
+		return
+	}
 	u.stringScratch = widget.AppendDropdownItems(u.stringScratch[:0])
 	u.theme.DrawDropdownPopup(info, u.stringScratch, u.dropdownPopupIndex(widget, u.pointer))
 	clear(u.stringScratch)

@@ -527,11 +527,14 @@ func newGallery(facade *ui.UI) *gallery {
 	}).OnLinkTooltipRequested(func(link core.Link) string {
 		switch link.Kind {
 		case core.LinkItem:
-			return "Thunderfury — Legendary sword (ilvl 80)"
+			if link.Target == "iron-plate" {
+				return "Iron plate — crafting component"
+			}
+			return "Item — " + link.Target
 		case core.LinkPlayer:
-			return "Mor'nor — Level 60 Warrior"
+			return link.Target + " — Level 60 Warrior"
 		case core.LinkURL:
-			return "Open in browser"
+			return "Open " + link.Target + " in browser"
 		default:
 			return ""
 		}

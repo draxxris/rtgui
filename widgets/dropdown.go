@@ -5,10 +5,15 @@ import (
 )
 
 // Dropdown is a selection widget with an openable popup list.
+// Per-row rich runs are the single rich source: the closed control shows
+// the selected row's runs when set, else the plain selection. Inherited
+// base rich runs are inert for dropdowns. Links in rows render in color
+// without activation.
 type Dropdown struct {
 	base
-	dropdownIndex int
-	dropdownItems []string
+	dropdownIndex     int
+	dropdownItems     []string
+	dropdownRichItems [][]core.RichSegment
 }
 
 // NewDropdown returns an enabled dropdown and copies items safely.
@@ -66,7 +71,8 @@ func (d *Dropdown) DropdownItems() []string {
 // AppendDropdownItems copies items into reusable caller-owned storage.
 func (d *Dropdown) AppendDropdownItems(dst []string) []string { return append(dst, d.dropdownItems...) }
 
-// SetDropdownItems copies items and preserves selection if still valid.
+// SetDropdownItems copies items, preserves selection if still valid, and
+// clears any per-row rich overlay.
 func (d *Dropdown) SetDropdownItems(items []string) bool {
 	if d == nil {
 		return false
@@ -75,6 +81,16 @@ func (d *Dropdown) SetDropdownItems(items []string) bool {
 	if changed {
 		clear(d.dropdownItems)
 		d.dropdownItems = append(d.dropdownItems[:0], items...)
+	}
+	if len(d.dropdownRichItems) > 0 {
+		clearRichDropdownItems(d.dropdownRichItems)
+		d.dropdownRichItems = d.dropdownRichItems[:0]
+		changed = true
+	}
+	// Base rich runs are inert for dropdowns (rows are the single source),
+	// so item replacement resets them too rather than stranding state.
+	if d.ClearRichText() {
+		changed = true
 	}
 	if d.dropdownIndex >= len(d.dropdownItems) {
 		d.dropdownIndex = -1
@@ -103,6 +119,58 @@ func (d *Dropdown) DropdownItemCount() int {
 		return 0
 	}
 	return len(d.dropdownItems)
+}
+
+// HasRichDropdownItems reports whether any popup row carries rich runs.
+func (d *Dropdown) HasRichDropdownItems() bool {
+	return d != nil && len(d.dropdownRichItems) > 0
+}
+
+// RichDropdownRows returns the internal per-row rich overlay for drawing.
+// The result aliases widget storage and must be treated as read-only until
+// the next mutation; rows without runs are nil.
+func (d *Dropdown) RichDropdownRows() [][]core.RichSegment {
+	if d == nil {
+		return nil
+	}
+	return d.dropdownRichItems
+}
+
+// RichDropdownItem returns a safe copy of one row's rich runs.
+func (d *Dropdown) RichDropdownItem(index int) ([]core.RichSegment, bool) {
+	if d == nil || index < 0 || index >= len(d.dropdownRichItems) {
+		return nil, false
+	}
+	if len(d.dropdownRichItems[index]) == 0 {
+		return nil, false
+	}
+	return append([]core.RichSegment(nil), d.dropdownRichItems[index]...), true
+}
+
+// SetRichDropdownItem replaces one row's rich runs and reports a change.
+// The plain item text is left untouched as fallback.
+func (d *Dropdown) SetRichDropdownItem(index int, segments []core.RichSegment) bool {
+	if d == nil || index < 0 || index >= len(d.dropdownItems) {
+		return false
+	}
+	for len(d.dropdownRichItems) < len(d.dropdownItems) {
+		d.dropdownRichItems = append(d.dropdownRichItems, nil)
+	}
+	if core.EqualRichSegments(d.dropdownRichItems[index], segments) {
+		return false
+	}
+	d.dropdownRichItems[index] = append(d.dropdownRichItems[index][:0], segments...)
+	return true
+}
+
+// ClearRichDropdownItems drops every per-row rich overlay.
+func (d *Dropdown) ClearRichDropdownItems() bool {
+	if d == nil || len(d.dropdownRichItems) == 0 {
+		return false
+	}
+	clearRichDropdownItems(d.dropdownRichItems)
+	d.dropdownRichItems = d.dropdownRichItems[:0]
+	return true
 }
 
 // SetTooltip attaches a hover tooltip string directly to the dropdown.
@@ -134,4 +202,12 @@ func equalStrings(left, right []string) bool {
 		}
 	}
 	return true
+}
+
+// clearRichDropdownItems zeroes nested row storage before reuse.
+func clearRichDropdownItems(rows [][]core.RichSegment) {
+	for i := range rows {
+		clear(rows[i])
+		rows[i] = nil
+	}
 }

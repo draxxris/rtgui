@@ -42,6 +42,17 @@ type Widget interface {
 	SetTooltipText(string)
 }
 
+// RichProvider is implemented by every widget carrying optional rich runs.
+// The base implementation serves all concrete widgets; Textbox editing
+// stays plain and ignores rich runs for input.
+type RichProvider interface {
+	HasRichText() bool
+	RichSegments() []core.RichSegment
+	// CopyRichSegmentsInto copies runs into caller-owned storage for
+	// allocation-free draw paths; see UI.richSegScratch.
+	CopyRichSegmentsInto(dst []core.RichSegment) []core.RichSegment
+}
+
 // Callbacks is the single callback registry owned by a widget. UI registration
 // and fluent widget setters replace the same slots; they never add listeners.
 type Callbacks struct {
@@ -54,6 +65,9 @@ type Callbacks struct {
 }
 
 // base provides common fields and standard Widget implementation for concrete widgets.
+// Every widget carries optional rich segments; plain text renders when none
+// are set. Links stay interactive only in RichText; other widgets render
+// icons, colors, and emphasis without link activation.
 type base struct {
 	name             string
 	kind             core.WidgetKind
@@ -70,6 +84,8 @@ type base struct {
 	fontSize         float32
 	italic           bool
 	align            core.TextAlign
+	richSegments     []core.RichSegment
+	richRevision     uint64
 }
 
 // newBase initializes common widget fields.
@@ -169,21 +185,40 @@ func (b *base) Snapshot(state core.WidgetState) core.WidgetInfo {
 	return info
 }
 
-// Text returns the plain widget text.
+// Text returns the plain widget text, or the rich plain-text fallback when
+// rich segments are set. Icons contribute no characters.
 func (b *base) Text() string {
 	if b == nil {
 		return ""
 	}
+	if len(b.richSegments) > 0 {
+		text := ""
+		for _, segment := range b.richSegments {
+			text += segment.Text
+		}
+		return text
+	}
 	return b.text
 }
 
-// SetText replaces plain widget text and reports a change.
+// SetText replaces plain widget text, clears any rich segments, and
+// reports a change.
 func (b *base) SetText(value string) bool {
-	if b == nil || b.text == value {
+	if b == nil {
 		return false
 	}
+	changed := b.text != value
 	b.text = value
-	return true
+	if len(b.richSegments) > 0 {
+		clear(b.richSegments)
+		b.richSegments = b.richSegments[:0]
+		b.richRevision++
+		if b.richRevision == 0 {
+			b.richRevision = 1
+		}
+		changed = true
+	}
+	return changed
 }
 
 // SetOnClick stores the widget's direct activation callback.
@@ -299,6 +334,101 @@ func (b *base) Align() core.TextAlign {
 		return core.AlignLeft
 	}
 	return b.align
+}
+
+// HasRichText reports whether the widget carries rich display segments.
+func (b *base) HasRichText() bool {
+	return b != nil && len(b.richSegments) > 0
+}
+
+// RichSegments returns a safe snapshot of the rich display segments.
+func (b *base) RichSegments() []core.RichSegment {
+	if b == nil {
+		return nil
+	}
+	return append([]core.RichSegment(nil), b.richSegments...)
+}
+
+// SetRichSegments copies rich display segments and reports a change.
+// Plain text is retained as fallback but rich wins for drawing and Text.
+func (b *base) SetRichSegments(segments []core.RichSegment) bool {
+	if b == nil {
+		return false
+	}
+	if core.EqualRichSegments(b.richSegments, segments) {
+		return false
+	}
+	oldLen := len(b.richSegments)
+	b.richSegments = append(b.richSegments[:0], segments...)
+	if len(b.richSegments) < oldLen && cap(b.richSegments) >= oldLen {
+		full := b.richSegments[:oldLen]
+		clear(full[len(b.richSegments):oldLen])
+		b.richSegments = full[:len(b.richSegments)]
+	}
+	b.richRevision++
+	if b.richRevision == 0 {
+		b.richRevision = 1
+	}
+	return true
+}
+
+// ClearRichText drops rich display segments and reports a change.
+func (b *base) ClearRichText() bool {
+	if b == nil || len(b.richSegments) == 0 {
+		return false
+	}
+	clear(b.richSegments)
+	b.richSegments = b.richSegments[:0]
+	b.richRevision++
+	if b.richRevision == 0 {
+		b.richRevision = 1
+	}
+	return true
+}
+
+// RichRevision returns the revision bumped by rich segment changes.
+func (b *base) RichRevision() uint64 {
+	if b == nil {
+		return 0
+	}
+	return b.richRevision
+}
+
+// RichSegmentCount returns the rich segment count without copying.
+func (b *base) RichSegmentCount() int {
+	if b == nil {
+		return 0
+	}
+	return len(b.richSegments)
+}
+
+// RichSegmentAt returns a copy of the indexed rich segment.
+func (b *base) RichSegmentAt(index int) (core.RichSegment, bool) {
+	if b == nil || index < 0 || index >= len(b.richSegments) {
+		return core.RichSegment{}, false
+	}
+	return b.richSegments[index], true
+}
+
+// CopyRichSegmentsInto copies rich segments into reused storage.
+func (b *base) CopyRichSegmentsInto(dst []core.RichSegment) []core.RichSegment {
+	if b == nil {
+		clearRichSegments(dst)
+		return dst[:0]
+	}
+	return copyRichSegmentsInto(dst, b.richSegments)
+}
+
+// RichPlainText concatenates rich segment text for search and fallback.
+func (b *base) RichPlainText() string {
+	if b == nil {
+		return ""
+	}
+	text := ""
+	for _, segment := range b.richSegments {
+		text += segment.Text
+	}
+	return text
 }
 
 // As casts widget w to the target type T, returning ErrKindMismatch if w is not of type T.

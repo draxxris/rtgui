@@ -196,12 +196,18 @@ The generic drag controller and rich tooltip renderer are DONE. Item widgets sti
 
 ### ChatBox and Combat Log
 
-Single-message rich text and its shared layout cache are DONE. The log still needs:
+Single-message rich text and its shared layout cache are DONE. Player
+markup (`[icon=name]`, `[link=scheme:target]text[/link]` via
+`text.ParsePlayerMarkup`), whitelisted inline icons, parent-registered
+per-kind link colors, and single-line rich runs for buttons, labels,
+checkboxes, and dropdown rows are DONE; clickable links stay RichText-only.
+Go-authored bold, size, and face survive as `RichSegment` fields. The log
+still needs:
 
 - Virtualized messages, bounded history, channel filters, and unread indicators.
 - Scroll anchoring when messages arrive or earlier history loads.
 - Multiline input, input history, whisper completion, and slash commands.
-- Rich-text selection and copying, optional markup parsing, and inline images.
+- Rich-text selection and copying, virtualized history, and international text.
 - International text support through the text-system work below.
 
 ### Advanced Rich Tooltip Behavior

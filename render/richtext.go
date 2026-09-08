@@ -11,7 +11,8 @@ import (
 // Rich-text metrics for v1. Wrapping is word-based; advances come from the
 // loaded font when a graphics context exists and fall back to estimation
 // headless, so tests stay deterministic while windowed hit testing matches
-// drawn glyphs. Font size is fixed; per-segment sizes are deferred.
+// drawn glyphs. Per-segment sizes and faces are stored on segments for
+// Go-authored runs; the fixed metrics below remain the multi-line default.
 const (
 	// RichFontSize is the fixed message text size in logical pixels.
 	// Requested ~1.5x nominal (see drawTextInContent) for a true ~13px EM.
@@ -26,11 +27,17 @@ const (
 	richEstimatedAdvance = 0.55
 	// richTabSpaces counts one tab stop as four spaces for layout advances.
 	richTabSpaces = 4
+	// RichIconSize bounds an inline icon box edge in logical pixels.
+	RichIconSize = 20
+	// RichIconGap separates an inline icon from adjacent word runs.
+	RichIconGap = 4
 )
 
 // RichSpanLayout is one laid-out single-line fragment of a message segment.
 // A segment split by wrapping yields one fragment per wrapped row; all share
 // the segment index so hover, press, and tooltip state stay per segment.
+// Icon fragments have IsIcon set and Icon naming the whitelist entry; Text
+// is empty for icons.
 type RichSpanLayout struct {
 	// Segment is the index into the laid-out segment slice.
 	Segment int
@@ -40,10 +47,20 @@ type RichSpanLayout struct {
 	Text string
 	// Link is the fragment's link; its kind is LinkNone for plain text.
 	Link core.Link
-	// HasColor selects Color over theme defaults and link blue.
+	// HasColor selects Color over theme defaults and registered link colors.
 	HasColor bool
 	// Color is the fragment color used only when HasColor is true.
 	Color core.Color
+	// Icon names the whitelisted inline graphic used only when IsIcon is true.
+	Icon string
+	// IsIcon marks the fragment as an inline icon placeholder.
+	IsIcon bool
+	// Bold requests faux-bold rendering for Go-authored emphasis.
+	Bold bool
+	// Size is the effective fragment size; RichFontSize when unset.
+	Size float32
+	// Font names a registered face; empty selects the default face.
+	Font string
 }
 
 // Linked reports whether the fragment belongs to a linked segment.
@@ -185,7 +202,7 @@ func (c *RichLayoutCache) UpdateSegments(theme *Theme, bounds core.Rect, segment
 	content := themeRichContent(theme, bounds, state)
 	ready := richFontReady(theme)
 	revision := richTextRevision(theme)
-	if c.ready && !c.indexed && c.bounds == bounds && c.content == content && c.fontReady == ready && c.textRev == revision && equalCachedRichSegments(c.segCache, segments) {
+	if c.ready && !c.indexed && c.bounds == bounds && c.content == content && c.fontReady == ready && c.textRev == revision && core.EqualRichSegments(c.segCache, segments) {
 		return false
 	}
 	oldSpans := len(c.spans)
@@ -300,21 +317,22 @@ func richSourceKeys(source RichSegmentSource) (int, uint64) {
 }
 
 // layoutRichSliceInto wraps a segment slice into reused span storage with an
-// allocation-free word scanner. Newlines force breaks, runs of spaces and tabs
-// advance by the cached space width, and overlong words split by runes across
-// rows so CJK, URLs, and hashes never bleed past content.
+// allocation-free word scanner. Icon runs emit one atomic box; newlines
+// force breaks, runs of spaces and tabs advance by the cached space width,
+// and overlong words split by runes across rows so CJK, URLs, and hashes
+// never bleed past content.
 func layoutRichSliceInto(theme *Theme, cursor richCursorState, segments []core.RichSegment, reuse []RichSpanLayout) []RichSpanLayout {
 	if cursor.content.W <= 0 || cursor.content.H <= 0 {
 		return reuse[:0]
 	}
 	for index := range segments {
 		segment := segments[index]
-		reuse = layoutRichTextInto(theme, &cursor, reuse, index, segment.Text, segment.Link, segment.HasColor, segment.Color)
+		reuse = layoutRichSegmentInto(theme, &cursor, reuse, index, segment)
 		if cursor.overflow {
 			break
 		}
 	}
-	return reuse
+	return cursor.finishRows(reuse)
 }
 
 // layoutRichSourceInto wraps an indexed source into reused span storage with
@@ -329,12 +347,12 @@ func layoutRichSourceInto(theme *Theme, cursor richCursorState, count int, sourc
 		if !ok {
 			continue
 		}
-		reuse = layoutRichTextInto(theme, &cursor, reuse, index, segment.Text, segment.Link, segment.HasColor, segment.Color)
+		reuse = layoutRichSegmentInto(theme, &cursor, reuse, index, segment)
 		if cursor.overflow {
 			break
 		}
 	}
-	return reuse
+	return cursor.finishRows(reuse)
 }
 
 // sourceRichSegmentAt reads one indexed segment without allocating a closure.
@@ -348,7 +366,9 @@ func sourceRichSegmentAt(source RichSegmentSource, index int) (core.RichSegment,
 
 // richCursorState tracks the pen and clipping edges across one rebuild.
 // wrapped distinguishes automatic wrap rows (leading spaces skipped) from
-// explicit newline rows (indentation preserved).
+// explicit newline rows (indentation preserved). rowH holds the current row
+// advance (the tallest span so far); rowStart indexes the row's first span
+// in reuse so breaks can back-patch uniform row heights.
 type richCursorState struct {
 	content  core.Rect
 	right    float32
@@ -358,23 +378,67 @@ type richCursorState struct {
 	y        float32
 	overflow bool
 	wrapped  bool
+	rowH     float32
+	rowStart int
 }
 
 // richCursor seeds the pen at the content origin with clipping edges.
 // The value stays on the caller stack; only rebuilds use it.
 func richCursor(content core.Rect, space float32) richCursorState {
-	return richCursorState{content: content, right: content.X + content.W, below: content.Y + content.H, space: space, x: content.X, y: content.Y}
+	return richCursorState{content: content, right: content.X + content.W, below: content.Y + content.H, space: space, x: content.X, y: content.Y, rowH: RichLineHeight}
+}
+
+// richStyle carries one segment's draw-affecting attributes through layout
+// without threading six parameters per call.
+type richStyle struct {
+	link     core.Link
+	color    core.Color
+	hasColor bool
+	bold     bool
+	size     float32
+	font     string
+}
+
+// styleForSegment resolves a segment's effective draw style for layout.
+func styleForSegment(segment core.RichSegment) richStyle {
+	return richStyle{
+		link:     segment.Link,
+		color:    segment.Color,
+		hasColor: segment.HasColor,
+		bold:     segment.Bold,
+		size:     richSpanSize(segment),
+		font:     richSpanFont(segment),
+	}
+}
+
+// layoutRichSegmentInto emits one segment's icon box (when present) followed
+// by its word-scanned text run.
+
+// layoutRichSegmentInto emits one segment's icon box (when present) followed
+// by its word-scanned text run.
+func layoutRichSegmentInto(theme *Theme, cursor *richCursorState, reuse []RichSpanLayout, index int, segment core.RichSegment) []RichSpanLayout {
+	style := styleForSegment(segment)
+	if segment.HasIcon {
+		reuse = cursor.appendIcon(reuse, index, segment.Icon, style)
+		if cursor.overflow {
+			return reuse
+		}
+	}
+	if segment.Text == "" {
+		return reuse
+	}
+	return layoutRichTextInto(theme, cursor, reuse, index, segment.Text, style)
 }
 
 // layoutRichTextInto scans one segment without Split/Fields allocations and
 // appends its word fragments into reuse. Spaces advance the pen, newlines
 // break rows, and vertical overflow latches so callers stop cleanly.
-func layoutRichTextInto(theme *Theme, cursor *richCursorState, reuse []RichSpanLayout, index int, text string, link core.Link, hasColor bool, tint core.Color) []RichSpanLayout {
+func layoutRichTextInto(theme *Theme, cursor *richCursorState, reuse []RichSpanLayout, index int, text string, style richStyle) []RichSpanLayout {
 	pos := 0
 	for pos < len(text) {
 		byteValue := text[pos]
 		if byteValue == '\n' {
-			cursor.newline()
+			reuse = cursor.newline(reuse)
 			if cursor.overflow {
 				return reuse
 			}
@@ -382,7 +446,7 @@ func layoutRichTextInto(theme *Theme, cursor *richCursorState, reuse []RichSpanL
 			continue
 		}
 		if isRichSpaceByte(byteValue) {
-			cursor.advanceSpace(byteValue)
+			cursor.advanceSpace(theme, byteValue, style.size)
 			pos++
 			continue
 		}
@@ -390,7 +454,7 @@ func layoutRichTextInto(theme *Theme, cursor *richCursorState, reuse []RichSpanL
 		for pos < len(text) && !isRichSpaceByte(text[pos]) && text[pos] != '\n' {
 			pos++
 		}
-		reuse = cursor.appendWord(theme, reuse, index, text[start:pos], link, hasColor, tint)
+		reuse = cursor.appendWord(theme, reuse, index, text[start:pos], style)
 		if cursor.overflow {
 			return reuse
 		}
@@ -400,76 +464,153 @@ func layoutRichTextInto(theme *Theme, cursor *richCursorState, reuse []RichSpanL
 
 // newline moves the pen to an explicit-break row preserving indentation.
 // Wrapped-row skipping is cleared so intentional indents survive newlines.
-func (c *richCursorState) newline() {
+// The finished row back-patches uniform heights before advancing.
+func (c *richCursorState) newline(reuse []RichSpanLayout) []RichSpanLayout {
 	if c == nil {
-		return
+		return reuse
 	}
+	reuse = c.commitRow(reuse)
 	c.x = c.content.X
-	c.y += RichLineHeight
+	c.y += c.rowH
+	c.rowH = RichLineHeight
+	c.rowStart = len(reuse)
 	c.wrapped = false
 	if c.y+RichLineHeight > c.below {
 		c.overflow = true
 	}
+	return reuse
 }
 
 // wrapLine moves the pen to an automatic-wrap row that skips carried spaces.
 // Only word wrapping sets this; explicit newlines preserve indentation.
-func (c *richCursorState) wrapLine() {
+// The finished row back-patches uniform heights before advancing.
+func (c *richCursorState) wrapLine(reuse []RichSpanLayout) []RichSpanLayout {
 	if c == nil {
-		return
+		return reuse
 	}
+	reuse = c.commitRow(reuse)
 	c.x = c.content.X
-	c.y += RichLineHeight
+	c.y += c.rowH
+	c.rowH = RichLineHeight
+	c.rowStart = len(reuse)
 	c.wrapped = true
 	if c.y+RichLineHeight > c.below {
 		c.overflow = true
 	}
+	return reuse
+}
+
+// commitRow back-patches the finished row to its tallest span height.
+func (c *richCursorState) commitRow(reuse []RichSpanLayout) []RichSpanLayout {
+	if c == nil {
+		return reuse
+	}
+	for i := c.rowStart; i < len(reuse); i++ {
+		reuse[i].Bounds.H = c.rowH
+	}
+	return reuse
+}
+
+// finishRows commits the trailing row at the end of one layout pass.
+func (c *richCursorState) finishRows(reuse []RichSpanLayout) []RichSpanLayout {
+	if c == nil {
+		return reuse
+	}
+	return c.commitRow(reuse)
 }
 
 // advanceSpace moves the pen for one space-class byte without allocating.
-// Spaces carried onto automatic-wrap rows are skipped, while indentation
-// after explicit newlines and at text start is preserved.
-func (c *richCursorState) advanceSpace(byteValue byte) {
+// Spaces scale with the current span size; spaces carried onto
+// automatic-wrap rows are skipped, while indentation after explicit
+// newlines and at text start is preserved.
+func (c *richCursorState) advanceSpace(theme *Theme, byteValue byte, size float32) {
 	if c == nil || c.wrapped {
 		return
 	}
+	step := theme.richSpaceFor(c.space, size)
 	if byteValue == '\t' {
-		c.x += float32(richTabSpaces) * c.space
+		c.x += float32(richTabSpaces) * step
 		return
 	}
-	c.x += c.space
+	c.x += step
 }
 
-// appendWord measures one word and appends its fragment, wrapping first when
-// needed. Overlong words split by runes across rows so unspaced scripts and
-// long tokens never bleed; each emitted row clears the wrap-skip flag.
-func (c *richCursorState) appendWord(theme *Theme, reuse []RichSpanLayout, index int, word string, link core.Link, hasColor bool, tint core.Color) []RichSpanLayout {
-	if word == "" {
+// appendIcon emits one atomic inline icon box, wrapping first when needed.
+// Icons never split; an icon wider than the content still emits clamped so
+// layout always makes progress.
+func (c *richCursorState) appendIcon(reuse []RichSpanLayout, index int, name string, style richStyle) []RichSpanLayout {
+	if c == nil {
 		return reuse
 	}
-	if theme.measureRichWord(word) > c.content.W && c.content.W > 0 {
-		return c.appendLongWord(theme, reuse, index, word, link, hasColor, tint)
+	width := float32(RichIconSize)
+	if width > c.content.W && c.content.W > 0 {
+		width = c.content.W
 	}
-	width := theme.measureRichWord(word)
 	if c.x > c.content.X && c.x+width > c.right {
-		c.wrapLine()
+		reuse = c.wrapLine(reuse)
 		if c.overflow {
 			return reuse
 		}
 	}
-	if c.y+RichLineHeight > c.below {
+	spanH := richRowHeight(style.size)
+	if c.y+spanH > c.below {
 		c.overflow = true
 		return reuse
 	}
 	width = clampRichWordWidth(width, c.x, c.right, c.content.W)
 	reuse = append(reuse, RichSpanLayout{
 		Segment:  index,
-		Bounds:   core.Rect{X: c.x, Y: c.y, W: width, H: RichLineHeight},
-		Text:     word,
-		Link:     link,
-		HasColor: hasColor,
-		Color:    tint,
+		Bounds:   core.Rect{X: c.x, Y: c.y, W: width, H: spanH},
+		Link:     style.link,
+		HasColor: style.hasColor,
+		Color:    style.color,
+		Icon:     name,
+		IsIcon:   true,
+		Bold:     style.bold,
+		Size:     style.size,
+		Font:     style.font,
 	})
+	c.rowH = maxRichRow(c.rowH, spanH)
+	c.x += width + float32(RichIconGap)
+	c.wrapped = false
+	return reuse
+}
+
+// appendWord measures one word and appends its fragment, wrapping first when
+// needed. Overlong words split by runes across rows so unspaced scripts and
+// long tokens never bleed; each emitted row clears the wrap-skip flag.
+func (c *richCursorState) appendWord(theme *Theme, reuse []RichSpanLayout, index int, word string, style richStyle) []RichSpanLayout {
+	if word == "" {
+		return reuse
+	}
+	if theme.measureRichWordStyled(word, style.font, style.size) > c.content.W && c.content.W > 0 {
+		return c.appendLongWord(theme, reuse, index, word, style)
+	}
+	width := theme.measureRichWordStyled(word, style.font, style.size)
+	if c.x > c.content.X && c.x+width > c.right {
+		reuse = c.wrapLine(reuse)
+		if c.overflow {
+			return reuse
+		}
+	}
+	spanH := richRowHeight(style.size)
+	if c.y+spanH > c.below {
+		c.overflow = true
+		return reuse
+	}
+	width = clampRichWordWidth(width, c.x, c.right, c.content.W)
+	reuse = append(reuse, RichSpanLayout{
+		Segment:  index,
+		Bounds:   core.Rect{X: c.x, Y: c.y, W: width, H: spanH},
+		Text:     word,
+		Link:     style.link,
+		HasColor: style.hasColor,
+		Color:    style.color,
+		Bold:     style.bold,
+		Size:     style.size,
+		Font:     style.font,
+	})
+	c.rowH = maxRichRow(c.rowH, spanH)
 	c.x += width
 	c.wrapped = false
 	return reuse
@@ -478,33 +619,38 @@ func (c *richCursorState) appendWord(theme *Theme, reuse []RichSpanLayout, index
 // appendLongWord splits an overlong word by runes into fitting fragments.
 // Single-rune overflow still emits with clamped geometry to guarantee
 // progress on pathologically narrow content.
-func (c *richCursorState) appendLongWord(theme *Theme, reuse []RichSpanLayout, index int, word string, link core.Link, hasColor bool, tint core.Color) []RichSpanLayout {
+func (c *richCursorState) appendLongWord(theme *Theme, reuse []RichSpanLayout, index int, word string, style richStyle) []RichSpanLayout {
 	start := 0
 	for start < len(word) {
 		if c.x != c.content.X {
-			c.wrapLine()
+			reuse = c.wrapLine(reuse)
 			if c.overflow {
 				return reuse
 			}
 		}
-		end := fitRichPrefix(theme, word[start:], c.content.W)
+		end := fitRichPrefixStyled(theme, word[start:], c.content.W, style.font, style.size)
 		if end <= 0 {
 			end = firstRuneLen(word[start:])
 		}
 		chunk := word[start : start+end]
-		width := clampRichWordWidth(theme.measureRichWord(chunk), c.x, c.right, c.content.W)
-		if c.y+RichLineHeight > c.below {
+		width := clampRichWordWidth(theme.measureRichWordStyled(chunk, style.font, style.size), c.x, c.right, c.content.W)
+		spanH := richRowHeight(style.size)
+		if c.y+spanH > c.below {
 			c.overflow = true
 			return reuse
 		}
 		reuse = append(reuse, RichSpanLayout{
 			Segment:  index,
-			Bounds:   core.Rect{X: c.x, Y: c.y, W: width, H: RichLineHeight},
+			Bounds:   core.Rect{X: c.x, Y: c.y, W: width, H: spanH},
 			Text:     chunk,
-			Link:     link,
-			HasColor: hasColor,
-			Color:    tint,
+			Link:     style.link,
+			HasColor: style.hasColor,
+			Color:    style.color,
+			Bold:     style.bold,
+			Size:     style.size,
+			Font:     style.font,
 		})
+		c.rowH = maxRichRow(c.rowH, spanH)
 		c.x += width
 		c.wrapped = false
 		start += end
@@ -513,7 +659,7 @@ func (c *richCursorState) appendLongWord(theme *Theme, reuse []RichSpanLayout, i
 		}
 		// Full-width chunks always continue on a fresh row.
 		if start < len(word) {
-			c.wrapLine()
+			reuse = c.wrapLine(reuse)
 			if c.overflow {
 				return reuse
 			}
@@ -523,19 +669,28 @@ func (c *richCursorState) appendLongWord(theme *Theme, reuse []RichSpanLayout, i
 	return reuse
 }
 
-// fitRichPrefix returns the longest leading byte prefix of word fitting width.
-// It advances by whole runes and measures rebuild-only, never steady-state.
-func fitRichPrefix(theme *Theme, word string, width float32) int {
+// fitRichPrefixStyled returns the longest leading byte prefix fitting width
+// in its span style. It advances by whole runes and measures rebuild-only,
+// never steady-state.
+func fitRichPrefixStyled(theme *Theme, word string, width float32, font string, size float32) int {
 	end := 0
 	for end < len(word) {
 		runeLen := firstRuneLen(word[end:])
 		next := end + runeLen
-		if theme.measureRichWord(word[:next]) > width {
+		if theme.measureRichWordStyled(word[:next], font, size) > width {
 			break
 		}
 		end = next
 	}
 	return end
+}
+
+// maxRichRow returns the taller of two row advances.
+func maxRichRow(a, b float32) float32 {
+	if b > a {
+		return b
+	}
+	return a
 }
 
 // firstRuneLen returns the byte length of the first rune in text without
@@ -580,23 +735,6 @@ func isRichSpaceByte(value byte) bool {
 	}
 }
 
-// measureRichWord returns the logical advance of word in message metrics,
-// preferring the loaded font raster when a graphics context exists.
-func (t *Theme) measureRichWord(word string) float32 {
-	if word == "" {
-		return 0
-	}
-	if t != nil && t.HasFont() && rl.IsWindowReady() {
-		if width := rl.MeasureTextEx(t.FontForSize(RichFontSize), word, RichFontSize, richTextSpacing).X; width > 0 {
-			return width
-		}
-	}
-	if t != nil && rl.IsWindowReady() {
-		return float32(rl.MeasureText(word, RichFontSize))
-	}
-	return float32(utf8.RuneCountInString(word)) * float32(RichFontSize) * richEstimatedAdvance
-}
-
 // richSpaceAdvance returns the in-string space advance for message metrics.
 // A lone space measures narrower than the same space inside a string, so
 // the advance is derived from a spaced pair; headless falls back to the
@@ -614,20 +752,6 @@ func (t *Theme) richSpaceAdvance() float32 {
 		return float32(rl.MeasureText("a a", RichFontSize) - 2*rl.MeasureText("a", RichFontSize))
 	}
 	return float32(RichFontSize) * richEstimatedAdvance
-}
-
-// equalCachedRichSegments compares cached and incoming segments field by field
-// without allocating. Length mismatch short-circuits before any compare.
-func equalCachedRichSegments(left, right []core.RichSegment) bool {
-	if len(left) != len(right) {
-		return false
-	}
-	for i := range left {
-		if left[i] != right[i] {
-			return false
-		}
-	}
-	return true
 }
 
 // copyCachedRichSegments copies segments into reused cache storage and zeroes

@@ -1,4 +1,5 @@
 Copyright 2019, The Grenze Project Authors (https://github.com/Omnibus-Type/Grenze)
+Copyright 2026, The Valley Sans Project Authors (https://github.com/HelsinkiTypeStudio/valley-sans)
 
 This Font Software is licensed under the SIL Open Font License, Version 1.1.
 This license is copied below, and is also available with a FAQ at:

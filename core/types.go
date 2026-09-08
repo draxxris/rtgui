@@ -220,13 +220,33 @@ type Link struct {
 
 // RichSegment is one styled run inside a rich-text widget. Adjacent
 // segments flow without forced breaks; wrapping is word-based.
+//
+// Go code constructs styling directly; only icon and link markup is
+// parsed from player strings. An icon run has HasIcon set and Icon naming
+// a UI-registered whitelist entry; Text should be empty for icon runs.
+// A link run carries Link; its tint resolves at draw time from the
+// parent-registered per-kind color unless HasColor overrides it.
 type RichSegment struct {
 	// Text is the displayed run; newlines force breaks.
 	Text string
 	// Color is the run color used only when HasColor is true.
 	Color Color
-	// HasColor selects Color over theme defaults and link blue.
+	// HasColor selects Color over theme defaults and registered link colors.
 	HasColor bool
 	// Link makes the run clickable; a zero Link is plain text.
 	Link Link
+	// Bold requests a bold face for Go-authored emphasis.
+	Bold bool
+	// FontSize is the run size used only when HasFontSize is true.
+	FontSize float32
+	// HasFontSize selects FontSize over the fixed message metrics.
+	HasFontSize bool
+	// Font names a loaded face used only when HasFont is true.
+	Font string
+	// HasFont selects Font over the theme default face.
+	HasFont bool
+	// Icon names a UI-whitelisted inline graphic used only when HasIcon is true.
+	Icon string
+	// HasIcon marks the run as an inline icon placeholder.
+	HasIcon bool
 }

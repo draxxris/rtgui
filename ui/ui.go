@@ -65,17 +65,20 @@ type UI struct {
 	// access goes through the system via render with this as mirror.
 	clipboard string
 
-	byNode          map[*layout.Node]widgets.Widget
-	drag            *dragdrop.Controller
-	dragSource      widgets.Widget
-	dragSources     map[string]func() dragdrop.Payload
-	dropTargets     map[string]*dragdrop.DropTarget
-	dragGhost       func(dragdrop.Ghost)
-	mouseCaptured   bool
-	stringScratch   []string
-	charScratch     []rune
-	keyScratch      []rune
-	richCaches      map[string]*render.RichLayoutCache
+	byNode        map[*layout.Node]widgets.Widget
+	drag          *dragdrop.Controller
+	dragSource    widgets.Widget
+	dragSources   map[string]func() dragdrop.Payload
+	dropTargets   map[string]*dragdrop.DropTarget
+	dragGhost     func(dragdrop.Ghost)
+	mouseCaptured bool
+	stringScratch []string
+	charScratch   []rune
+	keyScratch    []rune
+	richCaches    map[string]*render.RichLayoutCache
+	// richSegScratch reuses segment storage for single-line control draws.
+	// Draws consume it synchronously on the owning goroutine.
+	richSegScratch  []core.RichSegment
 	richTips        map[string]core.RichTooltip
 	explicitRichTip core.RichTooltip
 	richTipCache    render.RichTooltipCache

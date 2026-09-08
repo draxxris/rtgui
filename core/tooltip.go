@@ -62,10 +62,10 @@ type RichTooltip struct {
 // HasTitle reports whether a title row should be laid out.
 func (d RichTooltip) HasTitle() bool { return d.Title != "" }
 
-// HasBody reports whether any body segment carries visible text.
+// HasBody reports whether any body segment carries visible text or an icon.
 func (d RichTooltip) HasBody() bool {
 	for _, segment := range d.Segments {
-		if segment.Text != "" {
+		if segment.Text != "" || segment.HasIcon {
 			return true
 		}
 	}
@@ -115,24 +115,65 @@ func tooltipIconEqual(a, b TooltipIcon) bool {
 	return !a.HasTint || a.Tint == b.Tint
 }
 
-// richSegmentsEqual compares body runs including color and link payloads.
+// EqualRichSegments reports whether two segment slices match under the
+// canonical unset-tolerant semantics: optional colors, sizes, faces, and
+// icons compare only when selected, so unused defaults never mismatch.
+// Widgets and render caches share this definition so change detection
+// agrees across packages.
+func EqualRichSegments(a, b []RichSegment) bool {
+	return richSegmentsEqual(a, b)
+}
+
+// richSegmentsEqual compares body runs including style, color, icon, and link payloads.
 // Color is only compared when selected so unused defaults never mismatch.
 func richSegmentsEqual(a, b []RichSegment) bool {
 	if len(a) != len(b) {
 		return false
 	}
 	for i := range a {
-		if a[i].Text != b[i].Text || a[i].HasColor != b[i].HasColor {
-			return false
-		}
-		if a[i].HasColor && a[i].Color != b[i].Color {
-			return false
-		}
-		if !tooltipLinkEqual(a[i].Link, b[i].Link) {
+		if !richSegmentEqual(a[i], b[i]) {
 			return false
 		}
 	}
 	return true
+}
+
+// richSegmentEqual compares one styled run field by field.
+func richSegmentEqual(x, y RichSegment) bool {
+	if x.Text != y.Text || x.Bold != y.Bold {
+		return false
+	}
+	return richColorEqual(x, y) && richFontEqual(x, y) && richIconEqual(x, y) && tooltipLinkEqual(x.Link, y.Link)
+}
+
+// richColorEqual compares optional run colors.
+func richColorEqual(x, y RichSegment) bool {
+	if x.HasColor != y.HasColor {
+		return false
+	}
+	return !x.HasColor || x.Color == y.Color
+}
+
+// richFontEqual compares optional size and face selections.
+func richFontEqual(x, y RichSegment) bool {
+	if x.HasFontSize != y.HasFontSize {
+		return false
+	}
+	if x.HasFontSize && x.FontSize != y.FontSize {
+		return false
+	}
+	if x.HasFont != y.HasFont {
+		return false
+	}
+	return !x.HasFont || x.Font == y.Font
+}
+
+// richIconEqual compares optional inline icon names.
+func richIconEqual(x, y RichSegment) bool {
+	if x.HasIcon != y.HasIcon {
+		return false
+	}
+	return !x.HasIcon || x.Icon == y.Icon
 }
 
 // tooltipLinkEqual compares one clickable reference field by field.

@@ -638,8 +638,9 @@ func richTooltipPlace(outerW, outerH float32, anchor, viewport core.Vec2) core.R
 }
 
 // richTooltipSpanTint resolves one body fragment tint from its segment.
-// Explicit colors win, then link blue, then the popup body default.
-func richTooltipSpanTint(segments []core.RichSegment, span RichSpanLayout) color.RGBA {
+// Explicit colors win, then parent-registered per-kind colors, then link
+// blue, then the popup body default.
+func (t *Theme) richTooltipSpanTint(segments []core.RichSegment, span RichSpanLayout) color.RGBA {
 	if span.HasColor {
 		return span.Color.RGBA()
 	}
@@ -649,11 +650,11 @@ func richTooltipSpanTint(segments []core.RichSegment, span RichSpanLayout) color
 			return segment.Color.RGBA()
 		}
 		if segment.Link.Kind != core.LinkNone {
-			return richTooltipLinkText
+			return t.richLinkTint(false, core.Color{}, segment.Link.Kind, richTooltipLinkText)
 		}
 	}
 	if span.Linked() {
-		return richTooltipLinkText
+		return t.richLinkTint(false, core.Color{}, span.Link.Kind, richTooltipLinkText)
 	}
 	return richTooltipBodyText
 }
@@ -739,23 +740,26 @@ func (t *Theme) drawRichTooltipRows(info core.WidgetInfo, cache *RichTooltipCach
 }
 
 // drawRichTooltipBody records and draws cached body fragments with link
-// underlines. Relative fragments resolve against the content origin here,
-// so cursor motion never remeasures; tints resolve from retained segments.
+// underlines. Icon fragments draw the whitelisted graphic. Relative
+// fragments resolve against the content origin here, so cursor motion never
+// remeasures; tints resolve from retained segments.
 func (t *Theme) drawRichTooltipBody(info core.WidgetInfo, cache *RichTooltipCache) {
 	for i := range cache.bodySpans {
 		span := cache.bodySpans[i]
-		tint := richTooltipSpanTint(cache.data.Segments, span)
+		tint := t.richTooltipSpanTint(cache.data.Segments, span)
 		row := span.Bounds
 		row.X += cache.content.X
 		row.Y += cache.content.Y
-		t.logDrawCall(info.Kind, skin.PartText, info.State, row, row, skin.SkinDescriptor{}, tint, false)
-		if rl.IsWindowReady() {
-			if t.HasFont() {
-				rl.DrawTextEx(t.FontForSize(RichFontSize), span.Text, rl.NewVector2(row.X, row.Y), RichFontSize, richTextSpacing, tint)
-			} else {
-				rl.DrawText(span.Text, int32(row.X), int32(row.Y), RichFontSize, tint)
-			}
+		if span.IsIcon {
+			t.drawRichIconBox(info, span.Icon, row)
+			continue
 		}
+		t.logDrawCall(info.Kind, skin.PartText, info.State, row, row, skin.SkinDescriptor{}, tint, false)
+		size := span.Size
+		if size <= 0 {
+			size = RichFontSize
+		}
+		t.drawRichWord(span.Text, size, span.Font, span.Bold, row.X, row.Y, tint)
 		if !span.Linked() {
 			continue
 		}

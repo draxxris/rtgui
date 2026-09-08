@@ -347,34 +347,67 @@ func (t *Theme) DrawWidgetPart(kind core.WidgetKind, part skin.SkinPart, bounds 
 }
 
 // DrawWidget renders a widget using the theme's registry and transform.
-// Checkbox has no background by design (::box is PartIcon, ::checkmark is
-// PartCheckmark); its content is the full bounds so missing art stays invisible.
+// It covers the text-only case; DrawControl adds single-line rich runs.
 func (t *Theme) DrawWidget(info core.WidgetInfo, value string, amount float32, checked bool) {
+	t.DrawControl(info, value, nil, amount, checked)
+}
+
+// DrawControl renders one control with plain text or single-line rich runs.
+// A non-empty segments slice draws rich runs with the control alignment;
+// links render in registered colors without underlines or activation.
+// Otherwise value draws as plain text. Checkbox has no background by design
+// (::box is PartIcon, ::checkmark is PartCheckmark); its content is the full
+// bounds so missing art stays invisible.
+func (t *Theme) DrawControl(info core.WidgetInfo, value string, segments []core.RichSegment, amount float32, checked bool) {
 	if t == nil {
 		return
 	}
-	var content core.Rect
-	if info.Kind == core.WidgetCheckbox {
-		content = t.snap(info.Bounds)
-	} else {
-		background, _ := t.drawPart(info.Kind, skin.PartBackground, info.Bounds, info.State)
-		border, _ := t.resolveDescriptor(info.Kind, skin.PartBorder, info.State)
-		content = t.snap(ContentRect(info.Bounds, background, border))
-	}
+	content := t.controlContentRect(info.Kind, info.Bounds, info.State)
 	if t.recorder != nil {
 		t.recorder.setLastWidgetInfo(info)
 	}
 
 	switch info.Kind {
 	case core.WidgetCheckbox:
-		t.drawCheckbox(info, value, content, checked)
+		t.drawControlCheckbox(info, value, segments, content, checked)
 	case core.WidgetSlider:
 		t.drawSlider(info, value, content, amount)
 	case core.WidgetProgressBar:
 		t.drawProgressBar(info, value, content, amount)
 	default:
-		t.drawTextInContent(info, value, content, info.State)
+		if len(segments) > 0 {
+			t.DrawRichSingleLine(info, content, segments, info.Align)
+		} else {
+			t.drawTextInContent(info, value, content, info.State)
+		}
 	}
+}
+
+// drawControlCheckbox renders the box with a plain or rich single-line label.
+// An empty value without segments draws the lone box, matching drawCheckbox.
+func (t *Theme) drawControlCheckbox(info core.WidgetInfo, value string, segments []core.RichSegment, content core.Rect, checked bool) {
+	if value == "" && len(segments) == 0 {
+		if checked {
+			t.drawCheckmark(info, content)
+		} else {
+			t.drawUncheckedBox(info, content)
+		}
+		return
+	}
+	iconRect, textRect := checkboxLayout(content)
+	if checked {
+		t.drawCheckmark(info, iconRect)
+	} else {
+		t.drawUncheckedBox(info, iconRect)
+	}
+	if len(segments) > 0 {
+		if t.recorder != nil {
+			t.recorder.setLastWidgetInfo(info)
+		}
+		t.DrawRichSingleLine(info, textRect, segments, info.Align)
+		return
+	}
+	t.drawTextInContent(info, value, textRect, info.State)
 }
 
 // DrawDropdownPopup renders a dropdown list with popup skin parts and
@@ -382,21 +415,7 @@ func (t *Theme) DrawWidget(info core.WidgetInfo, value string, amount float32, c
 // Dropdown::popup and its ring is the same selector's border-image; rows lay
 // out inside their merged insets so the ring never overlaps row content.
 func (t *Theme) DrawDropdownPopup(info core.WidgetInfo, items []string, hovered int) {
-	if t == nil || len(items) == 0 || info.Bounds.H <= 0 {
-		return
-	}
-	t.drawPopupShell(info)
-	content := t.DropdownPopupContent(info.Bounds, info.State)
-	for index, item := range items {
-		row, ok := DropdownPopupRow(content, len(items), index)
-		if !ok {
-			continue
-		}
-		if index == hovered {
-			t.drawPopupRowHighlight(info, row)
-		}
-		t.drawDropdownText(info, row, item)
-	}
+	t.DrawRichDropdownPopup(info, items, nil, hovered)
 }
 
 // drawDropdownText records and draws one popup label with the gallery colors.
@@ -427,26 +446,11 @@ func (t *Theme) drawCheckbox(info core.WidgetInfo, value string, content core.Re
 		}
 		return
 	}
-	boxSize := float32(20)
-	if boxSize > content.H {
-		boxSize = content.H
-	}
-	iconRect := core.Rect{
-		X: content.X + 4,
-		Y: content.Y + (content.H-boxSize)/2,
-		W: boxSize,
-		H: boxSize,
-	}
+	iconRect, textRect := checkboxLayout(content)
 	if checked {
 		t.drawCheckmark(info, iconRect)
 	} else {
 		t.drawUncheckedBox(info, iconRect)
-	}
-	textRect := core.Rect{
-		X: content.X + boxSize + 10,
-		Y: content.Y,
-		W: content.W - (boxSize + 10),
-		H: content.H,
 	}
 	t.drawTextInContent(info, value, textRect, info.State)
 }

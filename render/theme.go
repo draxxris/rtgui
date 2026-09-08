@@ -28,6 +28,13 @@ type Theme struct {
 	clips             []core.Rect
 	textRevision      uint64
 	warned            []skin.SkinKey
+	inlineIcons       map[string]core.TooltipIcon
+	linkColors        map[core.LinkKind]core.Color
+	namedFonts        map[string]*fontFace
+	// singleScratch reuses single-line span storage across draws. Draws
+	// consume spans synchronously on the owning goroutine, so one buffer
+	// serves every control without steady-state allocation.
+	singleScratch []RichSpanLayout
 }
 
 // fontFace owns one font path and its size-specific raster cache.
@@ -284,6 +291,12 @@ func (t *Theme) UnloadFonts() {
 	}
 	t.font.unload()
 	t.italic.unload()
+	for _, face := range t.namedFonts {
+		if face != nil {
+			face.unload()
+		}
+	}
+	clear(t.namedFonts)
 	t.textRevision++
 }
 

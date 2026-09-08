@@ -65,6 +65,14 @@ Manual input adapters must call it when their input device loses focus.
 - Text buffers build an immutable string only after text changes. Earlier strings remain valid.
 - Rich-text drawing and hit testing share a per-widget revisioned layout.
   Text, bounds, skin insets, font changes, and graphics readiness invalidate it.
+  Inline icon and link tints resolve at draw time from parent registries, so
+  re-registering recolors without re-parsing segments.
+- Player markup parses only `[icon=name]` and `[link=scheme:target]text[/link]`
+  via `text.ParsePlayerMarkup`; color, bold, size, and face have no markup
+  and are Go-constructed `RichSegment` fields. Unknown tags render literally.
+- Every widget carries optional rich runs; buttons, labels, checkboxes, and
+  dropdown rows render single-line rich runs. Clickable links activate only
+  in `RichText`; other controls render link colors without underlines.
 - Public snapshot getters still copy. Internal tab and dropdown drawing reuse scratch buffers.
 - Formatted slider and progress labels update only when their value or format changes.
 - Rich tooltips copy supplied segments. Cursor movement translates cached geometry without wrapping again.
