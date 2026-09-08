@@ -42,6 +42,7 @@ import (
 	"fmt"
 	"image"
 	"image/color"
+	"image/draw"
 	"image/png"
 	"log"
 	"math"
@@ -200,14 +201,8 @@ func main() {
 
 		if *frameLimit > 0 && frame+1 >= *frameLimit {
 			if *screenshot != "" {
-				if err := saveScreenshot(*screenshot); err != nil {
-					// Fallback to placeholder so headless smoke still produces a file
-					log.Printf("screenshot via GPU failed (%v) — writing placeholder", err)
-					if err2 := createPlaceholderScreenshot(*screenshot); err2 != nil {
-						log.Printf("placeholder screenshot failed: %v", err2)
-					}
-				} else {
-					log.Printf("screenshot saved to %s", *screenshot)
+				if err := saveGalleryScreenshot(*screenshot); err != nil {
+					log.Printf("screenshot failed: %v", err)
 				}
 			}
 			break
@@ -262,22 +257,22 @@ func runHeadlessSmoke() {
 	log.Printf("headless smoke: %d draw calls logged (clicks=%d tab=%d link=%q fallback=%v)", len(calls), clicks, tabSelected, linkClicked, len(calls) > 0 && calls[0].Fallback)
 
 	if *screenshot != "" {
-		// Create a placeholder image that documents headless mode.
-		if err := createPlaceholderScreenshot(*screenshot); err != nil {
+		if err := saveGalleryScreenshot(*screenshot); err != nil {
 			log.Printf("headless placeholder failed: %v", err)
 			os.Exit(1)
 		}
-		log.Printf("headless placeholder screenshot saved to %s", *screenshot)
 	}
 	if *frameLimit > 0 {
 		log.Printf("headless smoke completed %d frames", *frameLimit)
 	}
 }
 
-// saveScreenshot saves the current framebuffer. Unlike rl.TakeScreenshot,
-// this handles absolute paths correctly (TakeScreenshot prepends
-// GetWorkingDirectory and fails on /tmp/...).
-func saveScreenshot(path string) error {
+// saveGalleryScreenshot saves the current framebuffer, falling back to a
+// placeholder PNG when no GL context is available. Unlike rl.TakeScreenshot,
+// the GPU path handles absolute paths correctly (TakeScreenshot prepends
+// GetWorkingDirectory and fails on /tmp/...). Both call sites share this so
+// window and headless smoke stay one-liners.
+func saveGalleryScreenshot(path string) error {
 	if path == "" {
 		return fmt.Errorf("empty path")
 	}
@@ -287,6 +282,22 @@ func saveScreenshot(path string) error {
 			return err
 		}
 	}
+	if err := saveScreenshot(path); err == nil {
+		log.Printf("screenshot saved to %s", path)
+		return nil
+	} else {
+		log.Printf("screenshot via GPU failed (%v) — writing placeholder", err)
+	}
+	if err := createPlaceholderScreenshot(path); err != nil {
+		return err
+	}
+	log.Printf("placeholder screenshot saved to %s", path)
+	return nil
+}
+
+// saveScreenshot saves the current framebuffer via LoadImageFromScreen +
+// ExportImage.
+func saveScreenshot(path string) error {
 	img := rl.LoadImageFromScreen()
 	if img == nil {
 		return fmt.Errorf("LoadImageFromScreen returned nil")
@@ -302,31 +313,17 @@ func saveScreenshot(path string) error {
 // createPlaceholderScreenshot writes a stdlib PNG so headless -screenshot
 // still produces a viewable file even without GL.
 func createPlaceholderScreenshot(path string) error {
-	dir := filepath.Dir(path)
-	if dir != "." && dir != "" {
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			return err
-		}
-	}
 	w, h := 800, 600
 	img := image.NewRGBA(image.Rect(0, 0, w, h))
-	// Background
-	bg := color.RGBA{R: 13, G: 17, B: 27, A: 255}
-	for y := 0; y < h; y++ {
-		for x := 0; x < w; x++ {
-			img.Set(x, y, bg)
-		}
+	fill := func(r image.Rectangle, c color.RGBA) {
+		draw.Draw(img, r.Intersect(img.Bounds()), &image.Uniform{C: c}, image.Point{}, draw.Src)
 	}
-	// Simple panel rectangles
-	panel := color.RGBA{R: 35, G: 48, B: 70, A: 255}
-	drawRect(img, 20, 60, w-40, h-80, panel)
-	// Title bar placeholder
-	title := color.RGBA{R: 45, G: 78, B: 112, A: 255}
-	drawRect(img, 30, 80, w-60, 36, title)
-	// State strip placeholders
+	fill(img.Bounds(), color.RGBA{R: 13, G: 17, B: 27, A: 255})
+	fill(image.Rect(20, 60, w-20, h-20), color.RGBA{R: 35, G: 48, B: 70, A: 255})
+	fill(image.Rect(30, 80, w-30, 116), color.RGBA{R: 45, G: 78, B: 112, A: 255})
+	// State strip placeholders.
 	for i := 0; i < 6; i++ {
-		c := color.RGBA{R: uint8(45 + i*20), G: 58, B: 82, A: 255}
-		drawRect(img, 30+i*120, h-70, 100, 30, c)
+		fill(image.Rect(30+i*120, h-70, 30+i*120+100, h-40), color.RGBA{R: uint8(45 + i*20), G: 58, B: 82, A: 255})
 	}
 	// Status line text is not rasterized here; the image documents headless mode.
 	f, err := os.Create(path)
@@ -337,107 +334,73 @@ func createPlaceholderScreenshot(path string) error {
 	return png.Encode(f, img)
 }
 
-// drawRect fills a bounded rectangle in a placeholder screenshot.
-func drawRect(img *image.RGBA, x, y, w, h int, c color.RGBA) {
-	bounds := img.Bounds()
-	for yy := y; yy < y+h; yy++ {
-		for xx := x; xx < x+w; xx++ {
-			if xx >= bounds.Min.X && xx < bounds.Max.X && yy >= bounds.Min.Y && yy < bounds.Max.Y {
-				img.Set(xx, yy, c)
-			}
-		}
-	}
-}
-
 // loadGalleryFonts loads the checked-in Grenze TTFs into the theme.
 // Widget text uses Grenze-Regular via drawTextInContent; captions and the
 // status line use Grenze-Italic through the gallery draw helpers.
 func loadGalleryFonts(theme *render.Theme) {
-	regular := findFontFile("Grenze-Regular.ttf")
-	if regular == "" {
-		log.Fatalf("gallery font not found; expected testdata/fonts/Grenze-Regular.ttf (searched cwd and exe parents)")
+	fonts := []struct {
+		file string
+		load func(string) error
+	}{
+		{"Grenze-Regular.ttf", theme.LoadFont},
+		{"Grenze-Italic.ttf", theme.LoadItalicFont},
 	}
-	if err := theme.LoadFont(regular); err != nil {
-		log.Fatalf("could not load gallery font %q: %v", regular, err)
-	}
-	italic := findFontFile("Grenze-Italic.ttf")
-	if italic == "" {
-		log.Fatalf("gallery italic font not found; expected testdata/fonts/Grenze-Italic.ttf (searched cwd and exe parents)")
-	}
-	if err := theme.LoadItalicFont(italic); err != nil {
-		log.Fatalf("could not load gallery italic font %q: %v", italic, err)
-	}
-}
-
-// findFontFile locates a checked-in gallery font, mirroring texture lookup.
-func findFontFile(name string) string {
-	return firstExistingFile(fontCandidates(name))
-}
-
-// fontCandidates searches RTG_FONT_DIR, then cwd and exe parents.
-func fontCandidates(name string) []string {
-	candidates := []string{}
-	if configured := os.Getenv("RTG_FONT_DIR"); configured != "" {
-		candidates = append(candidates, filepath.Join(configured, name))
-	}
-	if cwd, err := os.Getwd(); err == nil {
-		candidates = appendParentFontCandidates(candidates, cwd, name)
-	}
-	if exe, err := os.Executable(); err == nil {
-		candidates = appendParentFontCandidates(candidates, filepath.Dir(exe), name)
-	}
-	return candidates
-}
-
-// appendParentFontCandidates walks up to 5 parents for testdata/fonts/name.
-func appendParentFontCandidates(candidates []string, root, name string) []string {
-	for dir, depth := root, 0; dir != filepath.Dir(dir) && depth < 5; dir, depth = filepath.Dir(dir), depth+1 {
-		if dir == "" {
-			continue
+	for _, f := range fonts {
+		path := findFontFile(f.file)
+		if path == "" {
+			log.Fatalf("gallery font not found; expected testdata/fonts/%s (searched cwd and exe parents)", f.file)
 		}
-		candidates = append(candidates,
-			filepath.Join(dir, "testdata", "fonts", name),
-			filepath.Join(dir, "rtgui", "testdata", "fonts", name),
-		)
+		if err := f.load(path); err != nil {
+			log.Fatalf("could not load gallery font %q: %v", path, err)
+		}
 	}
-	return candidates
+}
+
+// findFontFile locates a checked-in gallery font, honoring RTG_FONT_DIR first.
+func findFontFile(name string) string {
+	if configured := os.Getenv("RTG_FONT_DIR"); configured != "" {
+		if path := filepath.Join(configured, name); isDemoFile(path) {
+			return path
+		}
+	}
+	return findDemoFile(filepath.Join("testdata", "fonts", name), filepath.Join("rtgui", "testdata", "fonts", name))
 }
 
 // findGalleryCSS locates testdata/skins/gallery.css, mirroring font lookup.
 func findGalleryCSS() string {
-	candidates := []string{}
+	return findDemoFile(filepath.Join("testdata", "skins", "gallery.css"), filepath.Join("rtgui", "testdata", "skins", "gallery.css"))
+}
+
+// findDemoFile returns the first existing file matching one of rel, searching
+// upward (up to 5 parents) from the working directory and the executable
+// directory. It replaces the per-asset candidate walkers for CSS and fonts.
+func findDemoFile(rel ...string) string {
+	roots := []string{}
 	if cwd, err := os.Getwd(); err == nil {
-		candidates = appendGalleryCSSCandidates(candidates, cwd)
+		roots = append(roots, cwd)
 	}
 	if exe, err := os.Executable(); err == nil {
-		candidates = appendGalleryCSSCandidates(candidates, filepath.Dir(exe))
+		roots = append(roots, filepath.Dir(exe))
 	}
-	return firstExistingFile(candidates)
-}
-
-// appendGalleryCSSCandidates walks up to 5 parents for the gallery skin file.
-func appendGalleryCSSCandidates(candidates []string, root string) []string {
-	for dir, depth := root, 0; dir != filepath.Dir(dir) && depth < 5; dir, depth = filepath.Dir(dir), depth+1 {
-		if dir == "" {
-			continue
-		}
-		candidates = append(candidates,
-			filepath.Join(dir, "testdata", "skins", "gallery.css"),
-			filepath.Join(dir, "rtgui", "testdata", "skins", "gallery.css"),
-		)
-	}
-	return candidates
-}
-
-// firstExistingFile returns the first regular file in candidates.
-func firstExistingFile(candidates []string) string {
-	for _, candidate := range candidates {
-		info, err := os.Stat(candidate)
-		if err == nil && !info.IsDir() {
-			return candidate
+	for _, root := range roots {
+		for dir, depth := root, 0; dir != filepath.Dir(dir) && depth < 5; dir, depth = filepath.Dir(dir), depth+1 {
+			if dir == "" {
+				continue
+			}
+			for _, r := range rel {
+				if path := filepath.Join(dir, r); isDemoFile(path) {
+					return path
+				}
+			}
 		}
 	}
 	return ""
+}
+
+// isDemoFile reports whether path is an existing regular file.
+func isDemoFile(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && !info.IsDir()
 }
 
 // newGallery builds the widget set, registers it with the facade in draw
@@ -899,15 +862,4 @@ func (g *gallery) drawStateSamples(bounds core.Rect) {
 		theme.DrawWidgetPart(core.WidgetButton, skin.PartBackground, itemBounds, state)
 		theme.DrawText(names[i], itemBounds.X+5, itemBounds.Y+10, 14, false, color.RGBA{R: 228, G: 239, B: 255, A: 255})
 	}
-}
-
-// clamp confines value to the inclusive low/high interval.
-func clamp(value, low, high float32) float32 {
-	if value < low {
-		return low
-	}
-	if value > high {
-		return high
-	}
-	return value
 }
