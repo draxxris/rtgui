@@ -79,7 +79,7 @@ func (t *Theme) drawMenuSeparator(info core.WidgetInfo, row core.Rect) {
 	tint := color.RGBA{R: 120, G: 140, B: 165, A: 140}
 	t.logDrawCall(info.Kind, skin.PartOverlay, core.StateNormal, row, destination, skin.SkinDescriptor{}, tint, false)
 	if rl.IsWindowReady() {
-		drawFallbackPart(destination, tint)
+		rl.DrawRectangleRec(toRaylibRect(destination), tint)
 	}
 }
 

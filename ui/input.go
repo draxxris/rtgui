@@ -18,6 +18,8 @@ type MouseEvent struct {
 	Down bool
 	// Released is true on the left-button release edge.
 	Released bool
+	// RightPressed is the right-button press edge for menus or drag cancellation.
+	RightPressed bool
 	// Wheel is the vertical wheel delta for this frame.
 	Wheel float32
 }
@@ -67,25 +69,57 @@ func (u *UI) HandleMouse(event MouseEvent) bool {
 	}
 	u.reconcileInteraction()
 	u.pointer = event.Pos
-	if event.Pressed || event.Wheel != 0 {
-		u.tooltipText = ""
+	if event.Pressed || event.RightPressed || event.Wheel != 0 {
+		u.HideTooltip()
 	}
-	if event.Pressed && u.pressed != nil {
+	if event.RightPressed {
+		return u.handleRightPress(event.Pos)
+	}
+	if event.Pressed && u.mouseCaptured {
 		return true
 	}
 	if u.HasOpenMenu() {
-		return u.handleOpenMenu(event)
+		captured := u.finishMouse(event, false)
+		return u.handleOpenMenu(event) || captured
 	}
 	if u.openDropdown() != nil {
-		return u.handleOpenDropdown(event)
+		captured := u.finishMouse(event, false)
+		return u.handleOpenDropdown(event) || captured
 	}
+	if u.routeDrag(event) {
+		return true
+	}
+	return u.handleWidgetMouse(event)
+}
+
+// handleWidgetMouse dispatches a non-modal frame through ordinary widget gestures.
+func (u *UI) handleWidgetMouse(event MouseEvent) bool {
 	u.updateHover(event.Pos)
 	u.refreshLinkTip()
 	handled := u.handleWheel(event)
 	handled = u.handlePress(event) || handled
+	u.capturePress(event)
 	handled = u.handleDrag(event) || handled
+	handled = u.finishMouse(event, handled)
 	handled = u.handleRelease(event) || handled
 	return handled
+}
+
+// handleRightPress cancels drags or opens menus without leaking world input.
+func (u *UI) handleRightPress(pos core.Vec2) bool {
+	if u.HasOpenMenu() {
+		return true
+	}
+	if u.dragSource != nil {
+		u.cancelDrag()
+		u.pressed = nil
+		return true
+	}
+	if u.contextMenuHandler != nil {
+		u.contextMenuHandler(pos)
+		return true
+	}
+	return u.hitSurface(pos) != nil
 }
 
 // HandleKey routes one physical keyboard frame. Escape dismisses menu,
@@ -105,10 +139,8 @@ func (u *UI) HandleKey(event KeyEvent) bool {
 		return hasKeyIntent(event)
 	}
 	if u.WantsTextInput() {
-		if u.handleText(event) {
-			return true
-		}
-		if hasPrintableChars(event.Chars) {
+		mutated := u.handleText(event)
+		if mutated || hasEditingIntent(event) {
 			return true
 		}
 	}
@@ -119,14 +151,18 @@ func (u *UI) HandleKey(event KeyEvent) bool {
 // focus, then container focus order. It reports whether any layer owned the
 // press; empty state passes through so the host game still observes Escape.
 func (u *UI) handleEscape() bool {
+	if u.dragSource != nil {
+		u.cancelDrag()
+		u.pressed = nil
+		return true
+	}
 	u.linkArmedSeg = -1
 	u.clearLinkTip()
 	if u.HasOpenMenu() {
 		u.closeMenuState()
 		return true
 	}
-	if u.tooltipText != "" {
-		u.tooltipText = ""
+	if u.HideTooltip() {
 		return true
 	}
 	if u.clearFocus() {
@@ -143,7 +179,12 @@ func hasKeyIntent(event KeyEvent) bool {
 	if len(event.Chars) > 0 || len(event.Hotkeys) > 0 {
 		return true
 	}
-	return event.Backspace || event.Delete || event.Left || event.Right || event.Home || event.End || event.SelectAll || event.Copy || event.Cut || event.Paste
+	return hasEditingIntent(event)
+}
+
+// hasEditingIntent consumes editing keys even at a caret or buffer boundary.
+func hasEditingIntent(event KeyEvent) bool {
+	return hasPrintableChars(event.Chars) || event.Backspace || event.Delete || event.Left || event.Right || event.Home || event.End || event.SelectAll || event.Copy || event.Cut || event.Paste
 }
 
 // Activate performs the same kind-specific activation and callbacks as a
@@ -160,7 +201,7 @@ func (u *UI) Activate(name string) bool {
 		u.diagnose("ui.Activate: widget %q not found", name)
 		return false
 	}
-	if !target.Enabled() {
+	if !u.available(target) {
 		u.diagnose("ui.Activate: widget %q is disabled", name)
 		return false
 	}
@@ -204,7 +245,7 @@ func (u *UI) SelectTab(name string, index int) bool {
 		u.diagnose("ui.SelectTab: widget %q is %v, expected WidgetTabBar", name, target.Kind())
 		return false
 	}
-	if !tb.Enabled() {
+	if !u.available(tb) {
 		u.diagnose("ui.SelectTab: widget %q is disabled", name)
 		return false
 	}
@@ -234,7 +275,7 @@ func (u *UI) TypeText(name, value string) bool {
 		u.diagnose("ui.TypeText: widget %q is %v, expected WidgetTextbox", name, target.Kind())
 		return false
 	}
-	if !tb.Enabled() {
+	if !u.available(tb) {
 		u.diagnose("ui.TypeText: widget %q is disabled", name)
 		return false
 	}
@@ -262,7 +303,7 @@ func (u *UI) Focus(name string) bool {
 		u.diagnose("ui.Focus: widget %q not found", name)
 		return false
 	}
-	if !target.Enabled() {
+	if !u.available(target) {
 		u.diagnose("ui.Focus: widget %q is disabled", name)
 		return false
 	}
@@ -281,29 +322,30 @@ func (u *UI) reconcileInteraction() {
 	if u == nil {
 		return
 	}
-	if u.hovered != nil && !u.hovered.Enabled() {
+	if u.hovered != nil && !u.available(u.hovered) {
 		u.hovered = nil
 	}
-	if u.pressed != nil && !u.pressed.Enabled() {
+	if u.pressed != nil && !u.available(u.pressed) {
 		u.pressed = nil
 	}
-	if u.focused != nil && !u.focused.Enabled() {
+	if u.focused != nil && !u.available(u.focused) {
 		u.clearFocus()
 	}
-	if u.activeFrame != nil && !u.activeFrame.Enabled() {
+	if u.activeFrame != nil && !u.available(u.activeFrame) {
 		u.clearActiveFrame()
 	}
-	if u.scrollThumbDragging != nil && !u.scrollThumbDragging.Enabled() {
+	if u.scrollThumbDragging != nil && !u.available(u.scrollThumbDragging) {
 		u.scrollThumbDragging = nil
 	}
-	if u.scrollThumbHovered != nil && !u.scrollThumbHovered.Enabled() {
+	if u.scrollThumbHovered != nil && !u.available(u.scrollThumbHovered) {
 		u.scrollThumbHovered = nil
 	}
+	u.reconcileAuxiliary()
 }
 
 // updateHover stores only the topmost enabled pressable widget under pos.
 func (u *UI) updateHover(pos core.Vec2) {
-	u.hovered = u.hitInteractive(pos)
+	u.hovered = u.hitSurface(pos)
 	u.updateScrollThumbHover(pos)
 }
 
@@ -314,12 +356,13 @@ func (u *UI) handleWheel(event MouseEvent) bool {
 	}
 	target := u.topmostAt(event.Pos, core.WidgetScrollPanel)
 	if target == nil {
-		return false
+		return u.hitSurface(event.Pos) != nil
 	}
 	if sp, ok := target.(*widgets.ScrollPanel); ok {
-		return sp.ScrollBy(0, -event.Wheel*28)
+		sp.ScrollBy(0, -event.Wheel*28)
+		return true
 	}
-	return false
+	return u.hitSurface(event.Pos) != nil
 }
 
 // handlePress starts a gesture on the topmost eligible widget. Frame
@@ -337,7 +380,7 @@ func (u *UI) handlePress(event MouseEvent) bool {
 	if target == nil && frame == nil {
 		u.clearFocus()
 		u.clearActiveFrame()
-		return false
+		return u.hitSurface(event.Pos) != nil
 	}
 	if frame != nil {
 		u.setActiveFrame(frame)
@@ -395,7 +438,7 @@ func (u *UI) handleOpenDropdown(event MouseEvent) bool {
 	if event.Released && u.pressed == dropdown {
 		return u.releaseOpenDropdown(dropdown, event.Pos)
 	}
-	return event.Down && u.pressed == dropdown
+	return event.Wheel != 0 || event.Down || event.Released
 }
 
 // pressOpenDropdown starts control or row activation, or closes on an outside press.
@@ -403,6 +446,7 @@ func (u *UI) pressOpenDropdown(dropdown *widgets.Dropdown, pos core.Vec2) bool {
 	if dropdown.HitTest(pos) {
 		u.clearFocus()
 		u.pressed = dropdown
+		u.mouseCaptured = true
 		return true
 	}
 	if u.dropdownPopupIndex(dropdown, pos) >= 0 {
@@ -411,6 +455,7 @@ func (u *UI) pressOpenDropdown(dropdown *widgets.Dropdown, pos core.Vec2) bool {
 	}
 	u.clearFocus()
 	u.pressed = nil
+	u.mouseCaptured = true
 	return true
 }
 
@@ -474,7 +519,7 @@ func (u *UI) handleRelease(event MouseEvent) bool {
 	if rt, ok := active.(*widgets.RichText); ok {
 		return u.releaseRichText(rt, event.Pos)
 	}
-	if active.HitTest(event.Pos) {
+	if active.HitTest(event.Pos) && u.hitSurface(event.Pos) == active {
 		u.activateWidget(active)
 	}
 	return true
@@ -498,7 +543,9 @@ func (u *UI) commitTabSelection(bar *widgets.TabBar, index int) {
 	if bar.SetSelectedTab(index) {
 		u.fireOnTabSelect(bar.Name(), index)
 	}
-	u.fireOnClick(bar.Name())
+	if u.Lookup(bar.Name()) == bar {
+		u.fireOnClick(bar.Name())
+	}
 }
 
 // tabIndexAt resolves the skin-aware tab cell under pos, or -1.
@@ -568,7 +615,7 @@ func (u *UI) releaseOpenMenu(pos core.Vec2) bool {
 
 // activateWidget applies domain mutation before the shared click callback.
 func (u *UI) activateWidget(target widgets.Widget) bool {
-	if target == nil || !target.Enabled() || !isPressable(target.Kind()) {
+	if !u.available(target) || !isPressable(target.Kind()) {
 		return false
 	}
 	if cb, ok := target.(*widgets.Checkbox); ok {
@@ -717,21 +764,18 @@ func (u *UI) clearFocus() bool {
 
 // hitInteractive returns the topmost enabled pressable widget under pos.
 func (u *UI) hitInteractive(pos core.Vec2) widgets.Widget {
-	for index := len(u.order) - 1; index >= 0; index-- {
-		widget := u.widgets[u.order[index]]
-		if widget != nil && widget.Enabled() && isPressable(widget.Kind()) && widget.HitTest(pos) {
-			return widget
-		}
+	w := u.hitSurface(pos)
+	if u.available(w) && isPressable(w.Kind()) {
+		return w
 	}
 	return nil
 }
 
 // topmostAt returns the topmost enabled widget of kind under pos.
 func (u *UI) topmostAt(pos core.Vec2, kind core.WidgetKind) widgets.Widget {
-	for index := len(u.order) - 1; index >= 0; index-- {
-		widget := u.widgets[u.order[index]]
-		if widget != nil && widget.Enabled() && widget.Kind() == kind && widget.HitTest(pos) {
-			return widget
+	for w := u.hitSurface(pos); w != nil; w = u.parentWidget(w) {
+		if u.available(w) && w.Kind() == kind {
+			return w
 		}
 	}
 	return nil

@@ -45,6 +45,7 @@ func TestFrameChildPressBubblesAndTextboxKeepsGlow(t *testing.T) {
 	field := widgets.NewTextbox("field", core.Rect{X: 60, Y: 60, W: 100, H: 30}, 16)
 	outside := widgets.NewButton("outside", core.Rect{X: 300, Y: 200, W: 80, H: 30}, "Out")
 	mustAdd(t, u, frame, field, outside)
+	mustParent(t, u, "field", "demoFrame")
 	clickAt(u, centerOf(field))
 	if u.Focused() != field || u.ActiveFrame() != frame {
 		t.Fatal("textbox press must keep keyboard focus plus frame glow")
@@ -93,6 +94,7 @@ func TestFrameHotkeyFlags(t *testing.T) {
 	u.OnHotkey("blocked", 'R', HotkeyOpts{Scope: "demoFrame", Consume: true}, func() { blocked++ })
 	field := widgets.NewTextbox("field", core.Rect{X: 20, Y: 20, W: 100, H: 30}, 16)
 	mustAdd(t, u, field)
+	mustParent(t, u, "field", "demoFrame")
 	u.Focus("field")
 	if !u.HandleKey(KeyEvent{Hotkeys: []rune("R")}) || blocked != 0 {
 		t.Fatal("disallowed-while-editing R must swallow without firing")

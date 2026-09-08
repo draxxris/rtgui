@@ -1,180 +1,316 @@
-# rtgui Roadmap — MMORPG Widgets
+# rtgui Roadmap — MMORPG UI
 
-This roadmap lists widgets `rtgui` should add to support an MMORPG client.
-It assumes the current set: `Button`, `Label`, `Checkbox`, `Textbox`,
-`ScrollPanel`, `Dropdown`, `Slider`, `ProgressBar`, `Frame`, `TabBar`,
-`RichText`, plus
-the ephemeral UI-owned `Menu` and plain-text `Tooltip`, and instance-owned
-`dragdrop.Controller` targets and payloads.
+This roadmap records implemented capabilities and remaining work for an MMORPG client.
+It covers widgets, interaction, rendering, memory use, and game integration.
 
-Shipped v1 foundations: `TabBar` ships fixed equal-width tabs without
-overflow scroll, closable tabs, or badges. `Menu` ships a flat list with
-separators and disabled rows without nested submenus, check items, or
-keyboard navigation. `Tooltip` ships single-style text without rarity
-colors, stat lines, icons, or item comparison. `RichText` ships one wrapped
-message with clickable item/player/URL links, link tooltips, and
-content-height measurement without text selection, inline images, markup
-parsing, or a virtualized log. The P0 entries below keep
-the remaining advanced requirements.
+- **DONE** means the stated capability exists in the current code.
+- **PLANNED** means the capability remains unimplemented. Priority does not imply an
+  implementation commitment.
+- A completed foundation does not mark its dependent game feature as complete.
 
-## Design Principles for New Widgets
+Runtime contracts and breaking changes are in [interaction.md](interaction.md).
+Validation procedures are in [testing.md](testing.md).
 
-- Compose from existing primitives where possible. Most MMO windows are a
-  `Window` containing a `Tabs` control, an `ItemGrid` or `ListView`, and a
-  `Tooltip` layer.
-- Follow the current ownership model. `widgets` keeps domain data and enabled
-  state. `ui.UI` owns hover, press, focus, and popup state. Rendering stays in
-  `render.Theme` behind CSS skins.
-- Reuse `layout.Node` for bounds and `dragdrop` for inventory and action-bar
-  moves. Do not add package-global drag or tooltip state.
-- Virtualize long lists. Chat, combat log, guild roster, auction, LFG, and
-  damage meters must render only visible rows to keep steady-state simulation
-  and packet processing allocation-free.
-- Keep each widget skinnable through the existing CSS-to-texture path.
-  Unauthored keys stay invisible and unauthored states inherit their base rule.
+## Design Principles
 
-## P0 — Required to Ship an MMO
+- Compose game panels from reusable widgets rather than adding a separate widget type
+  for every screen.
+- Keep widget callbacks in one registry. Named UI setters and fluent widget setters
+  replace the same slots.
+- Keep hover, capture, focus, and popup state in `ui.UI` on one owning goroutine.
+- Use layout ancestry for parenting, clipping, inherited availability, and subtree
+  stacking.
+- Use UI-owned drag gestures for inventory and action-bar moves. Keep transaction rules
+  in the game.
+- Virtualize long lists and grids. Cache text layout, graph geometry, and formatted
+  labels.
+- Prefer reusable storage over object pools. Add pools only after allocation
+  measurements justify them.
+- Keep skins consistent across drawing, layout, and hit testing.
+- Measure Go allocations and native graphics costs separately. Headless tests do not
+  establish GPU performance.
 
-- **Window / Dialog**
-  - Draggable title bar, close and pin buttons, resizable edges, modal
-    blocking, bring-to-front, saved position.
-  - Basis for bags, character sheet, map, vendor, settings, mail, auction.
-  - Builds on `Frame` plus `ui.UI` focus and modal ownership.
+## DONE — Core Widgets and Rendering
 
-- **Tabs / TabControl** (v1 shipped as `TabBar`; remaining work below)
-  - Overflow scrolling, closable tabs, badge counts for unread items.
-  - Needed for spellbook, settings, social, auction, bags.
+- **DONE — Basic controls**
 
-- **ItemSlot and ItemGrid**
-  - Slot shows icon, rarity border, stack count, durability pips, bound and
-    locked overlays, cooldown dim, and selection highlight.
-  - Grid adds grid layout, multi-select, right-click use, and `dragdrop`
-    source and target integration with ghost preview.
-  - Basis for inventory, bank, loot, trade, vendor, and equipment paperdoll.
+  - `Button`, `Label`, `Checkbox`, `Textbox`, `Dropdown`, `Slider`, and `ProgressBar`.
+  - `Frame`, `ScrollPanel`, and `Canvas` for containers and custom drawing.
+  - Explicit text color, font size, italic style, and alignment on supported controls.
 
-- **ActionBar Slot**
-  - Special button with icon, keybind label, count, range and mana dim,
-    cooldown radial sweep, global-cooldown edge, and interrupt flash.
-  - Needs a cooldown manager separate from the current `value` field.
+- **DONE — TabBar foundation**
 
-- **ResourceBar**
-  - Extends `ProgressBar` with segmented ticks, delayed-damage ghost,
-    text overlay, color ramp by percent, rested bonus zone, and castbar mode
-    with interruptible flag and latency ticks.
-  - Covers health, mana, stamina, experience, reputation, and cast bars.
+  - Equal-width tabs, selection, per-cell visual states, and selection callbacks.
+  - Overflow, closable tabs, badges, and automatic page management remain planned.
 
-- **Buff and Debuff Strip**
-  - Wrapping flow of icons with time sweep, stack count, border color by
-    dispel type, hover tooltip, right-click cancel, and sort by time or
-    priority.
-  - Used for player auras, target auras, and party raid buffs.
+- **DONE — Context-menu foundation**
 
-- **ChatBox: Log, Tabs, and Input** (single-message v1 shipped as `RichText`; remaining work below)
-  - Virtualized rich-text log with channels, filters, history limit, and
-    clickable item links and player names.
-  - Unread flashing tabs plus multi-line input with history, whisper
-    autocomplete, and slash-command prefix.
-  - Current `Textbox` is single-line bounded storage and is not enough here.
+  - UI-owned flat menus, separators, disabled rows, and pointer selection.
+  - Modal input routing and Escape dismissal.
+  - Submenus, check items, and keyboard navigation remain planned.
 
-- **Rich Tooltip Manager** (plain-text v1 shipped as `Tooltip`; remaining work below)
-  - Hover delay, follow-mouse with screen clamping, rarity title, stat lines,
-    `Shift` to compare against equipped item, embedded icons, and talent
-    and quest variants.
-  - Model as hover-owned popup state in `ui.UI`, similar to the dropdown
-    popup path.
+- **DONE — Text editing and rich-text messages**
 
-- **ContextMenu / PopupMenu** (flat v1 shipped as UI-owned `Menu`; remaining work below)
-  - Nested submenus, check items, separators, disabled items, keyboard
-    navigation.
-  - Needed for right-click on players, slots, chat lines, and unit frames.
+  - Bounded UTF-8 textbox storage, caret navigation, selection, and clipboard
+    operations.
+  - Focused editors consume editing intent even when no mutation is possible.
+  - Rich-text messages support colored segments, wrapping, item/player/URL links, and
+    link tooltips.
+  - Drawing and hit testing share cached rich-text layout.
+  - A virtualized chat log, text shaping, and IME support remain planned.
 
-- **ListView / TableView**
-  - Virtualized rows, sortable columns, single and multi-select, alternating
-    rows, icons, and right-aligned numbers.
-  - Basis for quest log, guild roster, friends, LFG, mail, auction, damage
-    meter, and combat log.
+- **DONE — Rich tooltips**
 
-- **Toast / Notification Feed**
-  - Stacked queue with timer bar, click-through action, and pooled allocation.
-  - Used for loot, quest accept and complete, achievement, level-up, and
-    group invite.
+  - Colored titles, subtitles, colored body segments, and borrowed atlas icons.
+  - Widget hover content, explicitly anchored content, and explicit dismissal.
+  - Cached layout, cursor-relative placement, edge flipping, and viewport clamping.
+  - Tooltip links remain descriptive rather than interactive.
+  - Hover delay, equipment comparison, and specialized item presentations remain
+    planned.
 
-## P1 — Expected MMO Chrome
+- **DONE — Versatile line graph**
 
-- **Unit Frames: Player, Target, Party, Raid, Boss**
-  - Portrait, health and mana bars, castbar, buff strip, leader and loot
-    markers, role and PvP flags, aggro highlight, ready-check overlay.
-  - Compose from `ResourceBar` plus portrait frame.
+  - Multiple series with copied data, configurable colors, thickness, and visibility.
+  - Automatic or explicit ranges, linear or step interpolation, and grid divisions.
+  - Cached geometry, tick labels, custom tick formatting, and nearest-point queries.
+  - Clipped rendering and a shared skin-aware plot rectangle.
+  - Empty, constant, singleton, and non-finite data handling.
+  - Each series defaults to 1,024 retained points. Unbounded history requires explicit
+    opt-in.
+  - Samples use `float32`. Authoritative currency and timestamps remain game-model data.
 
-- **Minimap, World Map, and Compass**
-  - Circular mask, zoom and rotate, POI and marker and ping layer,
-    fog-of-war, player position and facing cone, zone text.
-  - Full map reuses the same marker layer with pan and zoom.
+- **DONE — Layout, skins, and diagnostics**
 
-- **Quest Tracker / Objective List**
-  - Collapsible header, distance-sorted objectives, click-to-ping, progress
-    shimmer on update.
+  - `SetPoint` constraints, cached dependency ordering, arrangement, and frame movement.
+  - Resize callbacks run only after a bounds change. Callback mutations stop invalidated
+    traversal.
+  - CSS skins, texture atlases, nine-patch geometry, and transactional CSS texture
+    loading.
+  - Explicit borrowed/owned texture lifetimes and a bounded optional draw recorder.
 
-- **Settings Controls: ToggleSwitch, RadioGroup, SpinBox, Scrollbar**
-  - Settings and keybind UI cannot be built from `Checkbox`, `Slider`, and
-    `Dropdown` alone.
-  - Add an explicit keybind-capture button with a `Press a key` state.
+## DONE — Ownership, Input, and Memory Fixes
 
-- **TreeView / Skill Tree**
-  - Talent nodes with connectors and available, invested, and locked states,
-    plus hover preview.
-  - Also covers quest categories and crafting recipe trees.
+- **DONE — Single callback ownership and disposal**
 
-## P2 — Nice to Have
+  - Fluent and named callback setters share one widget-owned registry.
+  - A widget cannot register with two UIs.
+  - Removal disposes registered descendants, callbacks, scoped hotkeys, drag bindings,
+    and tooltip caches.
+  - Callback re-entry cannot activate a replacement widget through an old tab-selection
+    event.
 
-- Radial menu for gamepad-friendly selection.
-- Damage meter bars with per-row sparkline.
-- Mailbox, two-sided trade window with lock and accept flow, loot-roll frame.
-- Guild bank with permission states.
-- Calendar and event sign-up list.
-- Color picker for tabard and guild emblem editing.
-- Nameplate pool for world-space overhead health bars.
-- Scrolling combat text layer.
+- **DONE — Parental frame ownership**
 
-## Suggested Build Order
+  - Registered widgets can use `UI.SetParent` with the existing layout tree.
+  - Children inherit visibility, enabled state, clipping, and root stacking order.
+  - Container focus follows ancestry instead of geometric overlap.
+  - `BringToFront` raises the complete root subtree.
 
-1. `Window` — unblocks every other window (`TabBar`, `Menu`, and plain
-   `Tooltip` v1 foundations already shipped).
-2. `ItemSlot` and `ItemGrid`, `ActionSlot`, `ResourceBar`, `BuffStrip` —
-   playable combat and inventory loop.
-3. Virtualized `ListView`, `ChatBox`, `Toasts` — social and info loop.
-4. Minimap markers, `UnitFrames`, quest tracker — full MMO feel.
+- **DONE — Overlay blocking and gesture capture**
 
-## Future: In-House Text Renderer
+  - Opaque overlays block underlying clicks and wheel input, including disabled
+    overlays.
+  - Decorative surfaces can explicitly enable input transparency.
+  - Captured releases cannot become world clicks after cancellation or removal.
+  - Right-click routing supports context menus and drag cancellation.
+  - `CancelInput` releases interaction on focus loss. Raylib polling invokes it
+    automatically.
 
-Background: raylib interprets TTF sizes as pixel height
-(`ascent + descent`) rather than EM units, so faces render much smaller
-than requested — measured per 56px EM: Grenze 0.67x, Open Sans 0.73x,
-Valley Sans 0.82x. At small UI sizes this pushes advances into heavy
-quantization, which reads as uneven spacing, and it punishes light
-weights. The current mitigations are request-side oversizing (see
-`drawTextInContent`) plus font-measured rich-text layout with an
-in-string space derivation (`richSpaceAdvance`) and estimation headless.
-Raylib also ignores GPOS kerning entirely, and headless versus windowed
+- **DONE — UI-integrated drag and drop**
+
+  - Widget-bound sources and targets share UI ownership, clipping, and stacking rules.
+  - A movement threshold separates clicks from drags. A drag suppresses the original
+    click.
+  - Acceptance preview uses `CanDrop`. Rejection never searches unrelated background
+    windows.
+  - Applications supply ghost drawing without separate pointer routing.
+  - Escape, right-click, source removal, inherited unavailability, and focus loss cancel
+    gestures.
+  - Delivery closes the old session before callbacks, preventing new-session corruption.
+  - Terminal sessions release payload references. Standalone targets use
+    last-registration precedence.
+  - Accepted drop intent is not a committed inventory transaction.
+
+- **DONE — Scroll ownership and removal**
+
+  - Owned children use the same scroll offset for drawing and hit testing.
+  - Nested clips intersect and restore the enclosing clip.
+  - Removing or clearing panels releases scrollbar hover and drag references.
+  - Scroll setters clamp offsets on every axis. A zero maximum prevents scrolling.
+
+- **DONE — Allocation and retention improvements**
+
+  - Textboxes cache immutable strings until text changes.
+  - Slider and progress readouts cache formatted text until values or formats change.
+  - Public snapshots remain defensive. Internal tab and dropdown drawing reuse scratch
+    storage.
+  - Rich-text drawing and hover share revisioned layout rather than rebuilding fragments
+    every frame.
+  - Input polling reuses character and hotkey buffers.
+  - Removed entries and layout traversal scratch storage release stale references.
+  - Diagnostic history and missing-skin reporting are bounded and suppress repeated
+    messages.
+  - Each font retains at most 32 raster sizes, capped at 256 pixels.
+
+- **DONE — Regression coverage and examples**
+
+  - Ownership, clipping, capture, removal, callback re-entry, and drag lifecycle tests.
+  - Headless allocation tests for warmed UI frames, rich hover, tooltips, and graphs.
+  - Fixed-range graph streaming reuses buffers after warmup.
+  - Gallery examples for graphs, rich tooltips, and item-drop intent.
+  - Migration documentation reflects callback disposal and parental ownership.
+
+## P0 — PLANNED: Inventory and Window Foundations
+
+### Window and Dialog
+
+Frame ownership, input blocking, clipping, and subtree raising are DONE. The full window
+widget still needs:
+
+- Draggable title bars, close and pin buttons, and resizable edges.
+- Saved position and size, viewport constraints, and minimum dimensions.
+- A general modal stack, focus restoration, and keyboard focus traversal.
+- Confirmation dialogs and stack-split quantity entry.
+- Clear cancellation behavior for pending actions.
+
+These controls support bags, bank, equipment, map, vendor, settings, mail, and auction
+panels.
+
+### ItemSlot and Virtualized ItemGrid
+
+The generic drag controller and rich tooltip renderer are DONE. Item widgets still need:
+
+- Item icons, rarity borders, stack counts, durability, and equipment-slot restrictions.
+- Bound, locked, pending, selected, and cooldown states.
+- Grid layout, virtualization, multi-selection, and right-click use.
+- Valid-move, merge, split, swap, full-container, and invalid-slot feedback.
+- Drag auto-scroll near container edges.
+- Reuse across backpack, bank, equipment, loot, trade, vendor, and crafting panels.
+
+### Virtualized ListView and TableView
+
+- Visible-row reuse, sortable columns, and stable row identity.
+- Single and multiple selection, icons, alternating rows, and aligned numeric columns.
+- Incremental data updates that preserve selection and scroll position.
+- Shared use by auction, guild roster, friends, LFG, mail, quests, and combat logs.
+
+### ChatBox and Combat Log
+
+Single-message rich text and its shared layout cache are DONE. The log still needs:
+
+- Virtualized messages, bounded history, channel filters, and unread indicators.
+- Scroll anchoring when messages arrive or earlier history loads.
+- Multiline input, input history, whisper completion, and slash commands.
+- Rich-text selection and copying, optional markup parsing, and inline images.
+- International text support through the text-system work below.
+
+### Advanced Rich Tooltip Behavior
+
+- Configurable hover delay and stable transitions between nearby targets.
+- Side-by-side equipment comparison, including modifier-key activation.
+- Structured stat rows, requirements, binding state, and comparison deltas.
+- Reusable talent, quest, currency, and ability presentations.
+
+## P1 — PLANNED: General Controls and Notifications
+
+- **TabControl extensions:** overflow scrolling, closable tabs, badges, and owned page
+  switching.
+- **Context-menu extensions:** nested submenus, check items, and keyboard navigation.
+- **NumericInput / SpinBox:** validated integer entry, limits, increments, and keyboard
+  editing.
+- **SegmentedSelector / RadioGroup:** mutually exclusive choices independent of tab
+  pages.
+- **Settings controls:** toggle switches, keybind capture, and reusable standalone
+  scrollbars.
+- **Toasts:** bounded notification queues, timed dismissal, and optional actions. Reuse
+  entries before considering pools.
+
+## P1 — PLANNED: Architecture and Text Follow-up
+
+### Widget Extensibility
+
+Callback ownership and the concrete nil-check switch are fixed. Drawing and activation
+still dispatch centrally by widget kind or concrete type.
+
+- Decide whether the supported widget set is closed or externally extensible.
+- For an extensible set, add small capabilities or registered handlers for custom
+  drawing and interaction.
+- Avoid a large plugin framework or another independent ownership tree.
+
+### Renderer Boundary and Scaling
+
+Nested scissor restoration and viewport-aware clip conversion are DONE. The UI still
+depends on a concrete raylib theme, and the host applies the drawing matrix.
+
+- Define one explicit contract for drawing transforms, DPI scaling, pixel snapping, and
+  input mapping.
+- Cover translated viewports and nonuniform scaling with framebuffer tests.
+- Evaluate a smaller renderer boundary before supporting another 3D engine.
+- Keep the current raylib path until a concrete integration requires replacement.
+
+### International Text and Renderer Evaluation
+
+Current font atlases cover printable ASCII and a small punctuation set. UTF-8 storage
+does not imply complete glyph coverage or text shaping.
+
+- Add broader glyph coverage, fallback fonts, IME composition, and grapheme-aware
+  editing.
+- Evaluate shaping and kerning support for international chat and player names.
+- Replace request-side font oversizing with a consistent sizing contract.
+- Evaluate shared metrics for headless layout and windowed drawing.
+- Evaluate Go font parsing/rasterization, shaping libraries, and GPU atlas management
+  before choosing an in-house renderer. Why? Explained in "Font Renderer" (below)
+- Include atlas packing, upload budgets, cache invalidation, and graphics-resource
+  lifetime in that evaluation.
+
+A new text renderer is not a prerequisite for every widget above. Language requirements
+determine its priority.
+
+### Performance and Visual Validation
+
+Representative warmed headless paths are allocation-tested. Broader profiling remains
+planned:
+
+- Profile complete game-sized interfaces, native raylib calls, font uploads, and GPU
+  costs.
+- Measure long chat histories, large inventories, and frequent market updates.
+- Consider ring-buffer graph history if bounded append costs become significant. Current
+  bounded appends shift retained points.
+- Perform framebuffer review of the new graph, rich tooltip, and nested clipping paths.
+  Their initial validation was headless because a display/Xvfb was unavailable.
+- Keep application objects long-lived where practical. Do not convert widgets to ECS
+  storage without evidence.
+
+### Font Renderer
+
+Background: raylib interprets TTF sizes as pixel height\
+(`ascent + descent`) rather than EM units, so faces render much smaller\
+than requested — measured per 56px EM: Grenze 0.67x, Open Sans 0.73x,\
+Valley Sans 0.82x. At small UI sizes this pushes advances into heavy\
+quantization, which reads as uneven spacing, and it punishes light\
+weights. The current mitigations are request-side oversizing (see\
+`drawTextInContent`) plus font-measured rich-text layout with an\
+in-string space derivation (`richSpaceAdvance`) and estimation headless.\
+Raylib also ignores GPOS kerning entirely, and headless versus windowed\
 metrics remain two paths that merely agree.
 
-Goal: parse, shape, and rasterize glyphs in pure Go, own the texture
-atlas in `render`, and paint textured quads through raylib. That buys
-true EM sizing with no per-font fudge factors, real kerning and shaping,
-one metric path headless and windowed (exact hit-testing and layout in
-tests), and real headless screenshots with text instead of placeholder
+Goal: parse, shape, and rasterize glyphs in pure Go, own the texture\
+atlas in `render`, and paint textured quads through raylib. That buys\
+true EM sizing with no per-font fudge factors, real kerning and shaping,\
+one metric path headless and windowed (exact hit-testing and layout in\
+tests), and real headless screenshots with text instead of placeholder\
 PNGs.
 
-Evaluation notes: `github.com/BaseMax/go-text-render` (MIT) is a
-character-cell layout engine for ASCII, SVG, and PNG output — it does no
-glyph rasterization, textureatlas ownership, or shaping, so on current
-evidence it does not fit this goal; verify before adopting. Better-fitting
-starting points to evaluate are `golang.org/x/image/font` with a
-TrueType rasterizer, plus established GPU glyph-cache patterns for atlas
+Evaluation notes: `github.com/BaseMax/go-text-render` (MIT) is a\
+character-cell layout engine for ASCII, SVG, and PNG output — it does no\
+glyph rasterization, textureatlas ownership, or shaping, so on current\
+evidence it does not fit this goal; verify before adopting. Better-fitting starting
+points to evaluate are `golang.org/x/image/font` with a\
+TrueType rasterizer, plus established GPU glyph-cache patterns for atlas\
 management.
 
-Scope warnings: atlas packing and texture uploads, cache invalidation,
-CJK coverage, and complex-script shaping if ever needed. This is a
-project, not a patch — sequence it after the widget loops above. Until
-then, keep the request-side oversizing and document per-face effective
+Scope warnings: atlas packing and texture uploads, cache invalidation,\
+CJK coverage, and complex-script shaping if ever needed. This is a\
+project, not a patch — sequence it after the widget loops above. Until\
+then, keep the request-side oversizing and document per-face effective\
 sizes when adding fonts.

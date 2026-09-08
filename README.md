@@ -8,6 +8,8 @@ root package:
 Go application → ui / widgets / layout / transform → render → raylib-go
 ```
 
+See the [roadmap](docs/roadmap.md) for DONE capabilities and planned MMORPG features.
+
 ## Packages
 
 | Package | Responsibility |
@@ -78,7 +80,10 @@ standard-library placeholder PNG when `-screenshot` is supplied.
 ## UI and callbacks
 
 Most applications should use `ui.UI`. It owns the registry, transform, theme,
-hover, press, and focus state. Widgets retain domain data and enabled state;
+hover, press, and focus state. Each widget owns one callback registry.
+Fluent setters and named UI registration replace the same callback slot.
+Register widgets before calling `u.OnClick`, `u.OnText`, or other named setters.
+Widgets retain domain data and enabled state;
 the UI computes the visual state with the priority disabled, pressed, focused,
 hovered, then normal.
 
@@ -111,8 +116,9 @@ u.Draw()
 
 Focus is dual-slot: keyboard focus (textbox/dropdown) owns text editing while
 container focus (active frame) scopes hotkeys and glows via `Frame:focus`.
-Click a frame background or a child inside it to activate it; presses
-outside every frame move or lose it. Text wins while editing, so typing
+Click a frame background or an owned child to activate it.
+Ownership follows `SetParent` or layout-node ancestry, not geometric overlap.
+Text wins while editing, so typing
 `r` never fires a frame-bound `R`. Register scoped actions once:
 
 ```go
@@ -125,8 +131,10 @@ u.OnHotkey("moveFrame", 'R', ui.HotkeyOpts{Scope: "demoFrame", Consume: true}, f
 buffer still consumes so the game never observes it, modal menus swallow
 intent, and `Consume:false` hotkeys fire but pass through.
 
-`Add` rejects nil, empty-name, and duplicate widgets atomically. `Remove` and
-`ClearWidgets` clear active interaction owners. Text and slider callbacks run
+`Add` rejects nil, empty-name, duplicate, and already-owned widgets atomically.
+`Remove` disposes the complete registered subtree, callbacks, scoped hotkeys,
+drag bindings, and tooltip caches. `ClearWidgets` disposes all registered widgets.
+Text and slider callbacks run
 only after a real mutation; rejected full-buffer characters and empty backspace
 are silent. Textboxes show a focus caret, move it with Left/Right/Home/End
 (Shift extends the selection), select all with Ctrl-A, and cut/copy/paste
@@ -135,11 +143,44 @@ Clicking a textbox focuses it and places the caret. `sim.NewStage(u)` adapts
 the same activation, focus, text-edit, and callback path for headless tests
 without inventing pointer or hover state.
 
+## Ownership and pointer input
+
+`u.SetParent("slot", "bag")` links registered widgets through their layout nodes.
+Arrange the parent after changing its layout. Children inherit visibility,
+enabled state, clipping, and root stacking order. Scroll offsets affect both
+drawing and hit testing of owned children. A zero scroll limit prevents scrolling.
+
+Opaque surfaces block clicks and wheel input, even when disabled.
+`SetInputTransparent(true)` explicitly enables pointer pass-through for decoration.
+`BringToFront` raises the whole root subtree. Captured releases cannot become world clicks.
+Call `CancelInput` when the OS loses focus. `PollRaylibInput` handles this automatically.
+
 ## Drag controllers
 
-Drag-and-drop is instance-owned. Create one `dragdrop.Controller` per UI or
-window, register its targets on that controller, and do not rely on package
-global state:
+The UI can own the whole gesture. Register a source and a widget-bound target:
+
+```go
+u.OnDrag("slot", func() dragdrop.Payload {
+    return dragdrop.NewPayload("item-1", "item", itemID)
+})
+u.OnDrop("bag", func(p dragdrop.Payload) bool {
+    return p.Kind == "item"
+}, func(p dragdrop.Payload) {
+    // Send an inventory request. The server owns the actual transfer.
+})
+u.SetDragGhostDrawer(drawGhost)
+```
+
+`HandleMouse` applies a six-logical-pixel threshold and suppresses clicks after a drag.
+Escape, source removal, and inherited hiding or disabling cancel the session.
+Targets follow ownership, clipping, and visual stacking. Rejected drops never pass
+through to unrelated background targets. Acceptance predicates must not mutate state.
+`DragController().CanDrop()` exposes compatibility for preview feedback.
+Delivery closes the old session before calling application code and releases its payload.
+`PhaseDropped` means accepted intent, not a committed inventory transaction.
+
+Standalone callers can still create a `dragdrop.Controller` per window.
+Later registered targets win overlaps. Replacing a target preserves its stacking position:
 
 ```go
 controller := dragdrop.NewController(6)
@@ -175,6 +216,37 @@ if err := layout.Arrange(parent.Frame(), core.Rect{}); err != nil {
 
 Use `layout.AnchorName` when a diagnostic or serialized name is needed. A
 widget with no arranged parent keeps its authored constructor bounds.
+Resize callbacks fire only when resolved bounds change. If a callback changes
+the layout, arrange again to resolve the dirty tree.
+
+## Rich tooltips and line graphs
+
+```go
+u.SetRichTooltip("slot", core.RichTooltip{
+    Title: "Thunderfury",
+    Subtitle: "Legendary sword",
+    Segments: []core.RichSegment{{Text: "+12 Strength", HasColor: true,
+        Color: core.Color{R: 120, G: 220, B: 130, A: 255}}},
+})
+graph := widgets.NewLineGraph("prices", core.Rect{W: 400, H: 180}).SetShowLabels(true)
+series := graph.AddSeries(core.Color{R: 120, G: 220, B: 130, A: 255}, 2)
+graph.SetSeriesData(series, []core.Vec2{{X: 0, Y: 12}, {X: 1, Y: 18}, {X: 2, Y: 15}})
+if err := u.Add(graph); err != nil {
+    log.Fatal(err)
+}
+```
+
+Rich tooltips support titles, subtitles, colored body segments, and borrowed atlas icons.
+Their cached layout flips and clamps into the viewport. `ShowRichTooltip` pins content;
+`HideTooltip` dismisses it. Tooltip links are descriptive, not interactive controls.
+
+Graphs support multiple series, automatic or explicit ranges, line or step interpolation,
+grid divisions, cached tick labels, and nearest-point queries. Each series defaults to
+1,024 retained points. `SetMaxPoints(0)` explicitly allows unbounded data.
+For skinned queries, use `Theme.LineGraphPlot` with `graph.NearestPoint`.
+Graph samples use `float32`; keep authoritative currency and timestamps in the game model.
+
+See [migration and runtime contracts](docs/interaction.md) for breaking changes and cache lifetimes.
 
 ## Drawing, recording, and CSS skins
 
@@ -206,6 +278,8 @@ Font atlases currently contain printable ASCII plus en dash, em dash, bullet,
 and ellipsis. UTF-8 storage therefore does not promise glyph coverage for every
 Unicode script; callers needing other scripts must provide an appropriate font
 and later rasterization strategy.
+Each font retains at most 32 raster sizes, capped at 256 pixels. Additional sizes
+use the nearest retained raster. Unload fonts while the graphics context remains active.
 
 ## Gallery contract and test assets
 
@@ -214,13 +288,8 @@ a UI-owned dropdown popup, tab-bar selection, chat message with clickable links,
 right-click context menus, hover and
 pinned tooltips, slider/progress interaction, scrolling, nine-patch
 borders, CSS tinting, layout movement, and visual state samples.
+The Style tab displays a line graph. Hover the frame-child button for a rich tooltip,
+or drag it onto the left decoration panel to demonstrate item-drop intent.
 
-The Kenney PNGs under `testdata/skins/kenney/` are ignored local fixtures. They
-exist in the accepted current worktree but are not present in a clean
-`git archive`; consequently a clean checkout cannot run the CSS tests or the
-file-driven gallery skin. This known image limitation is documented evidence,
-not a release-validation gate. Do not change the ignored files or `.gitignore`
-to hide it.
-
-There is no software license yet. Selecting one remains an unresolved release
-item for the repository owner; this project does not add a license by assumption.
+The Kenney PNG fixtures under `testdata/skins/kenney/` are tracked in the repository.
+The software license is MIT; see `LICENSE.txt`. Font licenses are in `testdata/fonts/OFL.txt`.

@@ -110,6 +110,7 @@ func (t *Theme) LoadCSSFile(cssPath, assetDir string) error {
 	}
 	oldTextures := t.ownedSkinTextures
 	t.css.Replace(candidate)
+	t.textRevision++
 	t.ownedSkinTextures = owned
 	t.unloadTextures(oldTextures)
 	return nil

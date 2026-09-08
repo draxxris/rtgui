@@ -9,7 +9,6 @@ import (
 type Textbox struct {
 	base
 	textBuf *text.Buffer
-	onText  func(string)
 }
 
 // NewTextbox returns an enabled textbox with bounded private UTF-8 storage.
@@ -156,7 +155,7 @@ func (t *Textbox) RuneCount() int {
 // OnText attaches an edit callback directly to the textbox.
 func (t *Textbox) OnText(fn func(string)) *Textbox {
 	if t != nil {
-		t.onText = fn
+		t.callbacks.Text = fn
 	}
 	return t
 }
@@ -166,7 +165,7 @@ func (t *Textbox) OnTextHandler() func(string) {
 	if t == nil {
 		return nil
 	}
-	return t.onText
+	return t.callbacks.Text
 }
 
 // SetTooltip attaches a hover tooltip string directly to the textbox.

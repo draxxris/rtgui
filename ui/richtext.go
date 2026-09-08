@@ -24,7 +24,7 @@ func (u *UI) ActivateLink(name string, index int) bool {
 		u.diagnose("ui.ActivateLink: widget %q is %v, expected WidgetRichText", name, target.Kind())
 		return false
 	}
-	if !rt.Enabled() {
+	if !u.available(rt) {
 		u.diagnose("ui.ActivateLink: widget %q is disabled", name)
 		return false
 	}
@@ -49,11 +49,11 @@ func (u *UI) HoveredLink() (string, core.Link, int, bool) {
 	if !ok {
 		return "", core.Link{}, -1, false
 	}
-	segments := rt.RichSegments()
-	if u.tipSeg >= len(segments) || segments[u.tipSeg].Link.Kind == core.LinkNone {
+	segment, valid := rt.RichSegmentAt(u.tipSeg)
+	if !valid || segment.Link.Kind == core.LinkNone {
 		return "", core.Link{}, -1, false
 	}
-	return rt.Name(), segments[u.tipSeg].Link, u.tipSeg, true
+	return rt.Name(), segment.Link, u.tipSeg, true
 }
 
 // richSpans lays out message segments in resolved bounds for input and draw.
@@ -62,7 +62,21 @@ func (u *UI) richSpans(message *widgets.RichText) []render.RichSpanLayout {
 	if message == nil || u.theme == nil {
 		return nil
 	}
-	return u.theme.LayoutRichSpans(message.Bounds(), message.RichSegments(), core.StateNormal)
+	return u.richCache(message).Spans()
+}
+
+// richCache shares one revisioned layout between drawing and pointer queries.
+func (u *UI) richCache(message *widgets.RichText) *render.RichLayoutCache {
+	if u.richCaches == nil {
+		u.richCaches = make(map[string]*render.RichLayoutCache)
+	}
+	cache := u.richCaches[message.Name()]
+	if cache == nil {
+		cache = &render.RichLayoutCache{}
+		u.richCaches[message.Name()] = cache
+	}
+	cache.Update(u.theme, message.Bounds(), message, u.visualState(message))
+	return cache
 }
 
 // richLinkSegAt resolves the linked segment under pos, or -1 for plain text.
@@ -80,6 +94,9 @@ func (u *UI) richLinkSegAt(message *widgets.RichText, pos core.Vec2) int {
 func (u *UI) releaseRichText(message *widgets.RichText, pos core.Vec2) bool {
 	armed := u.linkArmedSeg
 	u.linkArmedSeg = -1
+	if u.hitSurface(pos) != message {
+		return true
+	}
 	fragment, ok := render.RichSpanAt(u.richSpans(message), pos)
 	if !ok {
 		return true
@@ -110,20 +127,19 @@ func (u *UI) refreshLinkTip() {
 		u.clearLinkTip()
 		return
 	}
-	if u.tipWidget == u.hovered && u.tipSeg == segment {
+	if u.tipWidget == u.hovered && u.tipSeg == segment && u.tipRevision == rt.RichRevision() {
 		return
 	}
-	link := rt.RichSegments()[segment].Link
+	value, _ := rt.RichSegmentAt(segment)
+	link := value.Link
+	u.tipRevision = rt.RichRevision()
 	u.tipWidget, u.tipSeg = u.hovered, segment
 	if link.Tooltip != "" {
 		u.tipText = link.Tooltip
 		return
 	}
 	u.tipText = ""
-	fn := u.callbacks[u.hovered.Name()].onLinkTooltip
-	if fn == nil {
-		fn = rt.OnLinkTooltipHandler()
-	}
+	fn := rt.Callbacks().LinkTooltip
 	if fn != nil {
 		u.tipText = fn(link)
 	}

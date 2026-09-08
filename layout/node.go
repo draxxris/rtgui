@@ -97,10 +97,11 @@ type Node struct {
 	maxSize      core.Vec2
 	hasMaxSize   bool
 
-	points   []pointRelation
-	children []*Node
-	parent   *Node
-	onResize func(*Node)
+	points        []pointRelation
+	children      []*Node
+	parent        *Node
+	onResize      func(*Node)
+	contentOffset core.Vec2
 
 	dirty    bool
 	revision uint64
@@ -133,10 +134,29 @@ func (n *Node) Bounds() core.Rect {
 	if n == nil {
 		return core.Rect{}
 	}
+	bounds := n.authored
 	if n.arranged {
-		return n.resolved
+		bounds = n.resolved
 	}
-	return n.authored
+	for p := n.parent; p != nil; p = p.parent {
+		bounds.X += p.contentOffset.X
+		bounds.Y += p.contentOffset.Y
+	}
+	return bounds
+}
+
+// SetContentOffset translates descendants without invalidating layout geometry.
+func (n *Node) SetContentOffset(offset core.Vec2) { n.contentOffset = offset }
+
+// ChildCount reports the number of ownership children without a snapshot.
+func (n *Node) ChildCount() int { return len(n.children) }
+
+// ChildAt returns an ownership child by index, or nil outside the range.
+func (n *Node) ChildAt(index int) *Node {
+	if index < 0 || index >= len(n.children) {
+		return nil
+	}
+	return n.children[index]
 }
 
 // AuthoredBounds returns the node's local position and preferred size.
@@ -200,7 +220,7 @@ func (n *Node) AddChild(child *Node) error {
 	child.parent = n
 	n.children = append(n.children, child)
 	child.dirty = true
-	child.cache.graphDirty = true
+	child.cache = treeCache{graphDirty: true}
 	n.markDirty(true)
 	return nil
 }
@@ -215,13 +235,40 @@ func (n *Node) RemoveChild(child *Node) bool {
 			continue
 		}
 		copy(n.children[index:], n.children[index+1:])
+		n.children[len(n.children)-1] = nil
 		n.children = n.children[:len(n.children)-1]
 		child.parent = nil
+		child.clearMembership()
 		n.markDirty(true)
 		child.markDirty(true)
+		n.releaseGraphReferences()
 		return true
 	}
 	return false
+}
+
+// clearMembership releases former root references throughout a detached subtree.
+func (n *Node) clearMembership() {
+	n.membershipRoot = nil
+	n.visitRoot = nil
+	for _, child := range n.children {
+		child.clearMembership()
+	}
+}
+
+// releaseGraphReferences drops stale pointers after ownership removal.
+func (n *Node) releaseGraphReferences() {
+	for n.parent != nil {
+		n = n.parent
+	}
+	clear(n.cache.nodes)
+	clear(n.cache.order)
+	clear(n.cache.scan[:cap(n.cache.scan)])
+	clear(n.cache.stack[:cap(n.cache.stack)])
+	n.cache.nodes = n.cache.nodes[:0]
+	n.cache.order = n.cache.order[:0]
+	n.cache.scan = n.cache.scan[:0]
+	n.cache.stack = n.cache.stack[:0]
 }
 
 // SetPoint relates one source point to a target point plus offset. A nil target

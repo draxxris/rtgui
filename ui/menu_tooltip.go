@@ -17,6 +17,9 @@ func (u *UI) ShowContextMenu(items []MenuItem, pos core.Vec2, onSelect func(stri
 	if u == nil || len(items) == 0 {
 		return
 	}
+	u.cancelDrag()
+	u.scrollThumbDragging = nil
+	u.mouseCaptured = false
 	u.clearFocus()
 	u.clearActiveFrame()
 	u.pressed = nil
@@ -52,31 +55,18 @@ func (u *UI) MenuBounds() (core.Rect, bool) {
 	return u.menuBounds, true
 }
 
-// SetTooltip maps a plain-text hover tooltip to a widget name. Empty text
-// clears the mapping. Mappings survive widget removal like callbacks.
+// SetTooltip maps plain hover text to a registered widget. Empty text clears it.
+// Widget removal disposes the mapping.
 func (u *UI) SetTooltip(name, text string) {
-	if u == nil || name == "" {
-		return
+	if w := u.Lookup(name); w != nil {
+		w.SetTooltipText(text)
 	}
-	if u.tooltips == nil {
-		u.tooltips = make(map[string]string)
-	}
-	if text == "" {
-		delete(u.tooltips, name)
-		return
-	}
-	u.tooltips[name] = text
 }
 
 // TooltipText returns the mapped tooltip for name, or false when unmapped.
 func (u *UI) TooltipText(name string) (string, bool) {
 	if u == nil {
 		return "", false
-	}
-	if u.tooltips != nil {
-		if text, ok := u.tooltips[name]; ok && text != "" {
-			return text, true
-		}
 	}
 	if w := u.widgets[name]; w != nil && w.Tooltip() != "" {
 		return w.Tooltip(), true
@@ -95,17 +85,21 @@ func (u *UI) ShowTooltip(text string, at core.Vec2) {
 	if u.HasOpenMenu() {
 		return
 	}
+	u.explicitRichTip = core.RichTooltip{}
 	u.tooltipText = text
 	u.tooltipAnchor = at
 }
 
 // HideTooltip clears an explicitly shown tooltip and reports a hide.
 func (u *UI) HideTooltip() bool {
-	if u == nil || u.tooltipText == "" {
+	if u == nil {
 		return false
 	}
+	visible := u.tooltipText != "" || u.explicitRichTip.HasContent()
 	u.tooltipText = ""
-	return true
+	u.explicitRichTip = core.RichTooltip{}
+	u.richTipCache.Invalidate()
+	return visible
 }
 
 // logicalSize returns the fixed logical design size for popup clamping.
@@ -158,7 +152,7 @@ func (u *UI) commitMenuRow(index int) {
 // derivedTooltip returns the currently visible tooltip text and anchor point.
 // Precedence is explicit tooltip, hovered link tip, then widget mapping.
 func (u *UI) derivedTooltip() (string, core.Vec2, bool) {
-	if u == nil || u.HasOpenMenu() || u.pressed != nil {
+	if u == nil || u.HasOpenMenu() || u.pressed != nil || u.dragSource != nil {
 		return "", core.Vec2{}, false
 	}
 	if u.tooltipText != "" {
@@ -167,7 +161,7 @@ func (u *UI) derivedTooltip() (string, core.Vec2, bool) {
 	if u.tipWidget != nil && u.tipWidget == u.hovered && u.tipText != "" {
 		return u.tipText, u.pointer, true
 	}
-	if u.hovered != nil && u.hovered.Enabled() {
+	if u.available(u.hovered) {
 		if text, ok := u.TooltipText(u.hovered.Name()); ok {
 			return text, u.pointer, true
 		}

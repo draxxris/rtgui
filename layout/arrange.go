@@ -58,10 +58,16 @@ func arrangeTree(root *Node, external core.Rect, fixedRoot bool) error {
 				return err
 			}
 		}
+		changed := !node.arranged || node.resolved != resolved
 		node.resolved = resolved
 		node.arranged = true
-		if node.onResize != nil {
+		if changed && node.onResize != nil {
 			node.onResize(node)
+		}
+		// Ownership callbacks can invalidate the cached order. Leave dirty for
+		// the next arrangement instead of reading the invalidated slice.
+		if root.revision != revision {
+			return nil
 		}
 	}
 	if root.revision == revision {

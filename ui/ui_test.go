@@ -139,8 +139,8 @@ func TestPressedDisableCancelsBeforeRelease(t *testing.T) {
 		t.Fatal("a second press replaced the active owner before release")
 	}
 	button.SetEnabled(false)
-	if u.HandleMouse(MouseEvent{Pos: centerOf(button), Released: true}) {
-		t.Fatal("release after disable must not consume a cancelled press")
+	if !u.HandleMouse(MouseEvent{Pos: centerOf(button), Released: true}) {
+		t.Fatal("release after disable must not leak a captured press to the game")
 	}
 	if u.Pressed() != nil || calls != 0 {
 		t.Fatal("disabled pressed widget remained active or fired")
@@ -170,8 +170,8 @@ func TestVisualStatePriority(t *testing.T) {
 	}
 }
 
-// TestRemovalClearsOwnersAndRetainsCallbacks checks independent lifetimes.
-func TestRemovalClearsOwnersAndRetainsCallbacks(t *testing.T) {
+// TestRemovalClearsOwnersAndCallbacks checks complete widget disposal.
+func TestRemovalClearsOwnersAndCallbacks(t *testing.T) {
 	u := New(100, 100)
 	button := widgets.NewButton("button", core.Rect{W: 50, H: 20}, "button")
 	mustAdd(t, u, button)
@@ -187,8 +187,8 @@ func TestRemovalClearsOwnersAndRetainsCallbacks(t *testing.T) {
 	replacement := widgets.NewButton("button", core.Rect{W: 50, H: 20}, "replacement")
 	mustAdd(t, u, replacement)
 	clickAt(u, centerOf(replacement))
-	if calls != 1 {
-		t.Fatal("callback did not survive widget removal")
+	if calls != 0 {
+		t.Fatal("callback survived widget removal")
 	}
 	u.ClearWidgets()
 	if u.Lookup("button") != nil || len(u.order) != 0 || u.Hovered() != nil || u.Pressed() != nil || u.Focused() != nil {
@@ -264,8 +264,8 @@ func TestTextCallbacksStaySilentForRejectedEdits(t *testing.T) {
 	if !u.HandleKey(KeyEvent{Backspace: true}) || calls != 2 {
 		t.Fatal("non-empty physical backspace failed")
 	}
-	if u.HandleKey(KeyEvent{Backspace: true}) || calls != 2 {
-		t.Fatal("empty backspace fired callback or consumed")
+	if !u.HandleKey(KeyEvent{Backspace: true}) || calls != 2 {
+		t.Fatal("empty backspace must consume without a callback")
 	}
 	if !u.TypeText("field", "") || calls != 2 || u.Focused() != field {
 		t.Fatal("empty semantic typing must focus without callback")
@@ -465,7 +465,7 @@ func TestResizeWheelCallbacksAndNilSafety(t *testing.T) {
 	u := New(100, 100)
 	scroll := widgets.NewScrollPanel("scroll", core.Rect{W: 50, H: 50})
 	mustAdd(t, u, scroll)
-	if !u.HandleMouse(MouseEvent{Pos: centerOf(scroll), Wheel: 1}) || scroll.Scroll().Y == 0 {
+	if !u.HandleMouse(MouseEvent{Pos: centerOf(scroll), Wheel: 1}) || scroll.Scroll().Y != 0 {
 		t.Fatal("wheel over scroll panel was not handled")
 	}
 	u.Resize(200, 200)
@@ -477,8 +477,8 @@ func TestResizeWheelCallbacksAndNilSafety(t *testing.T) {
 	}
 	u.OnClick("future", func() {})
 	u.OnClick("future", nil)
-	if len(u.callbacks) != 0 {
-		t.Fatal("empty callback record was retained")
+	if u.callback("future") != nil {
+		t.Fatal("unknown widget retained a callback")
 	}
 	var nilUI *UI
 	if nilUI.HandleMouse(MouseEvent{}) || nilUI.HandleKey(KeyEvent{}) || nilUI.Activate("x") || nilUI.TypeText("x", "x") || nilUI.Focus("x") {
@@ -507,10 +507,10 @@ func TestDirectWidgetCallbacks(t *testing.T) {
 	btn := widgets.NewButton("btn", core.Rect{W: 50, H: 30}, "OK")
 	directClicked, stringClicked := false, false
 	btn.OnClick(func() { directClicked = true })
-	u.OnClick("btn", func() { stringClicked = true })
 	mustAdd(t, u, btn)
+	u.OnClick("btn", func() { stringClicked = true })
 
-	if !u.Activate("btn") || !directClicked || !stringClicked {
+	if !u.Activate("btn") || directClicked || !stringClicked {
 		t.Fatalf("directClicked=%v stringClicked=%v", directClicked, stringClicked)
 	}
 

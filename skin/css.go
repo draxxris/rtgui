@@ -66,6 +66,7 @@ var kindSelectors = map[string]core.WidgetKind{
 	"Menu":        core.WidgetMenu,
 	"Tooltip":     core.WidgetTooltip,
 	"RichText":    core.WidgetRichText,
+	"LineGraph":   core.WidgetLineGraph,
 }
 
 // pseudoSelectors maps pseudo-classes to widget states. "" is normal.

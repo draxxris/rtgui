@@ -26,7 +26,7 @@ type DropTarget struct {
 }
 
 // RegisterTarget adds target to c. Registering an existing name replaces its
-// target without changing its first-registration precedence.
+// target without changing its original stacking position. Later targets win.
 func (c *Controller) RegisterTarget(target *DropTarget) error {
 	if c == nil {
 		return errNilController
@@ -73,9 +73,13 @@ func (c *Controller) RemoveTarget(name string) bool {
 	return true
 }
 
-// targetAt returns the first registered target containing pointerPosition.
+// targetAt returns the last registered target containing pointerPosition.
 func (c *Controller) targetAt(pointerPosition core.Vec2) *DropTarget {
-	for _, name := range c.targetOrder {
+	if c.resolver != nil {
+		return c.resolver(pointerPosition)
+	}
+	for i := len(c.targetOrder) - 1; i >= 0; i-- {
+		name := c.targetOrder[i]
 		target := c.targets[name]
 		if target != nil && target.Bounds.Contains(pointerPosition) {
 			return target

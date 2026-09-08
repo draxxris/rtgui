@@ -24,14 +24,14 @@ func TestTextboxArrowsMoveCaret(t *testing.T) {
 	if !u.HandleKey(KeyEvent{Home: true}) || field.Caret() != 0 {
 		t.Fatalf("home caret = %d", field.Caret())
 	}
-	if u.HandleKey(KeyEvent{Left: true}) {
-		t.Fatal("left at start must not consume")
+	if !u.HandleKey(KeyEvent{Left: true}) {
+		t.Fatal("left at start must consume editing intent")
 	}
 	if !u.HandleKey(KeyEvent{End: true}) || field.Caret() != 4 {
 		t.Fatalf("end caret = %d", field.Caret())
 	}
-	if u.HandleKey(KeyEvent{Right: true}) {
-		t.Fatal("right at end must not consume")
+	if !u.HandleKey(KeyEvent{Right: true}) {
+		t.Fatal("right at end must consume editing intent")
 	}
 	if !u.HandleKey(KeyEvent{Left: true, Shift: true}) || !field.HasSelection() {
 		t.Fatal("shift-left must extend selection")
@@ -59,9 +59,9 @@ func TestTextboxDeleteRemovesForward(t *testing.T) {
 	if !u.HandleKey(KeyEvent{Delete: true}) || field.Text() != "" {
 		t.Fatalf("delete selection = %q", field.Text())
 	}
-	// DELETE at end with no selection consumes nothing.
-	if u.HandleKey(KeyEvent{Delete: true}) {
-		t.Fatal("delete at end must not consume")
+	// DELETE at end still belongs to the focused editor.
+	if !u.HandleKey(KeyEvent{Delete: true}) {
+		t.Fatal("delete at end must consume editing intent")
 	}
 }
 
@@ -75,8 +75,8 @@ func TestTextboxSelectAllAndClipboard(t *testing.T) {
 	if !u.HandleKey(KeyEvent{SelectAll: true}) || !field.HasSelection() {
 		t.Fatal("select-all failed")
 	}
-	if u.HandleKey(KeyEvent{SelectAll: true}) {
-		t.Fatal("redundant select-all must not consume")
+	if !u.HandleKey(KeyEvent{SelectAll: true}) {
+		t.Fatal("redundant select-all must consume editing intent")
 	}
 	if !u.HandleKey(KeyEvent{Copy: true}) {
 		t.Fatal("copy failed")
@@ -94,19 +94,19 @@ func TestTextboxSelectAllAndClipboard(t *testing.T) {
 	if !u.HandleKey(KeyEvent{Paste: true}) || field.Text() != "hello" || textCalls != 2 {
 		t.Fatalf("paste = %q calls=%d", field.Text(), textCalls)
 	}
-	// Copy without selection consumes nothing.
+	// Copy without selection consumes intent without changing the clipboard.
 	field.ClearSelection()
 	u.SetClipboardText("held")
-	if u.HandleKey(KeyEvent{Copy: true}) {
-		t.Fatal("copy without selection must not consume")
+	if !u.HandleKey(KeyEvent{Copy: true}) {
+		t.Fatal("copy without selection must consume editing intent")
 	}
 	if got := u.ClipboardText(); got != "held" {
 		t.Fatalf("clipboard clobbered = %q", got)
 	}
-	// Paste with empty clipboard consumes nothing.
+	// Paste with empty clipboard consumes intent without changing text.
 	u.SetClipboardText("")
-	if u.HandleKey(KeyEvent{Paste: true}) {
-		t.Fatal("paste of empty clipboard must not consume")
+	if !u.HandleKey(KeyEvent{Paste: true}) {
+		t.Fatal("paste of empty clipboard must consume editing intent")
 	}
 }
 
@@ -243,7 +243,7 @@ func TestTextboxClipboardRoundTrips(t *testing.T) {
 	mustAdd(t, u, field)
 	u.Focus("field")
 	u.SetClipboardText(string([]byte{0xff}))
-	if u.HandleKey(KeyEvent{Paste: true}) || field.Text() != "" {
-		t.Fatal("invalid clipboard paste must not consume or mutate")
+	if !u.HandleKey(KeyEvent{Paste: true}) || field.Text() != "" {
+		t.Fatal("invalid clipboard paste must consume without mutation")
 	}
 }

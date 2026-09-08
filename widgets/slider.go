@@ -1,15 +1,17 @@
 package widgets
 
 import (
+	"fmt"
 	"github.com/draxxris/rtgui/core"
+	"math"
 )
 
 // Slider is an interactive normalized range widget with value from 0 to 1.
 type Slider struct {
 	base
-	value    float32
-	format   string
-	onChange func(float32)
+	value   float32
+	format  string
+	readout formattedReadout
 }
 
 // NewSlider returns an enabled slider with a clamped initial value.
@@ -30,6 +32,9 @@ func (s *Slider) Value() float32 {
 // SetValue clamps and stores the slider value, reporting whether it changed.
 func (s *Slider) SetValue(value float32) bool {
 	if s == nil {
+		return false
+	}
+	if math.IsNaN(float64(value)) {
 		return false
 	}
 	if value < 0 {
@@ -56,6 +61,7 @@ func (s *Slider) Format() string {
 func (s *Slider) SetFormat(format string) *Slider {
 	if s != nil {
 		s.format = format
+		s.readout = formattedReadout{}
 	}
 	return s
 }
@@ -63,7 +69,7 @@ func (s *Slider) SetFormat(format string) *Slider {
 // OnChange attaches a value mutation callback directly to the slider.
 func (s *Slider) OnChange(fn func(float32)) *Slider {
 	if s != nil {
-		s.onChange = fn
+		s.callbacks.Change = fn
 	}
 	return s
 }
@@ -73,7 +79,7 @@ func (s *Slider) OnChangeHandler() func(float32) {
 	if s == nil {
 		return nil
 	}
-	return s.onChange
+	return s.callbacks.Change
 }
 
 // SetTooltip attaches a hover tooltip string directly to the slider.
@@ -109,8 +115,9 @@ func (s *Slider) SetAlign(align core.TextAlign) *Slider {
 // ProgressBar is a non-interactive normalized progress indicator.
 type ProgressBar struct {
 	base
-	value  float32
-	format string
+	value   float32
+	format  string
+	readout formattedReadout
 }
 
 // NewProgressBar returns an enabled progress bar with a clamped initial value.
@@ -131,6 +138,9 @@ func (p *ProgressBar) Value() float32 {
 // SetValue clamps and stores the progress bar fill, reporting whether it changed.
 func (p *ProgressBar) SetValue(value float32) bool {
 	if p == nil {
+		return false
+	}
+	if math.IsNaN(float64(value)) {
 		return false
 	}
 	if value < 0 {
@@ -157,6 +167,7 @@ func (p *ProgressBar) Format() string {
 func (p *ProgressBar) SetFormat(format string) *ProgressBar {
 	if p != nil {
 		p.format = format
+		p.readout = formattedReadout{}
 	}
 	return p
 }
@@ -190,3 +201,27 @@ func (p *ProgressBar) SetAlign(align core.TextAlign) *ProgressBar {
 	p.base.SetAlign(align)
 	return p
 }
+
+type formattedReadout struct {
+	format, text string
+	value        float32
+	valid        bool
+}
+
+// resolve formats only after a value or format mutation, not during idle draws.
+func (r *formattedReadout) resolve(format string, value float32, fallback string) string {
+	if format == "" {
+		return fallback
+	}
+	if !r.valid || r.format != format || r.value != value {
+		r.format, r.value, r.valid = format, value, true
+		r.text = fmt.Sprintf(format, value*100)
+	}
+	return r.text
+}
+
+// Text returns the cached slider readout or its plain fallback label.
+func (s *Slider) Text() string { return s.readout.resolve(s.format, s.value, s.base.Text()) }
+
+// Text returns the cached progress readout or its plain fallback label.
+func (p *ProgressBar) Text() string { return p.readout.resolve(p.format, p.value, p.base.Text()) }

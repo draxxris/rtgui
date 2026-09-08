@@ -2,6 +2,7 @@ package widgets
 
 import (
 	"github.com/draxxris/rtgui/core"
+	"math"
 )
 
 // ScrollPanel provides a scrollable view container with scissored content.
@@ -27,10 +28,15 @@ func (s *ScrollPanel) Scroll() core.Vec2 {
 
 // SetScroll replaces the scroll offset and reports whether it changed.
 func (s *ScrollPanel) SetScroll(offset core.Vec2) bool {
-	if s == nil || s.scroll == offset {
+	if s == nil {
+		return false
+	}
+	offset = core.Vec2{X: clampScroll(offset.X, s.maxScroll.X), Y: clampScroll(offset.Y, s.maxScroll.Y)}
+	if s.scroll == offset {
 		return false
 	}
 	s.scroll = offset
+	s.Frame().SetContentOffset(core.Vec2{X: -offset.X, Y: -offset.Y})
 	return true
 }
 
@@ -39,31 +45,27 @@ func (s *ScrollPanel) ScrollBy(dx, dy float32) bool {
 	if s == nil || (dx == 0 && dy == 0) {
 		return false
 	}
-	newX := s.scroll.X + dx
-	newY := s.scroll.Y + dy
-	if s.maxScroll.X > 0 {
-		if newX < 0 {
-			newX = 0
-		} else if newX > s.maxScroll.X {
-			newX = s.maxScroll.X
-		}
-	}
-	if s.maxScroll.Y > 0 {
-		if newY < 0 {
-			newY = 0
-		} else if newY > s.maxScroll.Y {
-			newY = s.maxScroll.Y
-		}
-	}
-	return s.SetScroll(core.Vec2{X: newX, Y: newY})
+	return s.SetScroll(core.Vec2{X: s.scroll.X + dx, Y: s.scroll.Y + dy})
 }
 
 // SetMaxScroll configures the maximum allowed scroll offset.
 func (s *ScrollPanel) SetMaxScroll(max core.Vec2) *ScrollPanel {
 	if s != nil {
-		s.maxScroll = max
+		s.maxScroll = core.Vec2{X: clampScroll(max.X, float32(math.MaxFloat32)), Y: clampScroll(max.Y, float32(math.MaxFloat32))}
+		s.SetScroll(s.scroll)
 	}
 	return s
+}
+
+// clampScroll normalizes non-finite values and clamps offsets on every axis.
+func clampScroll(value, maximum float32) float32 {
+	if math.IsNaN(float64(value)) || value < 0 {
+		return 0
+	}
+	if value > maximum {
+		return maximum
+	}
+	return value
 }
 
 // MaxScroll returns the maximum allowed scroll offset.

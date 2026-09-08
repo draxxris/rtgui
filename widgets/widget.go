@@ -27,32 +27,49 @@ type Widget interface {
 	SetPoint(source layout.Anchor, target *layout.Node, targetPoint layout.Anchor, offset core.Vec2) error
 	Enabled() bool
 	SetEnabled(enabled bool) bool
+	Visible() bool
+	SetVisible(bool)
+	InputTransparent() bool
+	SetInputTransparent(bool)
+	Callbacks() *Callbacks
+	Owner() any
+	SetOwner(any)
 	HitTest(pos core.Vec2) bool
 	Snapshot(state core.WidgetState) core.WidgetInfo
 	Text() string
 	SetText(value string) bool
-	OnClickHandler() func()
 	Tooltip() string
-	TextColor() (core.Color, bool)
-	FontSize() float32
-	Italic() bool
-	Align() core.TextAlign
+	SetTooltipText(string)
+}
+
+// Callbacks is the single callback registry owned by a widget. UI registration
+// and fluent widget setters replace the same slots; they never add listeners.
+type Callbacks struct {
+	Click       func()
+	Change      func(float32)
+	Text        func(string)
+	TabSelect   func(int)
+	LinkClick   func(core.Link)
+	LinkTooltip func(core.Link) string
 }
 
 // base provides common fields and standard Widget implementation for concrete widgets.
 type base struct {
-	name         string
-	kind         core.WidgetKind
-	frame        *layout.Node
-	enabled      bool
-	text         string
-	onClick      func()
-	tooltip      string
-	textColor    core.Color
-	hasTextColor bool
-	fontSize     float32
-	italic       bool
-	align        core.TextAlign
+	name             string
+	kind             core.WidgetKind
+	frame            *layout.Node
+	enabled          bool
+	text             string
+	callbacks        Callbacks
+	hidden           bool
+	inputTransparent bool
+	owner            any
+	tooltip          string
+	textColor        core.Color
+	hasTextColor     bool
+	fontSize         float32
+	italic           bool
+	align            core.TextAlign
 }
 
 // newBase initializes common widget fields.
@@ -172,7 +189,7 @@ func (b *base) SetText(value string) bool {
 // SetOnClick stores the widget's direct activation callback.
 func (b *base) SetOnClick(fn func()) {
 	if b != nil {
-		b.onClick = fn
+		b.callbacks.Click = fn
 	}
 }
 
@@ -181,8 +198,29 @@ func (b *base) OnClickHandler() func() {
 	if b == nil {
 		return nil
 	}
-	return b.onClick
+	return b.callbacks.Click
 }
+
+// Callbacks exposes the widget-owned callback slots on the UI goroutine.
+func (b *base) Callbacks() *Callbacks { return &b.callbacks }
+
+// Owner reports the UI registration owner, or nil when detached.
+func (b *base) Owner() any { return b.owner }
+
+// SetOwner is reserved for UI registration and disposal on the owning goroutine.
+func (b *base) SetOwner(owner any) { b.owner = owner }
+
+// Visible reports local visibility. UI traversal also checks all ancestors.
+func (b *base) Visible() bool { return b != nil && !b.hidden }
+
+// SetVisible changes local visibility without destroying widget state.
+func (b *base) SetVisible(visible bool) { b.hidden = !visible }
+
+// InputTransparent reports whether empty widget space passes pointer input.
+func (b *base) InputTransparent() bool { return b.inputTransparent }
+
+// SetInputTransparent opts decorative overlays out of pointer blocking.
+func (b *base) SetInputTransparent(value bool) { b.inputTransparent = value }
 
 // SetTooltip attaches a hover tooltip string directly to the widget.
 func (b *base) SetTooltip(text string) {
@@ -190,6 +228,9 @@ func (b *base) SetTooltip(text string) {
 		b.tooltip = text
 	}
 }
+
+// SetTooltipText replaces the same tooltip slot used by fluent widget setters.
+func (b *base) SetTooltipText(text string) { b.tooltip = text }
 
 // Tooltip returns the widget's hover tooltip string.
 func (b *base) Tooltip() string {

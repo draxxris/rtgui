@@ -89,6 +89,8 @@ const (
 	WidgetRichText
 	// WidgetCanvas delegates drawing to a custom application callback.
 	WidgetCanvas
+	// WidgetLineGraph displays one or more numeric data series.
+	WidgetLineGraph
 )
 
 // WidgetState is the visual state selected by UI interaction ownership.

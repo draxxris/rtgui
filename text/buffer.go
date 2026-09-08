@@ -13,9 +13,11 @@ import "unicode/utf8"
 // one invariant. UI owns focus: the caret draws only while focused, and
 // focus transfer or loss clears the selection.
 type Buffer struct {
-	bytes  []byte
-	caret  int
-	anchor int
+	bytes       []byte
+	caret       int
+	anchor      int
+	cached      string
+	stringDirty bool
 }
 
 // NewBuffer returns a buffer whose limit is capacity bytes. Invalid initial
@@ -35,7 +37,11 @@ func (b *Buffer) String() string {
 	if b == nil {
 		return ""
 	}
-	return string(b.bytes)
+	if b.stringDirty {
+		b.cached = string(b.bytes)
+		b.stringDirty = false
+	}
+	return b.cached
 }
 
 // Set replaces the value with valid UTF-8 truncated to the buffer limit. It
@@ -57,6 +63,10 @@ func (b *Buffer) Set(value string) bool {
 		}
 	}
 	b.bytes = append(b.bytes[:0], value...)
+	if changed {
+		b.stringDirty = true
+		b.cached = ""
+	}
 	b.caret = utf8.RuneCount(b.bytes)
 	b.anchor = -1
 	return changed
@@ -259,7 +269,7 @@ func (b *Buffer) SelectedText() string {
 		return ""
 	}
 	start, end := b.Selection()
-	return string(b.bytes[b.byteOffsetForRune(start):b.byteOffsetForRune(end)])
+	return b.String()[b.byteOffsetForRune(start):b.byteOffsetForRune(end)]
 }
 
 // RuneCount returns the number of runes in the buffer.
@@ -330,6 +340,8 @@ func (b *Buffer) insertRuneAtCaret(r rune) bool {
 	}
 	copy(b.bytes[at+size:], b.bytes[at:oldLen])
 	copy(b.bytes[at:], encoded[:size])
+	b.stringDirty = true
+	b.cached = ""
 	b.caret++
 	return true
 }
@@ -348,6 +360,8 @@ func (b *Buffer) deleteByteRange(start, end int) {
 	}
 	copy(b.bytes[start:], b.bytes[end:])
 	b.bytes = b.bytes[:len(b.bytes)-(end-start)]
+	b.stringDirty = true
+	b.cached = ""
 }
 
 // clampCaret keeps the caret and anchor inside the current rune range.

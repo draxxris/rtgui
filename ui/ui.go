@@ -8,8 +8,11 @@ package ui
 import (
 	"errors"
 	"fmt"
+	"reflect"
 
 	"github.com/draxxris/rtgui/core"
+	"github.com/draxxris/rtgui/dragdrop"
+	"github.com/draxxris/rtgui/layout"
 	"github.com/draxxris/rtgui/render"
 	"github.com/draxxris/rtgui/transform"
 	"github.com/draxxris/rtgui/widgets"
@@ -24,16 +27,9 @@ var (
 	ErrEmptyWidgetName = errors.New("ui: empty widget name")
 	// ErrDuplicateWidget reports a name already present in the registry or Add request.
 	ErrDuplicateWidget = errors.New("ui: duplicate widget name")
+	// ErrWidgetOwned reports registration of a widget owned by another UI.
+	ErrWidgetOwned = errors.New("ui: widget already has a UI owner")
 )
-
-type callbackRecord struct {
-	onClick       func()
-	onChange      func(float32)
-	onText        func(string)
-	onTabSelect   func(int)
-	onLinkClick   func(core.Link)
-	onLinkTooltip func(core.Link) string
-}
 
 // UI owns one interface instance. Hover, press, and focus have exactly one
 // owner each and are never mirrored into widgets. Textbox caret and
@@ -69,7 +65,21 @@ type UI struct {
 	// access goes through the system via render with this as mirror.
 	clipboard string
 
-	callbacks map[string]callbackRecord
+	byNode          map[*layout.Node]widgets.Widget
+	drag            *dragdrop.Controller
+	dragSource      widgets.Widget
+	dragSources     map[string]func() dragdrop.Payload
+	dropTargets     map[string]*dragdrop.DropTarget
+	dragGhost       func(dragdrop.Ghost)
+	mouseCaptured   bool
+	stringScratch   []string
+	charScratch     []rune
+	keyScratch      []rune
+	richCaches      map[string]*render.RichLayoutCache
+	richTips        map[string]core.RichTooltip
+	explicitRichTip core.RichTooltip
+	richTipCache    render.RichTooltipCache
+	tipRevision     uint64
 
 	menuItems          []core.MenuItem
 	menuBounds         core.Rect
@@ -78,7 +88,6 @@ type UI struct {
 	menuDown           bool
 	contextMenuHandler func(core.Vec2)
 
-	tooltips      map[string]string
 	tooltipText   string
 	tooltipAnchor core.Vec2
 
@@ -124,7 +133,7 @@ func NewWith(t *transform.Transform, th *render.Theme) *UI {
 		transform:    t,
 		theme:        th,
 		widgets:      make(map[string]widgets.Widget),
-		callbacks:    make(map[string]callbackRecord),
+		byNode:       make(map[*layout.Node]widgets.Widget),
 		linkArmedSeg: -1,
 		tipSeg:       -1,
 	}
@@ -138,10 +147,18 @@ func (u *UI) Add(list ...widgets.Widget) error {
 		return ErrNilUI
 	}
 	seen := make(map[string]struct{}, len(list))
+	nodes := make(map[*layout.Node]bool, len(list))
 	for _, widget := range list {
 		if isNilWidget(widget) {
 			return ErrNilWidget
 		}
+		if err := u.validateOwnership(widget); err != nil {
+			return err
+		}
+		if nodes[widget.Frame()] {
+			return ErrDuplicateWidget
+		}
+		nodes[widget.Frame()] = true
 		name := widget.Name()
 		if name == "" {
 			return ErrEmptyWidgetName
@@ -157,16 +174,34 @@ func (u *UI) Add(list ...widgets.Widget) error {
 	if u.widgets == nil {
 		u.widgets = make(map[string]widgets.Widget, len(list))
 	}
+	if u.byNode == nil {
+		u.byNode = make(map[*layout.Node]widgets.Widget)
+	}
 	for _, widget := range list {
 		name := widget.Name()
 		u.widgets[name] = widget
+		u.byNode[widget.Frame()] = widget
+		widget.SetOwner(u)
 		u.order = append(u.order, name)
 	}
 	return nil
 }
 
-// Remove deletes a named widget, clears every active reference to it, and
-// preserves callback registrations for a later widget with the same name.
+// validateOwnership prevents shared callback state and unusable layout frames.
+func (u *UI) validateOwnership(widget widgets.Widget) error {
+	if widget.Frame() == nil {
+		return fmt.Errorf("ui: widget %q has no layout frame", widget.Name())
+	}
+	if widget.Owner() != nil && widget.Owner() != u {
+		return ErrWidgetOwned
+	}
+	if other := u.byNode[widget.Frame()]; other != nil && other != widget {
+		return fmt.Errorf("ui: widgets share layout frame %q", widget.Name())
+	}
+	return nil
+}
+
+// Remove disposes a widget and its registered descendants, including callbacks.
 func (u *UI) Remove(name string) bool {
 	if u == nil || u.widgets == nil {
 		return false
@@ -175,35 +210,26 @@ func (u *UI) Remove(name string) bool {
 	if !exists {
 		return false
 	}
-	delete(u.widgets, name)
-	u.clearReferences(widget)
-	for index, orderedName := range u.order {
-		if orderedName != name {
-			continue
-		}
-		copy(u.order[index:], u.order[index+1:])
-		u.order = u.order[:len(u.order)-1]
-		break
+	u.removeTree(widget.Frame())
+	if p := widget.Frame().Parent(); p != nil {
+		p.RemoveChild(widget.Frame())
 	}
 	return true
 }
 
-// ClearWidgets removes all widgets and transient owners while retaining named callbacks.
+// ClearWidgets disposes all registered widgets and transient interaction owners.
 func (u *UI) ClearWidgets() {
 	if u == nil {
 		return
 	}
-	u.clearFocus()
-	u.clearActiveFrame()
-	u.widgets = make(map[string]widgets.Widget)
+	for len(u.order) > 0 {
+		u.Remove(u.order[len(u.order)-1])
+	}
+	u.CancelInput()
+	clear(u.widgets)
+	clear(u.byNode)
 	u.order = nil
-	u.hovered = nil
-	u.pressed = nil
-	u.focused = nil
-	u.closeMenuState()
-	u.tooltipText = ""
 	u.linkArmedSeg = -1
-	u.clearLinkTip()
 }
 
 // Resize updates physical dimensions while retaining the fixed logical size.
@@ -322,6 +348,12 @@ func (u *UI) clearReferences(widget widgets.Widget) {
 	if u.tipWidget == widget {
 		u.clearLinkTip()
 	}
+	if u.scrollThumbDragging == widget {
+		u.scrollThumbDragging = nil
+	}
+	if u.scrollThumbHovered == widget {
+		u.scrollThumbHovered = nil
+	}
 }
 
 // SetDiagnosticHandler configures an optional callback for runtime warnings.
@@ -373,6 +405,15 @@ func (u *UI) diagnose(format string, args ...any) {
 		return
 	}
 	msg := fmt.Sprintf(format, args...)
+	for _, old := range u.diagnostics {
+		if old == msg {
+			return
+		}
+	}
+	if len(u.diagnostics) == 128 {
+		copy(u.diagnostics, u.diagnostics[1:])
+		u.diagnostics = u.diagnostics[:127]
+	}
 	u.diagnostics = append(u.diagnostics, msg)
 	if u.diagHandler != nil {
 		u.diagHandler(msg)
@@ -384,32 +425,6 @@ func isNilWidget(w widgets.Widget) bool {
 	if w == nil {
 		return true
 	}
-	switch v := w.(type) {
-	case *widgets.Button:
-		return v == nil
-	case *widgets.Label:
-		return v == nil
-	case *widgets.Checkbox:
-		return v == nil
-	case *widgets.Slider:
-		return v == nil
-	case *widgets.ProgressBar:
-		return v == nil
-	case *widgets.Textbox:
-		return v == nil
-	case *widgets.ScrollPanel:
-		return v == nil
-	case *widgets.Dropdown:
-		return v == nil
-	case *widgets.TabBar:
-		return v == nil
-	case *widgets.RichText:
-		return v == nil
-	case *widgets.Canvas:
-		return v == nil
-	case *widgets.Frame:
-		return v == nil
-	default:
-		return false
-	}
+	v := reflect.ValueOf(w)
+	return v.Kind() == reflect.Pointer && v.IsNil()
 }

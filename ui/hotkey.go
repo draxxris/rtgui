@@ -33,9 +33,8 @@ type hotkeyEntry struct {
 // synchronously from HandleKey when scope and editing rules match. A nil
 // callback is ignored and never removes an existing registration; use
 // RemoveHotkey to delete an id. Keys match case-insensitively; callers pass
-// press edges in KeyEvent.Hotkeys once per frame. Registration retains across
-// widget removal like other callbacks; scope names that vanish simply stop
-// matching until re-registered.
+// press edges in KeyEvent.Hotkeys once per frame. Removing a scope widget also
+// removes its hotkeys. Global hotkeys last until RemoveHotkey or UI disposal.
 func (u *UI) OnHotkey(id string, key rune, opts HotkeyOpts, fn func()) {
 	if u == nil || id == "" || key == 0 || fn == nil {
 		return
@@ -72,6 +71,7 @@ func (u *UI) RemoveHotkey(id string) bool {
 			continue
 		}
 		copy(u.hotkeys[index:], u.hotkeys[index+1:])
+		u.hotkeys[len(u.hotkeys)-1] = hotkeyEntry{}
 		u.hotkeys = u.hotkeys[:len(u.hotkeys)-1]
 		return true
 	}
@@ -102,7 +102,7 @@ func (u *UI) FocusFrame(name string) bool {
 		u.diagnose("ui.FocusFrame: frame %q not found", name)
 		return false
 	}
-	if !target.Enabled() {
+	if !u.available(target) {
 		u.diagnose("ui.FocusFrame: frame %q is disabled", name)
 		return false
 	}
@@ -150,24 +150,12 @@ func (u *UI) clearActiveFrame() bool {
 	return true
 }
 
-// innermostFrameAt returns the topmost enabled frame containing pos, or nil.
-// Reverse registry order matches draw stacking so overlapping panels resolve
-// to the visible one. The scan allocates nothing and stays linear in the
-// widget count.
+// innermostFrameAt resolves frame ownership from the frontmost hit surface.
 func (u *UI) innermostFrameAt(pos core.Vec2) widgets.Widget {
 	if u == nil {
 		return nil
 	}
-	for index := len(u.order) - 1; index >= 0; index-- {
-		widget := u.widgets[u.order[index]]
-		if widget == nil || !widget.Enabled() || widget.Kind() != core.WidgetFrame {
-			continue
-		}
-		if widget.HitTest(pos) {
-			return widget
-		}
-	}
-	return nil
+	return u.frameFor(u.hitSurface(pos))
 }
 
 // bubbleActiveFrameFor keeps container focus coherent with keyboard focus.
@@ -177,9 +165,7 @@ func (u *UI) bubbleActiveFrameFor(target widgets.Widget) {
 	if u == nil || target == nil {
 		return
 	}
-	bounds := target.Bounds()
-	center := core.Vec2{X: bounds.X + bounds.W/2, Y: bounds.Y + bounds.H/2}
-	if frame := u.innermostFrameAt(center); frame != nil {
+	if frame := u.frameFor(target); frame != nil {
 		u.setActiveFrame(frame)
 		return
 	}
@@ -244,7 +230,9 @@ func (u *UI) fireScopedHotkeys(presses []rune) bool {
 			return true
 		}
 		if entry.fn != nil {
-			entry.fn()
+			fn, consume := entry.fn, entry.consume
+			fn()
+			return consume
 		}
 		return entry.consume
 	}

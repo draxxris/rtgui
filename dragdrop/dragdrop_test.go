@@ -121,8 +121,8 @@ func TestControllerTargetReplacementAndRemoval(t *testing.T) {
 	}
 }
 
-// TestControllerFirstRegistrationWinsOverlaps checks deterministic target order.
-func TestControllerFirstRegistrationWinsOverlaps(t *testing.T) {
+// TestControllerLastRegistrationWinsOverlaps checks matching draw and target order.
+func TestControllerLastRegistrationWinsOverlaps(t *testing.T) {
 	controller := NewController(0)
 	var drops []string
 	first := &DropTarget{
@@ -143,21 +143,21 @@ func TestControllerFirstRegistrationWinsOverlaps(t *testing.T) {
 	mustRegisterTarget(t, controller, second)
 	controller.Begin(NewPayload("source", "kind", nil), core.Vec2{})
 	controller.Move(core.Vec2{X: 10, Y: 10})
-	if got := controller.CurrentTarget(); got != first {
-		t.Fatalf("overlap target = %+v, want first", got)
+	if got := controller.CurrentTarget(); got != second {
+		t.Fatalf("overlap target = %+v, want second", got)
 	}
 	if got := controller.Drop(core.Vec2{X: 10, Y: 10}); got != PhaseDropped {
 		t.Fatalf("Drop = %v", got)
 	}
-	if len(drops) != 1 || drops[0] != "first" {
-		t.Fatalf("drop order = %v, want first", drops)
+	if len(drops) != 1 || drops[0] != "second" {
+		t.Fatalf("drop order = %v, want second", drops)
 	}
 
 	replacement := &DropTarget{Name: "first", Bounds: first.Bounds, OnDrop: first.OnDrop}
 	mustRegisterTarget(t, controller, replacement)
 	controller.Begin(NewPayload("source", "kind", nil), core.Vec2{})
 	controller.Move(core.Vec2{X: 10, Y: 10})
-	if got := controller.CurrentTarget(); got != replacement {
+	if got := controller.CurrentTarget(); got != second {
 		t.Fatalf("replacement changed precedence: got %+v", got)
 	}
 }

@@ -106,7 +106,7 @@ func (t *Theme) drawTextboxSelection(info core.WidgetInfo, content core.Rect, va
 	}
 	t.logDrawCall(info.Kind, skin.PartOverlay, info.State, rect, rect, skin.SkinDescriptor{}, textboxSelectionTint, false)
 	if rl.IsWindowReady() {
-		drawFallbackPart(rect, textboxSelectionTint)
+		rl.DrawRectangleRec(toRaylibRect(rect), textboxSelectionTint)
 	}
 }
 
@@ -122,7 +122,7 @@ func (t *Theme) drawTextboxCaret(info core.WidgetInfo, content core.Rect, value 
 	rect := t.snap(core.Rect{X: x0 + prefixWidth, Y: y0, W: textboxCaretWidth, H: float32(fontSize)})
 	t.logDrawCall(info.Kind, skin.PartCaret, info.State, rect, rect, skin.SkinDescriptor{}, textboxCaretTint, false)
 	if rl.IsWindowReady() {
-		drawFallbackPart(rect, textboxCaretTint)
+		rl.DrawRectangleRec(toRaylibRect(rect), textboxCaretTint)
 	}
 }
 

@@ -38,6 +38,7 @@ func collectOwnership(root *Node, cache *treeCache) error {
 	for len(cache.scan) != 0 {
 		last := len(cache.scan) - 1
 		node := cache.scan[last]
+		cache.scan[last] = nil
 		cache.scan = cache.scan[:last]
 		if node == nil {
 			return ErrNilChild
@@ -110,6 +111,7 @@ func sortDependencies(root *Node, cache *treeCache) error {
 			}
 			setNodeVisitState(frame.node, root, cache.generation, visitDone)
 			cache.order = append(cache.order, frame.node)
+			cache.stack[len(cache.stack)-1] = dependencyFrame{}
 			cache.stack = cache.stack[:len(cache.stack)-1]
 		}
 	}

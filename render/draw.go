@@ -37,7 +37,7 @@ func (t *Theme) logDrawCall(kind core.WidgetKind, part skin.SkinPart, state core
 		return
 	}
 	if fallback && t.diagnosticHandler != nil {
-		t.diagnosticHandler(fmt.Sprintf("render: missing skin for widget=%v part=%v state=%v", kind, part, state))
+		t.warnMissing(skin.SkinKey{Widget: kind, Part: part, State: state})
 	}
 	if t.recorder == nil {
 		return
@@ -52,6 +52,20 @@ func (t *Theme) logDrawCall(kind core.WidgetKind, part skin.SkinPart, state core
 		Tint:     core.Color{R: tint.R, G: tint.G, B: tint.B, A: tint.A},
 		Fallback: fallback,
 	})
+}
+
+// warnMissing reports each missing skin key once, retaining at most 128 keys.
+func (t *Theme) warnMissing(key skin.SkinKey) {
+	for _, old := range t.warned {
+		if old == key {
+			return
+		}
+	}
+	if len(t.warned) >= 128 {
+		return
+	}
+	t.warned = append(t.warned, key)
+	t.diagnosticHandler(fmt.Sprintf("render: missing skin for widget=%v part=%v state=%v", key.Widget, key.Part, key.State))
 }
 
 // drawTexturedPart selects simple, 3-patch, or nine-patch drawing for descriptor.

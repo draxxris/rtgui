@@ -25,6 +25,10 @@ func (u *UI) PollRaylibInput() InputResult {
 	if u == nil || !rl.IsWindowReady() {
 		return InputResult{}
 	}
+	if !rl.IsWindowFocused() {
+		u.CancelInput()
+		return InputResult{}
+	}
 	mouseHandled := u.pollRaylibMouse()
 	keyHandled := u.pollRaylibKeys()
 	u.updateRaylibCursor()
@@ -38,22 +42,21 @@ func (u *UI) PollRaylibInput() InputResult {
 func (u *UI) pollRaylibMouse() bool {
 	pos := rl.GetMousePosition()
 	mouse := u.ToLogical(core.Vec2{X: pos.X, Y: pos.Y})
-	if rl.IsMouseButtonPressed(rl.MouseButtonRight) && u.contextMenuHandler != nil {
-		u.contextMenuHandler(mouse)
-	}
 	event := MouseEvent{
-		Pos:      mouse,
-		Pressed:  rl.IsMouseButtonPressed(rl.MouseButtonLeft),
-		Down:     rl.IsMouseButtonDown(rl.MouseButtonLeft),
-		Released: rl.IsMouseButtonReleased(rl.MouseButtonLeft),
-		Wheel:    rl.GetMouseWheelMove(),
+		Pos:          mouse,
+		Pressed:      rl.IsMouseButtonPressed(rl.MouseButtonLeft),
+		Down:         rl.IsMouseButtonDown(rl.MouseButtonLeft),
+		Released:     rl.IsMouseButtonReleased(rl.MouseButtonLeft),
+		RightPressed: rl.IsMouseButtonPressed(rl.MouseButtonRight),
+		Wheel:        rl.GetMouseWheelMove(),
 	}
 	return u.HandleMouse(event)
 }
 
 // pollRaylibKeys samples typing, navigation, clipboard, and hotkey state into the UI.
 func (u *UI) pollRaylibKeys() bool {
-	chars := drainRaylibChars()
+	u.charScratch = drainRaylibCharsInto(u.charScratch[:0])
+	chars := u.charScratch
 	event := KeyEvent{
 		Chars:     chars,
 		Backspace: raylibPressed(rl.KeyBackspace),
@@ -71,7 +74,11 @@ func (u *UI) pollRaylibKeys() bool {
 
 // drainRaylibChars consumes pending printable runes from the raylib input queue.
 func drainRaylibChars() []rune {
-	var out []rune
+	return drainRaylibCharsInto(nil)
+}
+
+// drainRaylibCharsInto reuses caller storage for each polled character frame.
+func drainRaylibCharsInto(out []rune) []rune {
 	for cp := rl.GetCharPressed(); cp > 0; cp = rl.GetCharPressed() {
 		if cp >= 32 && cp != 127 {
 			out = append(out, rune(cp))
@@ -109,7 +116,7 @@ func (u *UI) pollRaylibHotkeys() []rune {
 	if len(u.hotkeys) == 0 {
 		return nil
 	}
-	var hotkeys []rune
+	hotkeys := u.keyScratch[:0]
 	for _, entry := range u.hotkeys {
 		if (entry.key >= 'A' && entry.key <= 'Z') || (entry.key >= '0' && entry.key <= '9') {
 			if rl.IsKeyPressed(int32(entry.key)) {
@@ -117,6 +124,7 @@ func (u *UI) pollRaylibHotkeys() []rune {
 			}
 		}
 	}
+	u.keyScratch = hotkeys
 	return hotkeys
 }
 

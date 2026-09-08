@@ -50,12 +50,14 @@ type Controller struct {
 	targets     map[string]*DropTarget
 	targetOrder []string
 
-	threshold float32
-	phase     Phase
-	payload   Payload
-	pressPos  core.Vec2
-	pointer   core.Vec2
-	target    *DropTarget
+	threshold  float32
+	phase      Phase
+	payload    Payload
+	pressPos   core.Vec2
+	pointer    core.Vec2
+	target     *DropTarget
+	generation uint64
+	resolver   func(core.Vec2) *DropTarget
 }
 
 // NewController returns a controller with threshold as its drag distance.
@@ -73,6 +75,7 @@ func (c *Controller) Begin(payload Payload, pressPosition core.Vec2) {
 		return
 	}
 	c.phase = PhasePressed
+	c.generation++
 	c.payload = payload
 	c.pressPos = pressPosition
 	c.pointer = pressPosition
@@ -99,30 +102,31 @@ func (c *Controller) Move(pointerPosition core.Vec2) {
 	}
 }
 
-// Drop completes the active drag at pointerPosition. It reports PhaseDropped
-// only when the first matching target accepts the payload.
+// Drop completes the old session before invoking delivery. PhaseDropped means
+// accepted intent, not a committed game transaction. Terminal sessions release payloads.
 func (c *Controller) Drop(pointerPosition core.Vec2) Phase {
 	if c == nil {
 		return PhaseCanceled
 	}
 	c.pointer = pointerPosition
 	if !c.IsDragging() {
-		c.phase = PhaseCanceled
-		c.target = nil
+		c.Cancel()
 		return c.phase
 	}
-	c.target = c.targetAt(pointerPosition)
-	if c.target != nil && (c.target.Accepts == nil || c.target.Accepts(c.payload)) {
-		if c.target.OnDrop != nil {
-			c.target.OnDrop(c.payload)
-		}
-		c.phase = PhaseDropped
-		c.target = nil
-		return c.phase
+	target, payload, generation := c.targetAt(pointerPosition), c.payload, c.generation
+	accepted := target != nil && (target.Accepts == nil || target.Accepts(payload))
+	if c.generation != generation {
+		return PhaseCanceled
 	}
-	c.phase = PhaseCanceled
-	c.target = nil
-	return c.phase
+	c.Cancel()
+	if !accepted {
+		return PhaseCanceled
+	}
+	c.phase = PhaseDropped
+	if target.OnDrop != nil {
+		target.OnDrop(payload)
+	}
+	return PhaseDropped
 }
 
 // Cancel ends the current session without invoking a target callback.
@@ -132,6 +136,16 @@ func (c *Controller) Cancel() {
 	}
 	c.phase = PhaseCanceled
 	c.target = nil
+	c.payload = Payload{}
+	c.generation++
+}
+
+// SetTargetResolver supplies ownership-aware target selection. Nil uses the registry.
+func (c *Controller) SetTargetResolver(resolve func(core.Vec2) *DropTarget) { c.resolver = resolve }
+
+// CanDrop previews compatibility without delivering a drop. Accepts must be pure.
+func (c *Controller) CanDrop() bool {
+	return c != nil && c.target != nil && (c.target.Accepts == nil || c.target.Accepts(c.payload))
 }
 
 // Phase reports the controller's current drag phase.

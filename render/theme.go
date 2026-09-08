@@ -25,6 +25,9 @@ type Theme struct {
 	italic            fontFace
 	debugMode         bool
 	diagnosticHandler func(string)
+	clips             []core.Rect
+	textRevision      uint64
+	warned            []skin.SkinKey
 }
 
 // fontFace owns one font path and its size-specific raster cache.
@@ -90,7 +93,11 @@ func (t *Theme) SetSkinPart(key skin.SkinKey, descriptor skin.SkinDescriptor) {
 		t.programmatic = skin.NewRegistry()
 	}
 	t.programmatic.Set(key, descriptor)
+	t.textRevision++
 }
+
+// TextRevision invalidates text caches after font or skin configuration changes.
+func (t *Theme) TextRevision() uint64 { return t.textRevision }
 
 // GetSkinPart returns an exact CSS descriptor before an exact programmatic descriptor.
 func (t *Theme) GetSkinPart(key skin.SkinKey) (skin.SkinDescriptor, error) {
@@ -150,6 +157,7 @@ func (t *Theme) UnloadSkin() error {
 	if t.css != nil {
 		t.css.Clear()
 	}
+	t.textRevision++
 	return nil
 }
 
@@ -165,6 +173,7 @@ func (t *Theme) ClearSkin() error {
 	if t.programmatic != nil {
 		t.programmatic.Clear()
 	}
+	t.textRevision++
 	return nil
 }
 
@@ -204,7 +213,11 @@ func (t *Theme) LoadFont(path string) error {
 	if t == nil {
 		return errors.New("render: nil theme")
 	}
-	return t.font.load(path)
+	if err := t.font.load(path); err != nil {
+		return err
+	}
+	t.textRevision++
+	return nil
 }
 
 // LoadItalicFont records a second TTF/OTF file for accent text. Its lifecycle
@@ -213,7 +226,11 @@ func (t *Theme) LoadItalicFont(path string) error {
 	if t == nil {
 		return errors.New("render: nil theme")
 	}
-	return t.italic.load(path)
+	if err := t.italic.load(path); err != nil {
+		return err
+	}
+	t.textRevision++
+	return nil
 }
 
 // HasFont reports whether a widget-text font file is recorded.
@@ -267,6 +284,7 @@ func (t *Theme) UnloadFonts() {
 	}
 	t.font.unload()
 	t.italic.unload()
+	t.textRevision++
 }
 
 // MeasureText measures the pixel width of value at size using the theme or italic font.
@@ -337,6 +355,12 @@ func (f *fontFace) forSize(size float32) rl.Font {
 	if !f.available {
 		return rl.GetFontDefault()
 	}
+	if math.IsNaN(float64(size)) || size <= 0 {
+		size = 1
+	}
+	if size > 256 {
+		size = 256
+	}
 	pixels := int32(math.Round(float64(size)))
 	if pixels < 1 {
 		pixels = 1
@@ -350,12 +374,30 @@ func (f *fontFace) forSize(size float32) rl.Font {
 	if !rl.IsWindowReady() {
 		return rl.GetFontDefault()
 	}
+	if len(f.cache) >= 32 {
+		return f.nearestRaster(pixels)
+	}
 	font := rl.LoadFontEx(f.path, pixels, fontCodepoints(), 0)
 	if !rl.IsFontValid(font) {
 		return rl.GetFontDefault()
 	}
 	f.cache[pixels] = font
 	return font
+}
+
+// nearestRaster bounds atlas retention without unloading queued GPU resources.
+func (f *fontFace) nearestRaster(pixels int32) rl.Font {
+	best, distance, bestSize := rl.GetFontDefault(), int32(1<<30), int32(1<<30)
+	for size, font := range f.cache {
+		delta := size - pixels
+		if delta < 0 {
+			delta = -delta
+		}
+		if delta < distance || delta == distance && size < bestSize {
+			best, distance, bestSize = font, delta, size
+		}
+	}
+	return best
 }
 
 // unload releases all cached rasters and clears the recorded source path.

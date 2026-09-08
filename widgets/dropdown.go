@@ -63,6 +63,9 @@ func (d *Dropdown) DropdownItems() []string {
 	return append([]string(nil), d.dropdownItems...)
 }
 
+// AppendDropdownItems copies items into reusable caller-owned storage.
+func (d *Dropdown) AppendDropdownItems(dst []string) []string { return append(dst, d.dropdownItems...) }
+
 // SetDropdownItems copies items and preserves selection if still valid.
 func (d *Dropdown) SetDropdownItems(items []string) bool {
 	if d == nil {
@@ -70,6 +73,7 @@ func (d *Dropdown) SetDropdownItems(items []string) bool {
 	}
 	changed := !equalStrings(d.dropdownItems, items)
 	if changed {
+		clear(d.dropdownItems)
 		d.dropdownItems = append(d.dropdownItems[:0], items...)
 	}
 	if d.dropdownIndex >= len(d.dropdownItems) {

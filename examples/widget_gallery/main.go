@@ -133,6 +133,7 @@ type gallery struct {
 	tooltipHint     *widgets.Label
 	stateCanvas     *widgets.Canvas
 	statusLabel     *widgets.Label
+	lineGraph       *widgets.LineGraph
 
 	status       string
 	designWidth  float32
@@ -592,6 +593,7 @@ func newGallery(facade *ui.UI) *gallery {
 	g.layout = calculateLayout(logical.X, logical.Y)
 	g.tabPages = defaultTabPages()
 	g.applyLayout()
+	g.setupGameWidgets()
 	g.applyTab(g.tabbar.SelectedTab())
 	return g
 }
@@ -659,6 +661,7 @@ func (g *gallery) applyTab(index int) {
 		return
 	}
 	page := g.tabPages[index]
+	g.selectGraphPage(index)
 	g.label.SetText(page.label)
 	if g.rightTitle != nil {
 		g.rightTitle.SetText(page.heading)

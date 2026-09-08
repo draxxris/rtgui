@@ -49,6 +49,7 @@ func TestWidgetDomainAccessors(t *testing.T) {
 	}
 
 	panel := widgets.NewScrollPanel("scroll", core.Rect{})
+	panel.SetMaxScroll(core.Vec2{X: 100, Y: 100})
 	if !panel.ScrollBy(10, 20) || panel.Scroll() != (core.Vec2{X: 10, Y: 20}) {
 		t.Fatalf("scroll = %+v", panel.Scroll())
 	}

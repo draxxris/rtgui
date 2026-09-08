@@ -45,9 +45,12 @@ most tests are headless.
   input dispatch, callbacks after real mutations, dropdown ownership, resolved
   layout bounds, and recorder frame boundaries.
 
-CSS fake-backend tests use generated temporary images and do not depend on the
-ignored Kenney fixtures. The successful gallery CSS path does require the local
-ignored files and a graphics context.
+CSS fake-backend tests use generated temporary images. The gallery CSS path uses
+the tracked Kenney fixtures and requires a graphics context.
+
+Ownership tests cover subtree stacking, clipping, visibility, disposal, and gesture capture.
+Cache tests require zero allocations after warmup for rich-text hover, full-widget drawing,
+rich tooltips, and fixed-range graph streaming. Native graphics allocations are not measured.
 
 ## Harness-driven interaction
 
@@ -156,15 +159,14 @@ nine-patch borders, layout movement, text, slider/progress, and dropdown popup
 remain visible. The gallery teardown must unload CSS-owned textures before the
 raylib window closes. The gallery owns no borrowed textures.
 
-## Visual references and known fixture limitation
+## Visual references and fixtures
 
 `testdata/golden/` contains references for manual inspection; there is no
 pixel-difference gate because drivers and raylib versions vary.
 
-The Kenney PNGs under `testdata/skins/kenney/` are ignored local fixtures. They
-are intentionally not changed or added to `.gitignore`; a clean archive lacks
-them and therefore cannot run the file-dependent CSS test or gallery skin.
-That accepted limitation is not a release gate.
+The Kenney PNGs under `testdata/skins/kenney/` are tracked fixtures.
+The Style tab demonstrates the line graph. The frame-child button demonstrates a
+rich tooltip and drag delivery to the left decoration panel.
 
 ## Pre-push checklist
 

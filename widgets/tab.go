@@ -9,7 +9,6 @@ type TabBar struct {
 	base
 	tabSelected int
 	tabLabels   []string
-	onTabSelect func(int)
 }
 
 // NewTabBar returns an enabled tab bar and copies labels safely.
@@ -39,6 +38,9 @@ func (t *TabBar) TabLabels() []string {
 	return append([]string(nil), t.tabLabels...)
 }
 
+// AppendTabLabels copies labels into reusable caller-owned storage.
+func (t *TabBar) AppendTabLabels(dst []string) []string { return append(dst, t.tabLabels...) }
+
 // SetTabLabels copies labels and keeps selection only when it remains valid.
 func (t *TabBar) SetTabLabels(labels []string) bool {
 	if t == nil {
@@ -46,6 +48,7 @@ func (t *TabBar) SetTabLabels(labels []string) bool {
 	}
 	changed := !equalStrings(t.tabLabels, labels)
 	if changed {
+		clear(t.tabLabels)
 		t.tabLabels = append(t.tabLabels[:0], labels...)
 	}
 	if t.tabSelected >= len(t.tabLabels) {
@@ -83,7 +86,7 @@ func (t *TabBar) TabSelection() (string, bool) {
 // OnTabSelect attaches a tab selection callback directly to the tab bar.
 func (t *TabBar) OnTabSelect(fn func(int)) *TabBar {
 	if t != nil {
-		t.onTabSelect = fn
+		t.callbacks.TabSelect = fn
 	}
 	return t
 }
@@ -93,7 +96,7 @@ func (t *TabBar) OnTabSelectHandler() func(int) {
 	if t == nil {
 		return nil
 	}
-	return t.onTabSelect
+	return t.callbacks.TabSelect
 }
 
 // SetTooltip attaches a hover tooltip string directly to the tab bar.

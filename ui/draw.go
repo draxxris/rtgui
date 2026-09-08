@@ -1,13 +1,10 @@
 package ui
 
 import (
-	"fmt"
-
 	"github.com/draxxris/rtgui/core"
 	"github.com/draxxris/rtgui/render"
 	"github.com/draxxris/rtgui/skin"
 	"github.com/draxxris/rtgui/widgets"
-	rl "github.com/gen2brain/raylib-go/raylib"
 )
 
 // Draw reconciles disabled owners, starts one optional recorder frame, and
@@ -49,13 +46,19 @@ func (u *UI) DrawPopup() {
 // drawWidgets renders every registered widget in order without the popup.
 func (u *UI) drawWidgets() {
 	for _, name := range u.order {
-		u.drawOne(u.widgets[name])
+		w := u.widgets[name]
+		if w != nil && u.parentWidget(w) == nil {
+			u.drawNode(w.Frame(), core.Rect{}, false)
+		}
 	}
 }
 
 // drawPopup renders open popups above all registered widgets and app
 // layers: dropdown first, then menu, then tooltip on top.
 func (u *UI) drawPopup() {
+	if u.drag != nil && u.drag.IsDragging() && u.dragGhost != nil {
+		u.dragGhost(u.drag.Ghost())
+	}
 	if dropdown := u.openDropdown(); dropdown != nil {
 		u.drawDropdownPopup(dropdown)
 	}
@@ -92,6 +95,9 @@ func (u *UI) drawOne(widget widgets.Widget) {
 	case *widgets.Textbox:
 		state := u.visualState(w)
 		u.drawTextbox(w, state)
+		return
+	case *widgets.LineGraph:
+		u.drawLineGraph(w)
 		return
 	}
 	state := u.visualState(widget)
@@ -133,14 +139,9 @@ func (u *UI) drawScrollPanel(widget *widgets.ScrollPanel, state core.WidgetState
 		if scissorH < 0 {
 			scissorH = 0
 		}
-		sx, sy := u.Scale()
-		if rl.IsWindowReady() {
-			rl.BeginScissorMode(int32(content.X*sx), int32(content.Y*sy), int32(scissorW*sx), int32(scissorH*sy))
-		}
+		u.theme.PushClip(core.Rect{X: content.X, Y: content.Y, W: scissorW, H: scissorH})
 		drawer(widget.Bounds(), widget.Scroll())
-		if rl.IsWindowReady() {
-			rl.EndScissorMode()
-		}
+		u.theme.PopClip()
 	}
 	u.drawScrollbar(widget)
 	if needsBorder(widget.Kind()) {
@@ -169,7 +170,7 @@ func (u *UI) drawTextbox(widget *widgets.Textbox, state core.WidgetState) {
 // Container focus shares the focused rank so an active frame glows while a
 // textbox inside it keeps the caret; pressed and disabled still win outright.
 func (u *UI) visualState(widget widgets.Widget) core.WidgetState {
-	if widget == nil || !widget.Enabled() {
+	if !u.available(widget) {
 		return core.StateDisabled
 	}
 	if u.pressed == widget {
@@ -210,7 +211,9 @@ func (u *UI) drawDropdownPopup(widget *widgets.Dropdown) {
 	}
 	info := widget.Snapshot(core.StatePressed)
 	info.Bounds = popup
-	u.theme.DrawDropdownPopup(info, widget.DropdownItems(), u.dropdownPopupIndex(widget, u.pointer))
+	u.stringScratch = widget.AppendDropdownItems(u.stringScratch[:0])
+	u.theme.DrawDropdownPopup(info, u.stringScratch, u.dropdownPopupIndex(widget, u.pointer))
+	clear(u.stringScratch)
 }
 
 // widgetText resolves plain, textbox, or selected dropdown display text.
@@ -223,12 +226,6 @@ func widgetText(widget widgets.Widget) string {
 			return value
 		}
 		return ""
-	}
-	if s, ok := widget.(*widgets.Slider); ok && s.Format() != "" {
-		return fmt.Sprintf(s.Format(), s.Value()*100)
-	}
-	if p, ok := widget.(*widgets.ProgressBar); ok && p.Format() != "" {
-		return fmt.Sprintf(p.Format(), p.Value()*100)
 	}
 	return widget.Text()
 }
@@ -254,15 +251,15 @@ func needsBorder(kind core.WidgetKind) bool {
 // drawRichText renders one message with hover-aware link highlighting.
 func (u *UI) drawRichText(message *widgets.RichText, state core.WidgetState) {
 	info := message.Snapshot(state)
-	segments := message.RichSegments()
-	if len(segments) == 0 {
+	cache := u.richCache(message)
+	if cache.Len() == 0 {
 		u.theme.DrawWidget(info, "", 0, false)
 		if needsBorder(message.Kind()) {
 			u.theme.DrawWidgetPart(message.Kind(), skin.PartBorder, message.Bounds(), state)
 		}
 		return
 	}
-	u.theme.DrawRichText(info, segments, u.richHoverSeg(message))
+	u.theme.DrawRichTextLayout(info, cache, u.richHoverSeg(message))
 	if needsBorder(message.Kind()) {
 		u.theme.DrawWidgetPart(message.Kind(), skin.PartBorder, message.Bounds(), state)
 	}
@@ -281,7 +278,9 @@ func (u *UI) richHoverSeg(message *widgets.RichText) int {
 // drawTabBar renders one tab strip with pointer-aware cell states.
 func (u *UI) drawTabBar(bar *widgets.TabBar, state core.WidgetState) {
 	info := bar.Snapshot(state)
-	labels := bar.TabLabels()
+	u.stringScratch = bar.AppendTabLabels(u.stringScratch[:0])
+	labels := u.stringScratch
+	defer clear(labels)
 	if len(labels) == 0 {
 		u.theme.DrawWidget(info, "", 0, false)
 		if needsBorder(bar.Kind()) {
@@ -324,16 +323,24 @@ func (u *UI) drawMenuPopup() {
 
 // drawTooltipPopup renders the derived hover or explicit tooltip on top.
 func (u *UI) drawTooltipPopup() {
+	if u.drawRichTooltipPopup() {
+		return
+	}
 	text, anchor, ok := u.derivedTooltip()
 	if !ok {
+		u.richTipCache.Invalidate()
 		return
 	}
-	bounds := render.TooltipOuterBounds(text, anchor, u.logicalSize(), u.tooltipPadding())
-	if bounds.W <= 0 || bounds.H <= 0 {
-		return
-	}
-	info := core.WidgetInfo{Name: "tooltip", Bounds: bounds, Kind: core.WidgetTooltip, State: core.StateNormal}
-	u.theme.DrawTooltip(info, text)
+	segments := [1]core.RichSegment{{Text: text}}
+	u.richTipCache.Update(u.theme, core.RichTooltip{Segments: segments[:]}, anchor, u.logicalSize(), u.tooltipPadding())
+	u.theme.DrawRichTooltip(core.WidgetInfo{Name: "tooltip", Kind: core.WidgetTooltip}, &u.richTipCache)
+}
+
+// drawLineGraph renders cached graph geometry and its optional skin border.
+func (u *UI) drawLineGraph(graph *widgets.LineGraph) {
+	state := u.visualState(graph)
+	u.theme.DrawLineGraph(graph.Snapshot(state), graph)
+	u.theme.DrawWidgetPart(graph.Kind(), skin.PartBorder, graph.Bounds(), state)
 }
 
 // tooltipPadding returns the maximum authored tooltip content inset so
