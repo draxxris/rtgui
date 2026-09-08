@@ -68,27 +68,6 @@ var (
 	screenshot = flag.String("screenshot", "", "save the final frame to this PNG path")
 )
 
-type galleryLayout struct {
-	leftPanel, rightPanel     core.Rect
-	title, subtitle           core.Rect
-	leftTitle, rightTitle     core.Rect
-	button, checkbox          core.Rect
-	textbox, textboxCaption   core.Rect
-	dropdown, dropdownCaption core.Rect
-	slider, sliderCaption     core.Rect
-	progress                  core.Rect
-	panel, panelText          core.Rect
-	label                     core.Rect
-	tabbar, tabbarCaption     core.Rect
-	chat, chatCaption         core.Rect
-	frame, frameCaption       core.Rect
-	frameButton               core.Rect
-	scroll, scrollCaption     core.Rect
-	menuHint, tooltipHint     core.Rect
-	stateCanvas               core.Rect
-	status                    core.Rect
-}
-
 // tabPage is one app-side tab content set. The TabBar widget owns only
 // selection (SelectedTab + OnTabSelect); the gallery swaps these fields
 // on selection, browser-tab style. Index-aligned with demoTabs labels.
@@ -139,7 +118,8 @@ type gallery struct {
 	status       string
 	designWidth  float32
 	designHeight float32
-	layout       galleryLayout
+	slots        []gallerySlot
+	frameOrigin  core.Vec2
 	tabPages     []tabPage
 	// lastMouse is the logical pointer at the latest input frame. Scoped
 	// hotkey callbacks read it so the T-pinned tooltip anchors where the
@@ -527,27 +507,16 @@ func newGallery(facade *ui.UI) *gallery {
 	})
 	facade.OnContextMenu(g.showGalleryMenu)
 
-	// The visual widgets own the layout nodes used by the MoveFrame demo.
-	if err := g.frame.Frame().AddChild(g.frameCaption.Frame()); err != nil {
-		panic(err)
-	}
-	if err := g.frameCaption.SetPoint(layout.AnchorTopLeft, nil, layout.AnchorTopLeft, core.Vec2{X: 18, Y: 20}); err != nil {
-		panic(err)
-	}
-	if err := g.frame.Frame().AddChild(g.frameButton.Frame()); err != nil {
-		panic(err)
-	}
-	if err := g.frameButton.SetPoint(layout.AnchorTopLeft, nil, layout.AnchorTopLeft, core.Vec2{X: 24, Y: 74}); err != nil {
-		panic(err)
-	}
-	// Layout is computed once from the fixed design resolution; later window
-	// resizes rescale around these bounds instead of reflowing them.
+	// WoW-style placement: one slot table owns both hierarchy and anchors.
+	// Resolution is fixed in options; window resize only scales. A new
+	// logical resolution needs a new table plus UI scale.
 	logical := facade.Transform().Viewport.LogicalSize
 	g.designWidth, g.designHeight = logical.X, logical.Y
-	g.layout = calculateLayout(logical.X, logical.Y)
+	g.slots = gallerySlots(logical.X, logical.Y)
 	g.tabPages = defaultTabPages()
 	g.applyLayout()
 	g.setupGameWidgets()
+	g.applyLayout()
 	g.applyTab(g.tabbar.SelectedTab())
 	return g
 }
@@ -633,87 +602,6 @@ func (g *gallery) applyTab(index int) {
 	g.setStatus(fmt.Sprintf("Tab index %d selected", index))
 }
 
-// applyLayout assigns cached design-resolution bounds and arranges the frame
-// widget's owned child. Bounds never follow the live window size after this.
-func (g *gallery) applyLayout() {
-	g.leftPanel.SetBounds(g.layout.leftPanel)
-	g.rightPanel.SetBounds(g.layout.rightPanel)
-	g.titleLabel.SetBounds(g.layout.title)
-	g.subtitleLabel.SetBounds(g.layout.subtitle)
-	g.leftTitle.SetBounds(g.layout.leftTitle)
-	g.rightTitle.SetBounds(g.layout.rightTitle)
-	g.button.SetBounds(g.layout.button)
-	g.checkbox.SetBounds(g.layout.checkbox)
-	g.textboxCaption.SetBounds(g.layout.textboxCaption)
-	g.textbox.SetBounds(g.layout.textbox)
-	g.dropdownCaption.SetBounds(g.layout.dropdownCaption)
-	g.dropdown.SetBounds(g.layout.dropdown)
-	g.sliderCaption.SetBounds(g.layout.sliderCaption)
-	g.slider.SetBounds(g.layout.slider)
-	g.progress.SetBounds(g.layout.progress)
-	g.panel.SetBounds(g.layout.panel)
-	g.panelText.SetBounds(g.layout.panelText)
-	g.label.SetBounds(g.layout.label)
-	g.tabbarCaption.SetBounds(g.layout.tabbarCaption)
-	g.tabbar.SetBounds(g.layout.tabbar)
-	g.chatCaption.SetBounds(g.layout.chatCaption)
-	g.chat.SetBounds(g.layout.chat)
-	g.frame.SetBounds(g.layout.frame)
-	g.frameCaption.SetBounds(core.Rect{W: g.layout.frameCaption.W, H: g.layout.frameCaption.H})
-	g.frameButton.SetBounds(core.Rect{W: g.layout.frameButton.W, H: g.layout.frameButton.H})
-	g.scrollCaption.SetBounds(g.layout.scrollCaption)
-	g.scroll.SetBounds(g.layout.scroll)
-	g.menuHint.SetBounds(g.layout.menuHint)
-	g.tooltipHint.SetBounds(g.layout.tooltipHint)
-	g.stateCanvas.SetBounds(g.layout.stateCanvas)
-	g.statusLabel.SetBounds(g.layout.status)
-	if err := layout.Arrange(g.frame.Frame(), core.Rect{}); err != nil {
-		panic(err)
-	}
-}
-
-// calculateLayout returns fixed logical design bounds for the gallery widgets.
-func calculateLayout(width, height float32) galleryLayout {
-	margin, gap := float32(28), float32(24)
-	panelWidth := (width - 2*margin - gap) / 2
-	left := core.Rect{X: margin, Y: 74, W: panelWidth, H: height - 98}
-	right := core.Rect{X: margin + panelWidth + gap, Y: 74, W: panelWidth, H: height - 98}
-	widgetX, widgetW := left.X+24, left.W-48
-	rightX, rightW := right.X+24, right.W-48
-	return galleryLayout{
-		leftPanel:       left,
-		rightPanel:      right,
-		title:           core.Rect{X: 28, Y: 24, W: 600, H: 26},
-		subtitle:        core.Rect{X: 30, Y: 51, W: 1200, H: 20},
-		leftTitle:       core.Rect{X: left.X + 24, Y: left.Y + 15, W: left.W - 48, H: 24},
-		rightTitle:      core.Rect{X: right.X + 24, Y: right.Y + 15, W: right.W - 48, H: 24},
-		button:          core.Rect{X: widgetX, Y: left.Y + 48, W: widgetW, H: 42},
-		checkbox:        core.Rect{X: widgetX, Y: left.Y + 112, W: widgetW, H: 38},
-		textboxCaption:  core.Rect{X: widgetX, Y: left.Y + 176 - 23, W: widgetW, H: 20},
-		textbox:         core.Rect{X: widgetX, Y: left.Y + 176, W: widgetW, H: 42},
-		dropdownCaption: core.Rect{X: widgetX, Y: left.Y + 240 - 23, W: widgetW, H: 20},
-		dropdown:        core.Rect{X: widgetX, Y: left.Y + 240, W: widgetW, H: 42},
-		sliderCaption:   core.Rect{X: widgetX, Y: left.Y + 304 - 23, W: widgetW, H: 20},
-		slider:          core.Rect{X: widgetX, Y: left.Y + 304, W: widgetW, H: 42},
-		progress:        core.Rect{X: widgetX, Y: left.Y + 368, W: widgetW, H: 42},
-		panel:           core.Rect{X: widgetX, Y: left.Y + 440, W: widgetW, H: 70},
-		panelText:       core.Rect{X: widgetX + 14, Y: left.Y + 440 + 30, W: widgetW - 28, H: 24},
-		tabbarCaption:   core.Rect{X: widgetX, Y: left.Y + 536 - 23, W: widgetW, H: 20},
-		tabbar:          core.Rect{X: widgetX, Y: left.Y + 536, W: widgetW, H: 36},
-		chatCaption:     core.Rect{X: widgetX, Y: left.Y + 600 - 23, W: widgetW, H: 20},
-		chat:            core.Rect{X: widgetX, Y: left.Y + 600, W: widgetW, H: 68},
-		label:           core.Rect{X: rightX, Y: right.Y + 40, W: rightW, H: 32},
-		frame:           core.Rect{X: rightX, Y: right.Y + 92, W: rightW, H: 164},
-		frameCaption:    core.Rect{W: rightW - 36, H: 22},
-		frameButton:     core.Rect{W: rightW - 96, H: 42},
-		scrollCaption:   core.Rect{X: rightX + 12, Y: right.Y + 282 - 22, W: rightW - 24, H: 20},
-		scroll:          core.Rect{X: rightX, Y: right.Y + 282, W: rightW, H: 232},
-		menuHint:        core.Rect{X: rightX + 12, Y: right.Y + 282 + 232 + 10, W: rightW - 24, H: 20},
-		tooltipHint:     core.Rect{X: rightX + 12, Y: right.Y + 282 + 232 + 28, W: rightW - 24, H: 20},
-		stateCanvas:     core.Rect{X: rightX, Y: right.Y + right.H - 66, W: rightW, H: 34},
-		status:          core.Rect{X: 30, Y: height - 18, W: width - 60, H: 20},
-	}
-}
 
 // handleInput polls raylib input through the UI driver and animates the demo frame.
 func (g *gallery) handleInput() {
@@ -748,10 +636,10 @@ func (g *gallery) nudgeDemoFrame() {
 		delta.Y = -30
 	}
 	// Shift the sine baseline with the manual move. animateFrame servos the
-	// frame back toward g.layout.frame every tick, so without this the nudge
+	// frame back toward frameOrigin every tick, so without this the nudge
 	// is fully reverted on the very next frame.
-	g.layout.frame.X += delta.X
-	g.layout.frame.Y += delta.Y
+	g.frameOrigin.X += delta.X
+	g.frameOrigin.Y += delta.Y
 	g.applyFrameMove(delta)
 	childBounds := g.frameButton.Bounds()
 	g.setStatus(fmt.Sprintf("MoveFrame %+v — child follows (%.0f,%.0f)", delta, childBounds.X, childBounds.Y))
@@ -766,11 +654,12 @@ func (g *gallery) animateFrame() {
 		return
 	}
 	t := float32(rl.GetTime())
+	frameSize := g.frame.Bounds()
 	target := core.Rect{
-		X: g.layout.frame.X + float32(math.Sin(float64(t*0.6)))*6,
-		Y: g.layout.frame.Y,
-		W: g.layout.frame.W,
-		H: g.layout.frame.H,
+		X: g.frameOrigin.X + float32(math.Sin(float64(t*0.6)))*6,
+		Y: g.frameOrigin.Y,
+		W: frameSize.W,
+		H: frameSize.H,
 	}
 	frameBounds := g.frame.Bounds()
 	delta := core.Vec2{X: target.X - frameBounds.X, Y: target.Y - frameBounds.Y}
@@ -781,9 +670,10 @@ func (g *gallery) animateFrame() {
 }
 
 // applyFrameMove authors movement and performs the required arrangement.
+// The frame is nested under rightPanel, so arrange the ownership root.
 func (g *gallery) applyFrameMove(delta core.Vec2) {
 	layout.MoveFrame(g.frame.Frame(), delta)
-	if err := layout.Arrange(g.frame.Frame(), core.Rect{}); err != nil {
+	if err := layout.Arrange(g.rightPanel.Frame(), core.Rect{}); err != nil {
 		panic(err)
 	}
 }
