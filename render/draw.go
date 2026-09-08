@@ -116,7 +116,13 @@ func drawFallbackPart(dest core.Rect, tint color.RGBA) {
 }
 
 // drawDescriptorBackground renders the solid color, linear gradient, and texture layers of descriptor into dest.
+// A declared border-radius clips the layers to a rounded rectangle so square
+// fills never peek past rounded border textures; radius zero keeps the sharp path.
 func drawDescriptorBackground(descriptor skin.SkinDescriptor, dest core.Rect, tint color.RGBA) {
+	if radius := effectiveBackgroundRadius(descriptor, dest); radius > 0 {
+		drawRoundedBackground(descriptor, dest, tint, radius)
+		return
+	}
 	if descriptor.HasBackgroundColor && descriptor.BackgroundColor.A > 0 {
 		rl.DrawRectangleRec(toRaylibRect(dest), descriptor.BackgroundColor.RGBA())
 	}

@@ -117,6 +117,7 @@ Textbox {
     background-image-tint: #eef2f7;
     border-image-source: url("kenney/panel_border_grey.png");
     border-image-slice: 8;
+    border-radius: 6;
     padding: 8;
 }
 Textbox:focus {

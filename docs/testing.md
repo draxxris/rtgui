@@ -159,10 +159,7 @@ nine-patch borders, layout movement, text, slider/progress, and dropdown popup
 remain visible. The gallery teardown must unload CSS-owned textures before the
 raylib window closes. The gallery owns no borrowed textures.
 
-## Visual references and fixtures
-
-`testdata/golden/` contains references for manual inspection; there is no
-pixel-difference gate because drivers and raylib versions vary.
+## Fixtures
 
 The Kenney PNGs under `testdata/skins/kenney/` are tracked fixtures.
 The Style tab demonstrates the line graph. The frame-child button demonstrates a

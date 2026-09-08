@@ -63,6 +63,8 @@ type mergedRule struct {
 	hasPadding         bool
 	backgroundColor    core.Color
 	hasBackgroundColor bool
+	radius             float32
+	hasRadius          bool
 	gradient           skin.LinearGradient
 	hasGradient        bool
 	font               string
@@ -158,6 +160,9 @@ func mergeSkinRules(rules []skin.SkinRule) (map[skin.SkinKey]mergedRule, []skin.
 		if rule.HasBackgroundColor {
 			entry.backgroundColor, entry.hasBackgroundColor = rule.BackgroundColor, true
 		}
+		if rule.HasRadius {
+			entry.radius, entry.hasRadius = rule.Radius, true
+		}
 		if rule.HasGradient {
 			entry.gradient, entry.hasGradient = rule.Gradient, true
 		}
@@ -212,6 +217,9 @@ func inheritNormalVisuals(entry *mergedRule, base mergedRule) {
 	}
 	if !entry.hasBackgroundColor {
 		entry.backgroundColor, entry.hasBackgroundColor = base.backgroundColor, base.hasBackgroundColor
+	}
+	if !entry.hasRadius {
+		entry.radius, entry.hasRadius = base.radius, base.hasRadius
 	}
 	if !entry.hasGradient {
 		entry.gradient, entry.hasGradient = base.gradient, base.hasGradient
@@ -343,6 +351,10 @@ func (t *Theme) buildCSSDescriptor(key skin.SkinKey, entry mergedRule, base stri
 	if entry.hasBackgroundColor {
 		descriptor.BackgroundColor = entry.backgroundColor
 		descriptor.HasBackgroundColor = true
+	}
+	if entry.hasRadius {
+		descriptor.Radius = entry.radius
+		descriptor.HasRadius = true
 	}
 	if entry.hasGradient {
 		descriptor.Gradient = entry.gradient

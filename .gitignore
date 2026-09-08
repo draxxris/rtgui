@@ -8,13 +8,12 @@ dist/
 rtgui
 rtgui-*
 
-# Screenshots and gallery outputs — ephemeral; keep only testdata/golden as eyeball reference
+# Screenshots and gallery outputs — ephemeral; only tracked skin fixtures are kept
 out.png
 /tmp/
 screenshots/
 shots/
 *.png
-!testdata/golden/*.png
 !testdata/skins/**/*.png
 !testdata/skins/*.png
 !testdata/skins/*.png.sh

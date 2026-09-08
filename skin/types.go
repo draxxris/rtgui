@@ -148,6 +148,11 @@ type SkinDescriptor struct {
 	BackgroundColor core.Color
 	// HasBackgroundColor reports whether BackgroundColor should be drawn.
 	HasBackgroundColor bool
+	// Radius clips background layers (color, gradient, texture) to a rounded
+	// rectangle of this pixel radius when HasRadius is true. Zero draws square.
+	Radius float32
+	// HasRadius reports whether Radius was explicitly declared.
+	HasRadius bool
 	// Gradient stores the linear gradient fill when HasGradient is true.
 	Gradient LinearGradient
 	// HasGradient reports whether Gradient should be drawn.
@@ -190,6 +195,10 @@ func (d SkinDescriptor) Overlay(other SkinDescriptor) SkinDescriptor {
 	if other.HasBackgroundColor {
 		d.BackgroundColor = other.BackgroundColor
 		d.HasBackgroundColor = true
+	}
+	if other.HasRadius {
+		d.Radius = other.Radius
+		d.HasRadius = true
 	}
 	if other.HasGradient {
 		d.Gradient = other.Gradient

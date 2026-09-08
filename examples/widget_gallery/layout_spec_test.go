@@ -7,10 +7,10 @@ import (
 	"github.com/draxxris/rtgui/ui"
 )
 
-// TestGalleryLayoutGolden locks pixel-identical placement at 1280x780.
+// TestGalleryLayoutPlacement locks pixel-identical placement at 1280x780.
 // Offsets are authored literally in gallerySlots, so this test is the
 // guarantee, not arithmetic.
-func TestGalleryLayoutGolden(t *testing.T) {
+func TestGalleryLayoutPlacement(t *testing.T) {
 	u := ui.New(1280, 780)
 	newGallery(u)
 	want := map[string]core.Rect{

@@ -5,7 +5,7 @@
 //
 // Supported grammar: Kind[::part][:pseudo] and * selectors with properties
 // (border-image-source, border-image-slice, background-image, background-image-tint,
-// background-color, border-image-source-tint, padding, color, font-size,
+// background-color, border-image-source-tint, border-radius, padding, color, font-size,
 // font-family, font-italic-family). Anything else is a hard error.
 package skin
 
@@ -56,6 +56,11 @@ type SkinRule struct {
 	BackgroundColor core.Color
 	// HasBackgroundColor reports whether BackgroundColor was declared.
 	HasBackgroundColor bool
+
+	// Radius is the authored border-radius in pixels when HasRadius is true.
+	Radius float32
+	// HasRadius reports whether Radius was declared.
+	HasRadius bool
 
 	// Gradient is the parsed linear-gradient descriptor when HasGradient is true.
 	Gradient LinearGradient
@@ -268,6 +273,8 @@ func resolveRuleTargets(kind core.WidgetKind, part SkinPart, hasPart bool) (imag
 
 // parseBlock converts one rule block's declarations into per-part entries.
 // Whole-widget rules split into PartBackground and PartBorder entries.
+// border-radius rides the background entry: it clips background layers to the
+// border's rounded shape and never reshapes the border texture itself.
 // Popup parts (Dropdown::popup, Menu::popup) are the exceptions that accept
 // both looks and fan out to PartPopup and PartPopupBorder entries; other parts
 // take only background-image declarations, and only whole widgets and popup
@@ -289,7 +296,7 @@ func parseBlock(selector string, kind core.WidgetKind, className string, part Sk
 		property := strings.TrimSpace(style.Property)
 		value := strings.TrimSpace(style.Value.Text())
 		switch property {
-		case "background-image", "background-image-tint", "background-color":
+		case "background-image", "background-image-tint", "background-color", "border-radius":
 			if err := applyBackgroundProp(take(imageTarget), selector, property, value); err != nil {
 				return nil, err
 			}
@@ -325,7 +332,8 @@ func parseBlock(selector string, kind core.WidgetKind, className string, part Sk
 	return entries, nil
 }
 
-// applyBackgroundProp stores background-image, background-image-tint, or background-color on entry.
+// applyBackgroundProp stores background-image, background-image-tint,
+// background-color, or border-radius on entry.
 func applyBackgroundProp(entry *SkinRule, selector, property, value string) error {
 	switch property {
 	case "background-image":
@@ -353,6 +361,8 @@ func applyBackgroundProp(entry *SkinRule, selector, property, value string) erro
 			return nil
 		}
 		return fmt.Errorf("skin: %s in %q must be url(...) or linear-gradient(...), got %q", property, selector, value)
+	case "border-radius":
+		return applyRadiusProp(entry, selector, property, value)
 	case "background-color":
 		col, err := parseTint(selector, property, value)
 		if err != nil {
@@ -368,6 +378,20 @@ func applyBackgroundProp(entry *SkinRule, selector, property, value string) erro
 		entry.Tint, entry.HasTint = tint, true
 		return nil
 	}
+}
+
+// applyRadiusProp stores a border-radius declaration on the entry. Zero
+// clears inherited rounding; negatives fail like other pixel values.
+func applyRadiusProp(entry *SkinRule, selector, property, value string) error {
+	radius, err := parsePixels(selector, property, value, false)
+	if err != nil {
+		return err
+	}
+	if radius < 0 {
+		return fmt.Errorf("skin: %s in %q must be non-negative, got %q", property, selector, value)
+	}
+	entry.Radius, entry.HasRadius = float32(radius), true
+	return nil
 }
 
 // applyBorderProp stores a border-image declaration on the entry.
