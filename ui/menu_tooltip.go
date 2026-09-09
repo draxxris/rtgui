@@ -23,7 +23,7 @@ func (u *UI) ShowContextMenu(items []MenuItem, pos core.Vec2, onSelect func(stri
 	u.clearFocus()
 	u.clearActiveFrame()
 	u.pressed = nil
-	u.hovered = nil
+	u.setHovered(nil)
 	u.menuItems = append([]core.MenuItem(nil), items...)
 	u.menuBounds = render.MenuOuterBounds(pos, u.logicalSize(), len(items))
 	u.menuOnSelect = onSelect
@@ -87,10 +87,12 @@ func (u *UI) ShowTooltip(text string, at core.Vec2) {
 	}
 	u.explicitRichTip = core.RichTooltip{}
 	u.tooltipText = text
-	u.tooltipAnchor = at
+	u.explicitAnchor = at
 }
 
 // HideTooltip clears an explicitly shown tooltip and reports a hide.
+// It also restarts the hover dwell for the current hover owner so a
+// dismissed tooltip does not instantly reappear while the pointer stays put.
 func (u *UI) HideTooltip() bool {
 	if u == nil {
 		return false
@@ -99,6 +101,7 @@ func (u *UI) HideTooltip() bool {
 	u.tooltipText = ""
 	u.explicitRichTip = core.RichTooltip{}
 	u.richTipCache.Invalidate()
+	u.resetHoverDwell()
 	return visible
 }
 
@@ -151,19 +154,25 @@ func (u *UI) commitMenuRow(index int) {
 
 // derivedTooltip returns the currently visible tooltip text and anchor point.
 // Precedence is explicit tooltip, hovered link tip, then widget mapping.
+// Hover-derived tips wait out the effective dwell and resolve through the
+// effective anchor; explicit tips draw immediately at their own point.
 func (u *UI) derivedTooltip() (string, core.Vec2, bool) {
 	if u == nil || u.HasOpenMenu() || u.pressed != nil || u.dragSource != nil {
 		return "", core.Vec2{}, false
 	}
 	if u.tooltipText != "" {
-		return u.tooltipText, u.tooltipAnchor, true
+		return u.tooltipText, u.explicitAnchor, true
 	}
+	if !u.hoverDwellElapsed() {
+		return "", core.Vec2{}, false
+	}
+	anchor := u.resolveHoverAnchor()
 	if u.tipWidget != nil && u.tipWidget == u.hovered && u.tipText != "" {
-		return u.tipText, u.pointer, true
+		return u.tipText, anchor, true
 	}
 	if u.available(u.hovered) {
 		if text, ok := u.TooltipText(u.hovered.Name()); ok {
-			return text, u.pointer, true
+			return text, anchor, true
 		}
 	}
 	return "", core.Vec2{}, false

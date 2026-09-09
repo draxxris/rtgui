@@ -154,7 +154,7 @@ func (u *UI) CancelInput() {
 	}
 	u.cancelDrag()
 	u.pressed = nil
-	u.hovered = nil
+	u.setHovered(nil)
 	u.scrollThumbDragging = nil
 	u.scrollThumbHovered = nil
 	u.mouseCaptured = false

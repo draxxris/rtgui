@@ -323,7 +323,7 @@ func (u *UI) reconcileInteraction() {
 		return
 	}
 	if u.hovered != nil && !u.available(u.hovered) {
-		u.hovered = nil
+		u.setHovered(nil)
 	}
 	if u.pressed != nil && !u.available(u.pressed) {
 		u.pressed = nil
@@ -345,7 +345,7 @@ func (u *UI) reconcileInteraction() {
 
 // updateHover stores only the topmost enabled pressable widget under pos.
 func (u *UI) updateHover(pos core.Vec2) {
-	u.hovered = u.hitSurface(pos)
+	u.setHovered(u.hitSurface(pos))
 	u.updateScrollThumbHover(pos)
 }
 
@@ -427,10 +427,10 @@ func (u *UI) handleOpenDropdown(event MouseEvent) bool {
 	if dropdown == nil {
 		return false
 	}
-	u.hovered = nil
+	u.setHovered(nil)
 	u.clearLinkTip()
 	if dropdown.HitTest(event.Pos) {
-		u.hovered = dropdown
+		u.setHovered(dropdown)
 	}
 	if event.Pressed {
 		return u.pressOpenDropdown(dropdown, event.Pos)
@@ -561,7 +561,7 @@ func (u *UI) tabIndexAt(bar *widgets.TabBar, pos core.Vec2) int {
 // retaining library ownership of row hit testing and selection. Hover motion
 // alone stays available to application input; wheel is consumed.
 func (u *UI) handleOpenMenu(event MouseEvent) bool {
-	u.hovered = nil
+	u.setHovered(nil)
 	u.clearLinkTip()
 	if event.Wheel != 0 {
 		return true

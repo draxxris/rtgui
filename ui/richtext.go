@@ -111,20 +111,23 @@ func (u *UI) releaseRichText(message *widgets.RichText, pos core.Vec2) bool {
 
 // refreshLinkTip updates hover-derived link tooltip state after updateHover
 // on the normal input path. Provider text is requested only on hover change;
-// repeat frames over the same segment reuse the cached text.
+// repeat frames over the same segment reuse the cached text. Link-cell
+// transitions restart the hover dwell, keyed on the observed tip state:
+// leaving a link cell and entering a new one each restamp, while a text
+// revision under a stationary hover only refreshes content.
 func (u *UI) refreshLinkTip() {
 	if u.hovered == nil || u.hovered.Kind() != core.WidgetRichText || !u.hovered.Enabled() {
-		u.clearLinkTip()
+		u.dismissLinkTip()
 		return
 	}
 	rt, ok := u.hovered.(*widgets.RichText)
 	if !ok {
-		u.clearLinkTip()
+		u.dismissLinkTip()
 		return
 	}
 	segment := u.richLinkSegAt(rt, u.pointer)
 	if segment < 0 {
-		u.clearLinkTip()
+		u.dismissLinkTip()
 		return
 	}
 	if u.tipWidget == u.hovered && u.tipSeg == segment && u.tipRevision == rt.RichRevision() {
@@ -133,6 +136,9 @@ func (u *UI) refreshLinkTip() {
 	value, _ := rt.RichSegmentAt(segment)
 	link := value.Link
 	u.tipRevision = rt.RichRevision()
+	if u.tipWidget != u.hovered || u.tipSeg != segment {
+		u.hoverSince = u.tooltipNow()
+	}
 	u.tipWidget, u.tipSeg = u.hovered, segment
 	if link.Tooltip != "" {
 		u.tipText = link.Tooltip
@@ -145,7 +151,22 @@ func (u *UI) refreshLinkTip() {
 	}
 }
 
+// dismissLinkTip forgets hover-derived link tooltip state and restarts the
+// hover dwell when a link tip was showing. Steady hover without a tip leaves
+// the dwell alone, so pointer motion over plain content never stalls it.
+func (u *UI) dismissLinkTip() {
+	if u == nil {
+		return
+	}
+	if u.tipWidget != nil {
+		u.hoverSince = u.tooltipNow()
+	}
+	u.clearLinkTip()
+}
+
 // clearLinkTip forgets hover-derived link tooltip state without reporting.
+// Dwell tracking is untouched: suppression paths pair clearing with their
+// own reset, while refreshLinkTip stamps observed transitions itself.
 func (u *UI) clearLinkTip() {
 	if u == nil {
 		return

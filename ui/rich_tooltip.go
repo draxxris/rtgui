@@ -28,7 +28,7 @@ func (u *UI) ShowRichTooltip(data core.RichTooltip, at core.Vec2) {
 	u.HideTooltip()
 	data.Segments = append([]core.RichSegment(nil), data.Segments...)
 	u.explicitRichTip = data
-	u.tooltipAnchor = at
+	u.explicitAnchor = at
 }
 
 // drawRichTooltipPopup selects explicit or widget content without snapshots.
@@ -36,12 +36,15 @@ func (u *UI) drawRichTooltipPopup() bool {
 	if u.HasOpenMenu() || u.pressed != nil || u.dragSource != nil {
 		return false
 	}
-	data, anchor := u.explicitRichTip, u.tooltipAnchor
+	data, anchor := u.explicitRichTip, u.explicitAnchor
 	if !data.HasContent() {
 		if u.tooltipText != "" || u.tipText != "" || !u.available(u.hovered) {
 			return false
 		}
-		data, anchor = u.richTips[u.hovered.Name()], u.pointer
+		if !u.hoverDwellElapsed() {
+			return false
+		}
+		data, anchor = u.richTips[u.hovered.Name()], u.resolveHoverAnchor()
 	}
 	if !data.HasContent() {
 		return false

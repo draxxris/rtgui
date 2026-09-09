@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"time"
 
 	"github.com/draxxris/rtgui/core"
 	"github.com/draxxris/rtgui/dragdrop"
@@ -91,8 +92,20 @@ type UI struct {
 	menuDown           bool
 	contextMenuHandler func(core.Vec2)
 
-	tooltipText   string
-	tooltipAnchor core.Vec2
+	tooltipText    string
+	explicitAnchor core.Vec2
+
+	// tooltipDelay is the global hover dwell before a hover-derived
+	// tooltip may draw. Non-positive means immediate.
+	tooltipDelay time.Duration
+	// tooltipAnchor is the global hover anchor; zero follows the cursor.
+	tooltipAnchor TooltipAnchor
+	// tooltipOpts holds per-widget delay and anchor overrides.
+	tooltipOpts map[string]TooltipOptions
+	// tooltipClock supplies hover-dwell time; nil selects time.Now.
+	tooltipClock func() time.Time
+	// hoverSince stamps the last hover-owner or link-cell change.
+	hoverSince time.Time
 
 	linkArmedSeg int
 	tipWidget    widgets.Widget
@@ -336,7 +349,7 @@ func (u *UI) clearReferences(widget widgets.Widget) {
 		return
 	}
 	if u.hovered == widget {
-		u.hovered = nil
+		u.setHovered(nil)
 	}
 	if u.pressed == widget {
 		u.pressed = nil
