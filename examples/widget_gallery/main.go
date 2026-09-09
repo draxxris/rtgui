@@ -111,6 +111,7 @@ type gallery struct {
 	scrollCaption   *widgets.Label
 	menuHint        *widgets.Label
 	tooltipHint     *widgets.Label
+	questLog        *widgets.TitledFrame
 	stateCanvas     *widgets.Canvas
 	statusLabel     *widgets.Label
 	lineGraph       *widgets.LineGraph
@@ -471,6 +472,28 @@ func newGallery(facade *ui.UI) *gallery {
 		}
 	}).SetTooltip("Chat log — hover a link")
 
+	// Quest log demo: a TitledFrame window with non-functional quest buttons.
+	// The X button shares the Close path; Accept/Decline only report status.
+	questButton := widgets.NewButton("questButton", core.Rect{}, "Open Quest Log")
+	questText := widgets.NewLabel("questText", core.Rect{}, "Thunderfury, Blessed Blade of the Windseeker — recover both bindings from Molten Core.")
+	questAccept := widgets.NewButton("questAccept", core.Rect{}, "Accept")
+	questDecline := widgets.NewButton("questDecline", core.Rect{}, "Decline")
+	g.questLog = widgets.NewTitledFrame("questLog", core.Rect{}, "Quest Log")
+	questButton.OnClick(func() {
+		g.questLog.Show()
+		g.facade.BringToFront("questLog")
+		g.setStatus("Quest log opened (demo)")
+	}).SetTooltip("Open the quest log window")
+	questAccept.OnClick(func() {
+		g.setStatus("Quest accepted (demo)")
+	}).SetTooltip("Accept the quest (demo only)")
+	questDecline.OnClick(func() {
+		g.setStatus("Quest declined (demo)")
+	}).SetTooltip("Decline the quest (demo only)")
+	g.questLog.OnClose(func() {
+		g.setStatus("Quest log closed (demo)")
+	})
+
 	// Self-contained scroll panel manages clipping and bounds:
 	g.scroll.SetMaxScroll(core.Vec2{Y: 170}).SetScrollContentDrawer(g.drawScrollRows)
 
@@ -490,9 +513,16 @@ func newGallery(facade *ui.UI) *gallery {
 		g.frame, g.frameCaption, g.frameButton,
 		g.scrollCaption, g.scroll,
 		g.menuHint, g.tooltipHint,
+		questButton,
 		g.stateCanvas,
 		g.statusLabel,
 	); err != nil {
+		panic(err)
+	}
+	if err := facade.Add(g.questLog.Widgets()...); err != nil {
+		panic(err)
+	}
+	if err := facade.Add(questText, questAccept, questDecline); err != nil {
 		panic(err)
 	}
 
@@ -517,6 +547,10 @@ func newGallery(facade *ui.UI) *gallery {
 	g.applyLayout()
 	g.setupGameWidgets()
 	g.applyLayout()
+	if err := g.questLog.Layout(); err != nil {
+		panic(err)
+	}
+	g.questLog.Hide()
 	g.applyTab(g.tabbar.SelectedTab())
 	return g
 }

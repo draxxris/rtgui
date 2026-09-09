@@ -45,7 +45,16 @@ func TestGalleryLayoutPlacement(t *testing.T) {
 		"marketGraph":     {X: 676, Y: 356, W: 552, H: 232},
 		"menuHint":        {X: 688, Y: 598, W: 528, H: 20},
 		"tooltipHint":     {X: 688, Y: 616, W: 528, H: 20},
+		"questButton":     {X: 676, Y: 646, W: 552, H: 36},
 		"stateSamples":    {X: 676, Y: 690, W: 552, H: 34},
+		"questLog":          {X: 430, Y: 230, W: 420, H: 320},
+		"questLog/titlebar": {X: 438, Y: 238, W: 404, H: 32},
+		"questLog/title":    {X: 448, Y: 238, W: 362, H: 32},
+		"questLog/close":    {X: 814, Y: 242, W: 24, H: 24},
+		"questLog/content":  {X: 438, Y: 270, W: 404, H: 272},
+		"questText":         {X: 454, Y: 282, W: 372, H: 150},
+		"questAccept":       {X: 454, Y: 460, W: 178, H: 44},
+		"questDecline":      {X: 648, Y: 460, W: 178, H: 44},
 	}
 	for name, wantRect := range want {
 		w := u.Lookup(name)

@@ -296,8 +296,50 @@ func TestParseCSSBackgroundImageNone(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(rules) != 1 || rules[0].HasImage || rules[0].HasGradient {
-		t.Fatalf("expected HasImage=false and HasGradient=false, got %+v", rules[0])
+	if len(rules) != 1 || rules[0].HasImage || rules[0].HasGradient || !rules[0].NoTexture {
+		t.Fatalf("expected clear with no image or gradient, got %+v", rules[0])
+	}
+}
+
+// TestParseCSSBorderImageSourceNone verifies none drops the inherited ring.
+func TestParseCSSBorderImageSourceNone(t *testing.T) {
+	rules, err := ParseCSS(`Frame.titled-titlebar { border-image-source: none; }`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rules) != 1 || rules[0].HasImage || !rules[0].NoTexture {
+		t.Fatalf("expected border clear with no image, got %+v", rules[0])
+	}
+	if rules[0].Kind != core.WidgetFrame || rules[0].Class != "titled-titlebar" || rules[0].Part != PartBorder {
+		t.Fatalf("none rule key = %+v", rules[0])
+	}
+}
+
+// TestParseCSSTitledVariantSelectors verifies the five TitledFrame class
+// selectors plus pseudos parse to their widget kinds.
+func TestParseCSSTitledVariantSelectors(t *testing.T) {
+	cases := []struct {
+		css  string
+		kind core.WidgetKind
+	}{
+		{`Frame.titled-frame { padding: 8; }`, core.WidgetFrame},
+		{`Frame.titled-frame:focus { padding: 8; }`, core.WidgetFrame},
+		{`Frame.titled-frame:disabled { padding: 8; }`, core.WidgetFrame},
+		{`Frame.titled-titlebar { background-color: #24354c; }`, core.WidgetFrame},
+		{`Label.titled-title { color: #e6f0ff; }`, core.WidgetLabel},
+		{`Button.titled-close { background-color: #5c1d24; }`, core.WidgetButton},
+		{`Button.titled-close:hover { background-color: #8b2635; }`, core.WidgetButton},
+		{`Button.titled-close:active { background-color: #3b1015; }`, core.WidgetButton},
+		{`Frame.titled-content { padding: 8; }`, core.WidgetFrame},
+	}
+	for _, tc := range cases {
+		rules, err := ParseCSS(tc.css)
+		if err != nil {
+			t.Fatalf("%s: %v", tc.css, err)
+		}
+		if len(rules) == 0 || rules[0].Kind != tc.kind || rules[0].Class == "" {
+			t.Fatalf("%s parsed as %+v", tc.css, rules)
+		}
 	}
 }
 

@@ -138,6 +138,9 @@ type SkinDescriptor struct {
 	HasPadding bool
 	// HasTexture reports whether Texture should be drawn.
 	HasTexture bool
+	// NoTexture reports an explicit none that drops inherited textures and
+	// gradients through Overlay. Zero authors nothing and inherits normally.
+	NoTexture bool
 	// HasNinePatch reports whether NinePatch geometry should be used.
 	HasNinePatch bool
 	// HasThreePatch reports whether ThreePatch geometry should be used.
@@ -177,6 +180,15 @@ type SkinDescriptor struct {
 
 // Overlay returns a copy of d with visual properties declared in other applied on top.
 func (d SkinDescriptor) Overlay(other SkinDescriptor) SkinDescriptor {
+	if other.NoTexture {
+		d.Texture = Texture{}
+		d.AtlasRegion = core.Rect{}
+		d.Tint = core.Color{}
+		d.HasTexture = false
+		d.Gradient = LinearGradient{}
+		d.HasGradient = false
+		d.NoTexture = true
+	}
 	if other.HasTexture {
 		d.Texture = other.Texture
 		d.AtlasRegion = other.AtlasRegion

@@ -225,3 +225,41 @@ Button.accent:hover {
     background-image: linear-gradient(to bottom, #20d88c, #0a828d);
     border-image-source-tint: #80ffea;
 }
+
+/* TitledFrame variant: quest-log / spellbook window chrome and content */
+Frame.titled-frame {
+    border-image-source: url("kenney/panel_border_grey.png");
+    border-image-slice: 8;
+    padding: 8;
+}
+Frame.titled-frame:focus {
+    border-image-source: url("kenney/blue/button_rectangle_border.png");
+    border-image-source-tint: #e1f2ff;
+}
+Frame.titled-titlebar {
+    background-image: none;
+    background-color: #24354c;
+    border-image-source: none;
+    padding: 4;
+}
+Label.titled-title {
+    color: #e6f0ff;
+    font-size: 20;
+}
+Frame.titled-content {
+    background-image: url("kenney/background.png");
+    background-image-tint: #1c2740;
+    border-image-source: none;
+    padding: 8;
+}
+Button.titled-close {
+    background-color: #5c1d24;
+    border-image-source: url("kenney/red/button_rectangle_border.png");
+    border-image-slice: 8;
+}
+Button.titled-close:hover {
+    background-color: #8b2635;
+}
+Button.titled-close:active {
+    background-color: #3b1015;
+}

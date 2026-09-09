@@ -6,7 +6,8 @@
 // Supported grammar: Kind[::part][:pseudo] and * selectors with properties
 // (border-image-source, border-image-slice, background-image, background-image-tint,
 // background-color, border-image-source-tint, border-radius, padding, color, font-size,
-// font-family, font-italic-family). Anything else is a hard error.
+// font-family, font-italic-family). Anything else is a hard error. Image sources
+// accept url(...) or none; none drops inherited textures and gradients.
 package skin
 
 import (
@@ -36,6 +37,11 @@ type SkinRule struct {
 	Image string
 	// HasImage reports whether Image was declared.
 	HasImage bool
+
+	// NoTexture reports an explicit none that drops inherited textures and
+	// gradients through Overlay. Background and border rules never share an
+	// entry, so one flag serves both properties.
+	NoTexture bool
 
 	// Slice is border-image-slice in pixels when HasSlice is true.
 	Slice int32
@@ -345,6 +351,7 @@ func applyBackgroundProp(entry *SkinRule, selector, property, value string) erro
 				return err
 			}
 			entry.Image, entry.HasImage = path, true
+			entry.NoTexture = false
 			return nil
 		}
 		if strings.HasPrefix(lower, "linear-gradient(") {
@@ -353,11 +360,13 @@ func applyBackgroundProp(entry *SkinRule, selector, property, value string) erro
 				return err
 			}
 			entry.Gradient, entry.HasGradient = grad, true
+			entry.NoTexture = false
 			return nil
 		}
 		if lower == "none" {
 			entry.Image, entry.HasImage = "", false
 			entry.Gradient, entry.HasGradient = LinearGradient{}, false
+			entry.NoTexture = true
 			return nil
 		}
 		return fmt.Errorf("skin: %s in %q must be url(...) or linear-gradient(...), got %q", property, selector, value)
@@ -395,14 +404,21 @@ func applyRadiusProp(entry *SkinRule, selector, property, value string) error {
 }
 
 // applyBorderProp stores a border-image declaration on the entry.
+// A none source drops the inherited ring.
 func applyBorderProp(entry *SkinRule, selector, property, value string) error {
 	switch property {
 	case "border-image-source":
+		if strings.ToLower(strings.TrimSpace(value)) == "none" {
+			entry.Image, entry.HasImage = "", false
+			entry.NoTexture = true
+			return nil
+		}
 		path, err := extractURL(selector, property, value)
 		if err != nil {
 			return err
 		}
 		entry.Image, entry.HasImage = path, true
+		entry.NoTexture = false
 		return nil
 	case "border-image-source-tint":
 		tint, err := parseTint(selector, property, value)

@@ -55,6 +55,7 @@ func (raylibTextureBackend) unload(texture skin.Texture) {
 type mergedRule struct {
 	image              string
 	hasImage           bool
+	noTexture          bool
 	slice              int32
 	hasSlice           bool
 	tint               core.Color
@@ -145,43 +146,63 @@ func mergeSkinRules(rules []skin.SkinRule) (map[skin.SkinKey]mergedRule, []skin.
 		if !seen {
 			order = append(order, key)
 		}
-		if rule.HasImage {
-			entry.image, entry.hasImage = rule.Image, true
-		}
-		if rule.HasSlice {
-			entry.slice, entry.hasSlice = rule.Slice, true
-		}
-		if rule.HasTint {
-			entry.tint, entry.hasTint = rule.Tint, true
-		}
-		if rule.HasPadding {
-			entry.padding, entry.hasPadding = rule.Padding, true
-		}
-		if rule.HasBackgroundColor {
-			entry.backgroundColor, entry.hasBackgroundColor = rule.BackgroundColor, true
-		}
-		if rule.HasRadius {
-			entry.radius, entry.hasRadius = rule.Radius, true
-		}
-		if rule.HasGradient {
-			entry.gradient, entry.hasGradient = rule.Gradient, true
-		}
-		if rule.HasFont {
-			entry.font, entry.hasFont = rule.Font, true
-		}
-		if rule.HasItalicFont {
-			entry.italicFont, entry.hasItalicFont = rule.ItalicFont, true
-		}
-		if rule.HasFontSize {
-			entry.fontSize, entry.hasFontSize = rule.FontSize, true
-		}
-		if rule.HasTextColor {
-			entry.textColor, entry.hasTextColor = rule.TextColor, true
-		}
+		mergeRuleImage(&entry, rule)
+		mergeRuleStyle(&entry, rule)
 		merged[key] = entry
 	}
 	inheritNormalRules(merged, order)
 	return merged, order
+}
+
+// mergeRuleImage applies one rule's image, gradient, and explicit none
+// declarations. Later declarations win: a url or gradient clears an earlier
+// none, and none clears an earlier image and gradient.
+func mergeRuleImage(entry *mergedRule, rule skin.SkinRule) {
+	if rule.HasImage {
+		entry.image, entry.hasImage = rule.Image, true
+		entry.noTexture = false
+	}
+	if rule.NoTexture {
+		entry.image, entry.hasImage = "", false
+		entry.gradient, entry.hasGradient = skin.LinearGradient{}, false
+		entry.noTexture = true
+	}
+	if rule.HasGradient {
+		entry.gradient, entry.hasGradient = rule.Gradient, true
+		entry.noTexture = false
+	}
+}
+
+// mergeRuleStyle applies one rule's scalar visual and text declarations.
+// Later declarations overwrite earlier ones per field.
+func mergeRuleStyle(entry *mergedRule, rule skin.SkinRule) {
+	if rule.HasSlice {
+		entry.slice, entry.hasSlice = rule.Slice, true
+	}
+	if rule.HasTint {
+		entry.tint, entry.hasTint = rule.Tint, true
+	}
+	if rule.HasPadding {
+		entry.padding, entry.hasPadding = rule.Padding, true
+	}
+	if rule.HasBackgroundColor {
+		entry.backgroundColor, entry.hasBackgroundColor = rule.BackgroundColor, true
+	}
+	if rule.HasRadius {
+		entry.radius, entry.hasRadius = rule.Radius, true
+	}
+	if rule.HasFont {
+		entry.font, entry.hasFont = rule.Font, true
+	}
+	if rule.HasItalicFont {
+		entry.italicFont, entry.hasItalicFont = rule.ItalicFont, true
+	}
+	if rule.HasFontSize {
+		entry.fontSize, entry.hasFontSize = rule.FontSize, true
+	}
+	if rule.HasTextColor {
+		entry.textColor, entry.hasTextColor = rule.TextColor, true
+	}
 }
 
 // inheritNormalRules fills state fields omitted from an authored rule.
@@ -203,8 +224,9 @@ func inheritNormalRules(merged map[skin.SkinKey]mergedRule, order []skin.SkinKey
 
 // inheritNormalVisuals copies omitted visual declarations from the normal-state rule.
 func inheritNormalVisuals(entry *mergedRule, base mergedRule) {
-	if !entry.hasImage {
+	if !entry.hasImage && !entry.noTexture {
 		entry.image, entry.hasImage = base.image, base.hasImage
+		entry.noTexture = base.noTexture
 	}
 	if !entry.hasSlice {
 		entry.slice, entry.hasSlice = base.slice, base.hasSlice
@@ -323,6 +345,9 @@ func (t *Theme) buildCSSRegistry(merged map[skin.SkinKey]mergedRule, order []ski
 // buildCSSDescriptor applies one merged CSS rule starting from a zero descriptor.
 func (t *Theme) buildCSSDescriptor(key skin.SkinKey, entry mergedRule, base string, textures map[string]skin.Texture) (skin.SkinDescriptor, error) {
 	descriptor := skin.SkinDescriptor{}
+	if entry.noTexture {
+		descriptor.NoTexture = true
+	}
 	if entry.hasImage {
 		texture, ok := textures[filepath.Join(base, entry.image)]
 		if !ok {
@@ -333,6 +358,26 @@ func (t *Theme) buildCSSDescriptor(key skin.SkinKey, entry mergedRule, base stri
 		descriptor.HasTexture = true
 		descriptor.Tint = cssTint(entry)
 	}
+	applyCSSBox(&descriptor, key, entry)
+	if entry.hasBackgroundColor {
+		descriptor.BackgroundColor = entry.backgroundColor
+		descriptor.HasBackgroundColor = true
+	}
+	if entry.hasRadius {
+		descriptor.Radius = entry.radius
+		descriptor.HasRadius = true
+	}
+	if entry.hasGradient {
+		descriptor.Gradient = entry.gradient
+		descriptor.HasGradient = true
+	}
+	applyDescriptorText(&descriptor, entry)
+	return descriptor, nil
+}
+
+// applyCSSBox populates nine-patch, three-patch, and padding geometry from
+// merged rule declarations.
+func applyCSSBox(descriptor *skin.SkinDescriptor, key skin.SkinKey, entry mergedRule) {
 	if (key.Part == skin.PartBorder || key.Part == skin.PartPopupBorder) && entry.hasSlice {
 		descriptor.NinePatch.Left, descriptor.NinePatch.Top = entry.slice, entry.slice
 		descriptor.NinePatch.Right, descriptor.NinePatch.Bottom = entry.slice, entry.slice
@@ -348,20 +393,6 @@ func (t *Theme) buildCSSDescriptor(key skin.SkinKey, entry mergedRule, base stri
 		descriptor.PaddingBottom, descriptor.PaddingLeft = entry.padding[2], entry.padding[3]
 		descriptor.HasPadding = true
 	}
-	if entry.hasBackgroundColor {
-		descriptor.BackgroundColor = entry.backgroundColor
-		descriptor.HasBackgroundColor = true
-	}
-	if entry.hasRadius {
-		descriptor.Radius = entry.radius
-		descriptor.HasRadius = true
-	}
-	if entry.hasGradient {
-		descriptor.Gradient = entry.gradient
-		descriptor.HasGradient = true
-	}
-	applyDescriptorText(&descriptor, entry)
-	return descriptor, nil
 }
 
 // applyDescriptorText populates optional text styling from merged rule declarations.

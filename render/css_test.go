@@ -481,6 +481,62 @@ func TestCSSBackgroundColorAndGradientMergeAndInherit(t *testing.T) {
 	}
 }
 
+// TestTitledNoneClearsInheritedTexture verifies class none rules drop base
+// textures through Overlay while keeping their own background color.
+func TestTitledNoneClearsInheritedTexture(t *testing.T) {
+	rules, err := skin.ParseCSS(`
+		Frame {
+			background-image: url("bg.png");
+			border-image-source: url("ring.png");
+			border-image-slice: 8;
+		}
+		Frame.titled-titlebar {
+			background-image: none;
+			background-color: #24354c;
+			border-image-source: none;
+		}
+		Frame.titled-titlebar:hover {
+			background-color: #2c425e;
+		}
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	merged, _ := mergeSkinRules(rules)
+	fakes := map[string]skin.Texture{
+		"bg.png":   {ID: 7, Width: 64, Height: 64},
+		"ring.png": {ID: 8, Width: 32, Height: 32},
+	}
+	theme := newFakeTheme(&fakeTextureBackend{isReady: false})
+	background := func(key skin.SkinKey) skin.SkinDescriptor {
+		t.Helper()
+		desc, err := theme.buildCSSDescriptor(key, merged[key], ".", fakes)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return desc
+	}
+	baseKey := skin.SkinKey{Widget: core.WidgetFrame, Part: skin.PartBackground, State: core.StateNormal}
+	classKey := skin.SkinKey{Widget: core.WidgetFrame, Class: "titled-titlebar", Part: skin.PartBackground, State: core.StateNormal}
+	resolved := background(baseKey).Overlay(background(classKey))
+	if resolved.HasTexture || resolved.HasGradient {
+		t.Fatalf("none must drop inherited texture, got %+v", resolved)
+	}
+	if !resolved.HasBackgroundColor || resolved.BackgroundColor != (core.Color{R: 0x24, G: 0x35, B: 0x4c, A: 0xff}) {
+		t.Fatalf("none must keep class color, got %+v", resolved)
+	}
+	borderBase := skin.SkinKey{Widget: core.WidgetFrame, Part: skin.PartBorder, State: core.StateNormal}
+	borderClass := skin.SkinKey{Widget: core.WidgetFrame, Class: "titled-titlebar", Part: skin.PartBorder, State: core.StateNormal}
+	resolvedBorder := background(borderBase).Overlay(background(borderClass))
+	if resolvedBorder.HasTexture {
+		t.Fatalf("border none must drop ring, got %+v", resolvedBorder)
+	}
+	hoverKey := skin.SkinKey{Widget: core.WidgetFrame, Class: "titled-titlebar", Part: skin.PartBackground, State: core.StateHovered}
+	if entry := merged[hoverKey]; !entry.noTexture {
+		t.Fatalf("hover must inherit clear, got %+v", entry)
+	}
+}
+
 // TestCSSBackgroundColorAndGradientHeadlessLoadAndDraw verifies CSS files with color and gradient load headlessly and draw.
 func TestCSSBackgroundColorAndGradientHeadlessLoadAndDraw(t *testing.T) {
 	directory := t.TempDir()
