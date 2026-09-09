@@ -43,6 +43,7 @@ func TestGalleryLayoutPlacement(t *testing.T) {
 		"scrollCaption":           {X: 688, Y: 334, W: 528, H: 20},
 		"scrollPanel":             {X: 676, Y: 356, W: 552, H: 232},
 		"marketGraph":             {X: 676, Y: 356, W: 552, H: 232},
+		"chatLog":                 {X: 676, Y: 356, W: 552, H: 232},
 		"menuHint":                {X: 688, Y: 598, W: 528, H: 20},
 		"tooltipHint":             {X: 688, Y: 616, W: 528, H: 20},
 		"questButton":             {X: 676, Y: 646, W: 264, H: 36},

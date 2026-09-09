@@ -156,7 +156,7 @@ func (u *UI) handleEscape() bool {
 		u.pressed = nil
 		return true
 	}
-	u.linkArmedSeg = -1
+	u.disarmLink()
 	u.clearLinkTip()
 	if u.HasOpenMenu() {
 		u.closeMenuState()
@@ -412,6 +412,10 @@ func (u *UI) handlePress(event MouseEvent) bool {
 	}
 	if rt, ok := target.(*widgets.RichText); ok {
 		u.linkArmedSeg = u.richLinkSegAt(rt, event.Pos)
+		u.linkArmedChatMsg = 0
+	}
+	if log, ok := target.(*widgets.ChatLog); ok {
+		u.pressChatLog(log, event.Pos)
 	}
 	return true
 }
@@ -518,7 +522,7 @@ func (u *UI) handleRelease(event MouseEvent) bool {
 	active := u.pressed
 	u.pressed = nil
 	if !active.Enabled() {
-		u.linkArmedSeg = -1
+		u.disarmLink()
 		return true
 	}
 	if tab, ok := active.(*widgets.TabBar); ok {
@@ -529,6 +533,9 @@ func (u *UI) handleRelease(event MouseEvent) bool {
 	}
 	if rt, ok := active.(*widgets.RichText); ok {
 		return u.releaseRichText(rt, event.Pos)
+	}
+	if log, ok := active.(*widgets.ChatLog); ok {
+		return u.releaseChatLog(log, event.Pos)
 	}
 	if active.HitTest(event.Pos) && u.hitSurface(event.Pos) == active {
 		u.activateWidget(active)
@@ -785,7 +792,7 @@ func (u *UI) hitInteractive(pos core.Vec2) widgets.Widget {
 // isPressable reports the kinds that can own a UI press gesture.
 func isPressable(kind core.WidgetKind) bool {
 	switch kind {
-	case core.WidgetButton, core.WidgetCheckbox, core.WidgetTextbox, core.WidgetSlider, core.WidgetDropdown, core.WidgetTabBar, core.WidgetRichText, core.WidgetList:
+	case core.WidgetButton, core.WidgetCheckbox, core.WidgetTextbox, core.WidgetSlider, core.WidgetDropdown, core.WidgetTabBar, core.WidgetRichText, core.WidgetList, core.WidgetChatLog:
 		return true
 	default:
 		return false

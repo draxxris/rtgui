@@ -72,7 +72,15 @@ Manual input adapters must call it when their input device loses focus.
   and are Go-constructed `RichSegment` fields. Unknown tags render literally.
 - Every widget carries optional rich runs; buttons, labels, checkboxes, and
   dropdown rows render single-line rich runs. Clickable links activate only
-  in `RichText`; other controls render link colors without underlines.
+  in `RichText` and the read-only `ChatLog`; other controls render link
+  colors without underlines.
+- Chat logs keep bounded message history with stable IDs until eviction.
+  The UI reconciles scroll limits from theme-measured variable heights in
+  two passes (full content, then track-excluded rows) so wrapping, drawing,
+  and hit testing share one viewport. Per-message heights and segment copies
+  reuse UI scratch storage; eviction zeroes truncated tails. Message tooltips
+  and press arms track message IDs, not indices, so eviction never
+  mis-highlights.
 - Public snapshot getters still copy. Internal tab and dropdown drawing reuse scratch buffers.
 - Formatted slider and progress labels update only when their value or format changes.
 - Rich tooltips copy supplied segments. Cursor movement translates cached geometry without wrapping again.

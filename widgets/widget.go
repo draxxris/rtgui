@@ -606,3 +606,14 @@ func AsList(w Widget) (*List, error) {
 	}
 	return nil, fmt.Errorf("%w: widget %q is %v, expected %v", ErrKindMismatch, w.Name(), w.Kind(), core.WidgetList)
 }
+
+// AsChatLog asserts that w is a *ChatLog.
+func AsChatLog(w Widget) (*ChatLog, error) {
+	if w == nil {
+		return nil, ErrNilWidget
+	}
+	if l, ok := w.(*ChatLog); ok {
+		return l, nil
+	}
+	return nil, fmt.Errorf("%w: widget %q is %v, expected %v", ErrKindMismatch, w.Name(), w.Kind(), core.WidgetChatLog)
+}

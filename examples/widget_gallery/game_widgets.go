@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"image/color"
 
 	"github.com/draxxris/rtgui/core"
@@ -29,6 +30,7 @@ func (g *gallery) setupGameWidgets() {
 		Segments: []core.RichSegment{{Text: "+12 Strength\n", HasColor: true, Color: core.Color{R: 120, G: 220, B: 130, A: 255}}, {Text: "Drag this button onto the left decoration panel. Escape cancels."}},
 	})
 	g.setupItemDrag()
+	g.setupChatLog()
 }
 
 // categoryDemoItems returns the auction-house category tree for the floating
@@ -86,18 +88,62 @@ func (g *gallery) setupItemDrag() {
 	})
 }
 
-// selectGraphPage shares the scroll region between ordinary rows and the graph.
-func (g *gallery) selectGraphPage(index int) {
-	if g.lineGraph == nil {
+// selectSharedRegion swaps the right-panel region between scroll rows,
+// the graph, and the chat log. Index-aligned with demoTabs labels:
+// Widgets shows the scroll panel, Style the line graph, About the chat log.
+func (g *gallery) selectSharedRegion(index int) {
+	if g.lineGraph == nil || g.chatLog == nil {
 		return
 	}
+	g.scroll.SetVisible(index == 0)
 	g.lineGraph.SetVisible(index == 1)
-	g.scroll.SetVisible(index != 1)
+	g.chatLog.SetVisible(index == 2)
 	text := "Scroll panel — wheel over this area"
 	if index == 1 {
 		text = "Line graph — cached price history"
 	}
+	if index == 2 {
+		text = "Chat log — wheel to scroll, links clickable"
+	}
 	g.scrollCaption.SetText(text)
+}
+
+// setupChatLog feeds the About-tab chat log through the same player markup
+// and icon whitelist as the chat message. The gallery acts as the game: it
+// owns appends, link clicks, and tooltips while the log owns history.
+func (g *gallery) setupChatLog() {
+	if g.chatLog == nil {
+		return
+	}
+	allowed := func(name string) bool {
+		_, ok := g.facade.LookupInlineIcon(name)
+		return ok
+	}
+	feed := []string{
+		"Guild: need [link=item:iron-plate]iron plate[/link] [icon=iron-plate] — whisper [link=player:Mor'nor]Mor'nor[/link].",
+		"[link=player:Mor'nor]Mor'nor[/link]: crafting [link=item:iron-plate]iron plate[/link] x20, meet at the forge.",
+		"System: welcome to the gallery — scroll up to break the stick, scroll down to re-glue.",
+		"Party: see [link=url:https://example.com/guide]the wiki[/link] for tonight's route.",
+		"Guild: Thunderfury bindings drop in Molten Core — roll need.",
+		"[link=player:Mor'nor]Mor'nor[/link]: [icon=iron-plate] sold out, farming more.",
+	}
+	for _, line := range feed {
+		g.chatLog.AddMessage(text.ParsePlayerMarkup(line, allowed))
+	}
+	g.chatLog.OnLinkClick(func(link core.Link) {
+		g.setStatus(fmt.Sprintf("ChatLog link %s %q", link.Kind, link.Target))
+	}).OnLinkTooltipRequested(func(link core.Link) string {
+		switch link.Kind {
+		case core.LinkItem:
+			return "Item — " + link.Target
+		case core.LinkPlayer:
+			return link.Target + " — Level 60 Warrior"
+		case core.LinkURL:
+			return "Open " + link.Target + " in browser"
+		default:
+			return ""
+		}
+	}).SetTooltip("Chat log — wheel to scroll, click a link")
 }
 
 // setupRichDemo registers the parent-owned icon whitelist, named faces, and

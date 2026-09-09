@@ -93,6 +93,8 @@ const (
 	WidgetLineGraph
 	// WidgetList displays a collapsible category list with single leaf selection.
 	WidgetList
+	// WidgetChatLog displays a bounded read-only log of wrapped rich-text messages.
+	WidgetChatLog
 	// WidgetAny represents any widget kind for universal CSS rules.
 	WidgetAny WidgetKind = -1
 )

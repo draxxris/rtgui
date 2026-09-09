@@ -31,7 +31,7 @@ func (u *UI) ShowContextMenu(items []MenuItem, pos core.Vec2, onSelect func(stri
 	u.menuArmed = -1
 	u.menuDown = false
 	u.tooltipText = ""
-	u.linkArmedSeg = -1
+	u.disarmLink()
 	u.clearLinkTip()
 }
 

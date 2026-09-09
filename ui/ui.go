@@ -115,6 +115,17 @@ type UI struct {
 	tipWidget    widgets.Widget
 	tipSeg       int
 	tipText      string
+	// tipChatMsg identifies the chat message owning tipSeg when tipWidget is
+	// a ChatLog. Chat message IDs are never zero, so zero means no chat tip
+	// and RichText tips never consult it.
+	tipChatMsg uint64
+	// linkArmedChatMsg identifies the chat message owning linkArmedSeg while
+	// a ChatLog press is armed; zero means no chat arm.
+	linkArmedChatMsg uint64
+	// chatHeightScratch reuses per-message height storage for chat layout.
+	// chatSegScratch reuses segment storage for chat measure, hit test, draw.
+	chatHeightScratch []float32
+	chatSegScratch    []core.RichSegment
 
 	diagnostics []string
 	diagHandler DiagnosticHandler
@@ -249,7 +260,7 @@ func (u *UI) ClearWidgets() {
 	clear(u.widgets)
 	clear(u.byNode)
 	u.order = nil
-	u.linkArmedSeg = -1
+	u.disarmLink()
 }
 
 // Resize updates physical dimensions while retaining the fixed logical size.
@@ -357,7 +368,7 @@ func (u *UI) clearReferences(widget widgets.Widget) {
 	}
 	if u.pressed == widget {
 		u.pressed = nil
-		u.linkArmedSeg = -1
+		u.disarmLink()
 	}
 	if u.focused == widget {
 		u.clearFocus()

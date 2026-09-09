@@ -106,7 +106,7 @@ func (u *UI) routeDrag(event MouseEvent) bool {
 		return false
 	}
 	u.pressed = nil
-	u.linkArmedSeg = -1
+	u.disarmLink()
 	if event.Released {
 		u.dragSource = nil
 		u.mouseCaptured = false

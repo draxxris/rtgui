@@ -232,6 +232,31 @@ List::thumb:hover {
     border-image-source-tint: #e1f2ff;
 }
 
+ChatLog {
+    background-image: url("kenney/background.png");
+    background-image-tint: #14161c;
+    border-image-source: url("kenney/panel_border_grey.png");
+    border-image-slice: 8;
+    padding: 6;
+    color: #d8dce4;
+    font-size: 16;
+}
+ChatLog::highlight {
+    background-image: url("kenney/background.png");
+    background-image-tint: #43719b;
+}
+ChatLog::track {
+    border-image-source: url("kenney/scrollbar_future_transparent.png");
+    border-image-slice: 8;
+}
+ChatLog::thumb {
+    border-image-source: url("kenney/scrollbar_future_grey.png");
+    border-image-slice: 8;
+}
+ChatLog::thumb:hover {
+    border-image-source-tint: #e1f2ff;
+}
+
 /* Class definitions: universal .danger and kind-scoped Button.accent */
 .danger {
     background-color: #5c1d24;

@@ -69,6 +69,18 @@ func (u *UI) OnLinkTooltipRequested(name string, fn func(core.Link) string) {
 	}
 }
 
+// OnChatLink replaces a registered chat log's link callback. Nil clears it.
+// It shares the single link-click slot with OnLinkClick.
+func (u *UI) OnChatLink(name string, fn func(core.Link)) {
+	u.OnLinkClick(name, fn)
+}
+
+// OnChatLinkTooltipRequested replaces a registered chat log's link tooltip
+// provider. It shares the single link-tooltip slot with OnLinkTooltipRequested.
+func (u *UI) OnChatLinkTooltipRequested(name string, fn func(core.Link) string) {
+	u.OnLinkTooltipRequested(name, fn)
+}
+
 // fireOnClick invokes the current activation callback once.
 func (u *UI) fireOnClick(name string) {
 	if c := u.callback(name); c != nil && c.Click != nil {

@@ -301,7 +301,8 @@ func (t *Theme) drawListChevron(info core.WidgetInfo, row core.Rect, state core.
 	}
 }
 
-// drawListScrollbar renders the list track and thumb when overflowing.
+// drawListScrollbar renders the track and thumb when overflowing. Lists and
+// chat logs share this path; parts resolve from info.Kind.
 func (t *Theme) drawListScrollbar(info core.WidgetInfo, content core.Rect, scrollY, maxScroll float32, thumbState core.WidgetState) {
 	track, ok := ScrollTrackRect(content, maxScroll)
 	if !ok {

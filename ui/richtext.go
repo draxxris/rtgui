@@ -93,7 +93,7 @@ func (u *UI) richLinkSegAt(message *widgets.RichText, pos core.Vec2) int {
 // text keeps the shared click behavior. Every release is consumed.
 func (u *UI) releaseRichText(message *widgets.RichText, pos core.Vec2) bool {
 	armed := u.linkArmedSeg
-	u.linkArmedSeg = -1
+	u.disarmLink()
 	if u.hitSurface(pos) != message {
 		return true
 	}
@@ -116,7 +116,15 @@ func (u *UI) releaseRichText(message *widgets.RichText, pos core.Vec2) bool {
 // leaving a link cell and entering a new one each restamp, while a text
 // revision under a stationary hover only refreshes content.
 func (u *UI) refreshLinkTip() {
-	if u.hovered == nil || u.hovered.Kind() != core.WidgetRichText || !u.hovered.Enabled() {
+	if u.hovered == nil || !u.hovered.Enabled() {
+		u.dismissLinkTip()
+		return
+	}
+	if log, ok := u.hovered.(*widgets.ChatLog); ok {
+		u.refreshChatTip(log)
+		return
+	}
+	if u.hovered.Kind() != core.WidgetRichText {
 		u.dismissLinkTip()
 		return
 	}
@@ -174,4 +182,5 @@ func (u *UI) clearLinkTip() {
 	u.tipWidget = nil
 	u.tipSeg = -1
 	u.tipText = ""
+	u.tipChatMsg = 0
 }

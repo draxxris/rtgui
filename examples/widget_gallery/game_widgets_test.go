@@ -23,6 +23,14 @@ func TestGameWidgetGalleryHeadless(t *testing.T) {
 	if !g.lineGraph.Visible() || g.scroll.Visible() {
 		t.Fatal("Style page did not swap its graph")
 	}
+	u.SelectTab("demoTabs", 2)
+	u.Draw()
+	if !g.chatLog.Visible() || g.scroll.Visible() || g.lineGraph.Visible() {
+		t.Fatal("About page did not swap its chat log")
+	}
+	if g.chatLog.MessageCount() == 0 {
+		t.Fatal("chat log feed is empty")
+	}
 	from, to := g.frameButton.Bounds(), g.panel.Bounds()
 	a := core.Vec2{X: from.X + 10, Y: from.Y + 10}
 	b := core.Vec2{X: to.X + 20, Y: to.Y + 40}
@@ -76,9 +84,10 @@ func TestGalleryCSSParsesTitledVariant(t *testing.T) {
 	}
 }
 
-// TestGalleryCSSParsesList checks the gallery skin carries the collapsible
-// list shell, gold selection highlight, and scrollbar parts.
-func TestGalleryCSSParsesList(t *testing.T) {
+// TestGalleryCSSParsesScrollableParts checks the gallery skin carries the
+// shell, highlight, and scrollbar parts for the collapsible list (with gold
+// selection) and the chat log.
+func TestGalleryCSSParsesScrollableParts(t *testing.T) {
 	text, err := os.ReadFile(filepath.Join("..", "..", "testdata", "skins", "gallery.css"))
 	if err != nil {
 		t.Fatal(err)
@@ -87,22 +96,28 @@ func TestGalleryCSSParsesList(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	seen := map[string]bool{}
-	for _, rule := range rules {
-		if rule.Kind != core.WidgetList {
-			continue
-		}
-		seen[listRuleBucket(rule)] = true
+	want := map[core.WidgetKind][]string{
+		core.WidgetList:    {"base", "highlight", "selected", "track", "thumb"},
+		core.WidgetChatLog: {"base", "highlight", "track", "thumb"},
 	}
-	for _, part := range []string{"base", "highlight", "selected", "track", "thumb"} {
-		if !seen[part] {
-			t.Fatalf("gallery css misses list %s (seen=%v)", part, seen)
+	for kind, parts := range want {
+		seen := map[string]bool{}
+		for _, rule := range rules {
+			if rule.Kind != kind {
+				continue
+			}
+			seen[cssPartBucket(rule)] = true
+		}
+		for _, part := range parts {
+			if !seen[part] {
+				t.Fatalf("gallery css misses %v %s (seen=%v)", kind, part, seen)
+			}
 		}
 	}
 }
 
-// listRuleBucket classifies one gallery list rule for coverage checks.
-func listRuleBucket(rule skin.SkinRule) string {
+// cssPartBucket classifies one gallery rule for coverage checks.
+func cssPartBucket(rule skin.SkinRule) string {
 	switch {
 	case rule.Part == skin.PartBackground:
 		return "base"

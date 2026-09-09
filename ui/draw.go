@@ -220,7 +220,8 @@ func needsBorder(kind core.WidgetKind) bool {
 		core.WidgetFrame,
 		core.WidgetTabBar,
 		core.WidgetRichText,
-		core.WidgetList:
+		core.WidgetList,
+		core.WidgetChatLog:
 		return true
 	default:
 		return false

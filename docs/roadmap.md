@@ -200,15 +200,23 @@ Single-message rich text and its shared layout cache are DONE. Player
 markup (`[icon=name]`, `[link=scheme:target]text[/link]` via
 `text.ParsePlayerMarkup`), whitelisted inline icons, parent-registered
 per-kind link colors, and single-line rich runs for buttons, labels,
-checkboxes, and dropdown rows are DONE; clickable links stay RichText-only.
-Go-authored bold, size, and face survive as `RichSegment` fields. The log
-still needs:
+checkboxes, and dropdown rows are DONE; clickable links activate in `RichText`
+and the read-only `ChatLog` below.
+Go-authored bold, size, and face survive as `RichSegment` fields. The read-only
+log foundation is DONE: `ChatLog` carries bounded history (default 200, silent
+oldest-first eviction, no overflow signal), variable-height word-wrapped
+messages with a 4px gap, shared scrollbar gestures with lists and scroll
+panels, bottom stick with break-on-scroll-up, press-arm/release link
+activation with plain `func(core.Link)` callbacks, and hover link tooltips.
+The log still needs:
 
-- Virtualized messages, bounded history, channel filters, and unread indicators.
-- Scroll anchoring when messages arrive or earlier history loads.
+- Virtualized multi-thousand history, channel filters, and unread indicators.
+- Scroll anchoring when earlier history loads (bottom stick on arrival is DONE).
 - Multiline input, input history, whisper completion, and slash commands.
-- Rich-text selection and copying, virtualized history, and international text.
-- International text support through the text-system work below.
+- Rich-text selection and copying; international text support through the
+  text-system work below.
+- The windowed gallery shows the log on the About tab, sharing the
+  scroll/graph region through locked slot-table placement.
 
 ### Advanced Rich Tooltip Behavior
 

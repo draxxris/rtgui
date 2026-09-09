@@ -3,6 +3,7 @@ package sim
 import (
 	"errors"
 
+	"github.com/draxxris/rtgui/core"
 	"github.com/draxxris/rtgui/ui"
 )
 
@@ -56,6 +57,28 @@ func (s *Stage) PressHotkey(key rune) bool {
 // order through the UI's normal mutation and callback path.
 func (s *Stage) ClickLink(name string, index int) bool {
 	return s != nil && s.ui != nil && s.ui.ActivateLink(name, index)
+}
+
+// AppendChat appends segments to a named chat log through the UI's normal
+// path and reports the assigned message ID.
+func (s *Stage) AppendChat(name string, segments []core.RichSegment) (uint64, bool) {
+	if s == nil || s.ui == nil {
+		return 0, false
+	}
+	return s.ui.AppendChatMessage(name, segments)
+}
+
+// AppendChatText appends one plain-text entry to a named chat log.
+func (s *Stage) AppendChatText(name, text string) (uint64, bool) {
+	if s == nil || s.ui == nil {
+		return 0, false
+	}
+	return s.ui.AppendChatText(name, text)
+}
+
+// ClickChatLink activates the nth link of one chat message in segment order.
+func (s *Stage) ClickChatLink(name string, messageID uint64, index int) bool {
+	return s != nil && s.ui != nil && s.ui.ActivateChatLink(name, messageID, index)
 }
 
 // SelectTab changes a named tab bar selection through the UI's normal

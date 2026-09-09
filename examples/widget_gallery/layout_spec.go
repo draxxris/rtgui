@@ -56,6 +56,7 @@ func gallerySlots(width, height float32) []gallerySlot {
 		{name: "scrollCaption", owner: "rightPanel", rect: core.Rect{X: 36, Y: 260, W: colW - 24, H: 20}},
 		{name: "scrollPanel", owner: "rightPanel", rect: core.Rect{X: 24, Y: 282, W: colW, H: 232}},
 		{name: "marketGraph", owner: "rightPanel", rect: core.Rect{X: 24, Y: 282, W: colW, H: 232}},
+		{name: "chatLog", owner: "rightPanel", rect: core.Rect{X: 24, Y: 282, W: colW, H: 232}},
 		{name: "menuHint", owner: "rightPanel", rect: core.Rect{X: 36, Y: 524, W: colW - 24, H: 20}},
 		{name: "tooltipHint", owner: "rightPanel", rect: core.Rect{X: 36, Y: 542, W: colW - 24, H: 20}},
 		{name: "questButton", owner: "rightPanel", rect: core.Rect{X: 24, Y: 572, W: 264, H: 36}},

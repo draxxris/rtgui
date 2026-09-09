@@ -24,6 +24,11 @@ func scrollState(w widgets.Widget) (offset, max float32, ok bool) {
 			return 0, 0, false
 		}
 		return v.ScrollOffset(), v.MaxScroll(), true
+	case *widgets.ChatLog:
+		if v == nil {
+			return 0, 0, false
+		}
+		return v.ScrollOffset(), v.MaxScroll(), true
 	default:
 		return 0, 0, false
 	}
@@ -39,6 +44,11 @@ func setScrollState(w widgets.Widget, offset float32) bool {
 		}
 		return v.SetScroll(core.Vec2{X: v.Scroll().X, Y: offset})
 	case *widgets.List:
+		if v == nil {
+			return false
+		}
+		return v.SetScrollOffset(offset)
+	case *widgets.ChatLog:
 		if v == nil {
 			return false
 		}
@@ -62,6 +72,12 @@ func (u *UI) scrollOwnerContent(w widgets.Widget) (core.Rect, bool) {
 			return core.Rect{}, false
 		}
 		return u.reconcileListBounds(v), true
+	case *widgets.ChatLog:
+		if v == nil {
+			return core.Rect{}, false
+		}
+		content, _, _, _ := u.reconcileChatBounds(v)
+		return content, true
 	default:
 		return core.Rect{}, false
 	}

@@ -111,6 +111,7 @@ type gallery struct {
 	frameButton     *widgets.Button
 	scroll          *widgets.ScrollPanel
 	scrollCaption   *widgets.Label
+	chatLog         *widgets.ChatLog
 	menuHint        *widgets.Label
 	tooltipHint     *widgets.Label
 	questLog        *widgets.TitledFrame
@@ -224,7 +225,8 @@ func runHeadlessSmoke() {
 			{ID: "ess", Label: "Essences"},
 		}},
 	})
-	if err := facade.Add(button, checkbox, slider, field, tabs, chat, smokeScroll, smokeList); err != nil {
+	smokeChatLog := widgets.NewChatLog("smokeChatLog", core.Rect{X: 230, Y: 220, W: 200, H: 80}, 50)
+	if err := facade.Add(button, checkbox, slider, field, tabs, chat, smokeScroll, smokeList, smokeChatLog); err != nil {
 		log.Fatal(err)
 	}
 	clicks := 0
@@ -241,6 +243,14 @@ func runHeadlessSmoke() {
 	linkClicked := ""
 	facade.OnLinkClick("smokeChat", func(link core.Link) { linkClicked = link.Target })
 	facade.ActivateLink("smokeChat", 0)
+	chatMsgID, _ := facade.AppendChatMessage("smokeChatLog", []core.RichSegment{
+		{Text: "Guild: need "},
+		{Text: "iron plate", Link: core.Link{Kind: core.LinkItem, Target: "iron-plate"}},
+	})
+	facade.AppendChatText("smokeChatLog", "Second line wraps here.")
+	chatLinkClicked := ""
+	facade.OnChatLink("smokeChatLog", func(link core.Link) { chatLinkClicked = link.Target })
+	facade.ActivateChatLink("smokeChatLog", chatMsgID, 0)
 	facade.SetTooltip("smokeButton", "headless tip")
 	center := core.Vec2{X: 60, Y: 30}
 	facade.HandleMouse(ui.MouseEvent{Pos: center, Pressed: true})
@@ -251,7 +261,7 @@ func runHeadlessSmoke() {
 	facade.CloseMenu()
 	facade.Draw()
 	calls := recorder.Calls()
-	log.Printf("headless smoke: %d draw calls logged (clicks=%d tab=%d link=%q list=%q/%q fallback=%v)", len(calls), clicks, tabSelected, linkClicked, listSelected, listToggled, len(calls) > 0 && calls[0].Fallback)
+	log.Printf("headless smoke: %d draw calls logged (clicks=%d tab=%d link=%q chatlink=%q list=%q/%q fallback=%v)", len(calls), clicks, tabSelected, linkClicked, chatLinkClicked, listSelected, listToggled, len(calls) > 0 && calls[0].Fallback)
 
 	if *screenshot != "" {
 		if err := saveGalleryScreenshot(*screenshot); err != nil {
@@ -423,6 +433,7 @@ func newGallery(facade *ui.UI) *gallery {
 		frameButton:   widgets.NewButton("frameChildButton", core.Rect{}, "Frame child"),
 		scrollCaption: widgets.NewStyledLabel("scrollCaption", core.Rect{}, "Scroll panel — wheel over this area", 20, true, core.AlignLeft).SetTextColor(captionColor),
 		scroll:        widgets.NewScrollPanel("scrollPanel", core.Rect{}),
+		chatLog:       widgets.NewChatLog("chatLog", core.Rect{}, 50),
 		menuHint:      widgets.NewStyledLabel("menuHint", core.Rect{}, "Right-click anywhere for the context menu", 20, true, core.AlignLeft).SetTextColor(captionColor),
 		tooltipHint:   widgets.NewStyledLabel("tooltipHint", core.Rect{}, "Click demoFrame then T for a pinned tooltip (Esc dismisses)", 20, true, core.AlignLeft).SetTextColor(captionColor),
 		status:        "Click demoFrame to focus it — R moves, T pins a tooltip",
@@ -555,7 +566,7 @@ func newGallery(facade *ui.UI) *gallery {
 		g.tabbarCaption, g.tabbar,
 		g.chatCaption, g.chat,
 		g.frame, g.frameCaption, g.frameButton,
-		g.scrollCaption, g.scroll,
+		g.scrollCaption, g.scroll, g.chatLog,
 		g.menuHint, g.tooltipHint,
 		questButton, categoryButton,
 		g.stateCanvas,
@@ -672,7 +683,7 @@ func (g *gallery) applyTab(index int) {
 		return
 	}
 	page := g.tabPages[index]
-	g.selectGraphPage(index)
+	g.selectSharedRegion(index)
 	g.label.SetText(page.label)
 	if g.rightTitle != nil {
 		g.rightTitle.SetText(page.heading)
