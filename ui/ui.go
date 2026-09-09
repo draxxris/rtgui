@@ -53,8 +53,12 @@ type UI struct {
 	// and scopes frame-bound hotkeys while keyboard focus keeps editing.
 	activeFrame widgets.Widget
 
-	scrollThumbHovered    *widgets.ScrollPanel
-	scrollThumbDragging   *widgets.ScrollPanel
+	// scrollThumbHovered and scrollThumbDragging own the active scrollbar
+	// gesture for every scrollable container. Scroll panels and collapsible
+	// lists share one gesture path through scrollState helpers; the stored
+	// widget is always one of those two kinds.
+	scrollThumbHovered    widgets.Widget
+	scrollThumbDragging   widgets.Widget
 	scrollDragStartY      float32
 	scrollDragStartScroll float32
 

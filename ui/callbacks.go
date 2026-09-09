@@ -41,6 +41,20 @@ func (u *UI) OnTabSelect(name string, fn func(int)) {
 	}
 }
 
+// OnListSelect replaces the registered list's leaf-selection callback.
+func (u *UI) OnListSelect(name string, fn func(string)) {
+	if c := u.callback(name); c != nil {
+		c.ListSelect = fn
+	}
+}
+
+// OnListToggle replaces the registered list's category toggle callback.
+func (u *UI) OnListToggle(name string, fn func(string, bool)) {
+	if c := u.callback(name); c != nil {
+		c.ListToggle = fn
+	}
+}
+
 // OnLinkClick replaces the registered widget's link callback.
 func (u *UI) OnLinkClick(name string, fn func(core.Link)) {
 	if c := u.callback(name); c != nil {
@@ -80,6 +94,20 @@ func (u *UI) fireOnText(name, value string) {
 func (u *UI) fireOnTabSelect(name string, index int) {
 	if c := u.callback(name); c != nil && c.TabSelect != nil {
 		c.TabSelect(index)
+	}
+}
+
+// fireOnListSelect invokes the current list selection callback once.
+func (u *UI) fireOnListSelect(name, id string) {
+	if c := u.callback(name); c != nil && c.ListSelect != nil {
+		c.ListSelect(id)
+	}
+}
+
+// fireOnListToggle invokes the current list toggle callback once.
+func (u *UI) fireOnListToggle(name, id string, expanded bool) {
+	if c := u.callback(name); c != nil && c.ListToggle != nil {
+		c.ListToggle(id, expanded)
 	}
 }
 

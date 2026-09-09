@@ -91,6 +91,8 @@ const (
 	WidgetCanvas
 	// WidgetLineGraph displays one or more numeric data series.
 	WidgetLineGraph
+	// WidgetList displays a collapsible category list with single leaf selection.
+	WidgetList
 	// WidgetAny represents any widget kind for universal CSS rules.
 	WidgetAny WidgetKind = -1
 )

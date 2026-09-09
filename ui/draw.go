@@ -91,10 +91,6 @@ func (u *UI) drawOne(widget widgets.Widget) {
 	}
 }
 
-// drawOneSpecial renders widgets with dedicated paths and reports handling.
-// Rich checkbox and dropdown rows report handling only when rich runs drew;
-// otherwise the generic control path draws them.
-
 // drawScrollPanel renders a scroll panel background, border, and scissored contents.
 func (u *UI) drawScrollPanel(widget *widgets.ScrollPanel, state core.WidgetState) {
 	info := widget.Snapshot(state)
@@ -223,7 +219,8 @@ func needsBorder(kind core.WidgetKind) bool {
 		core.WidgetProgressBar,
 		core.WidgetFrame,
 		core.WidgetTabBar,
-		core.WidgetRichText:
+		core.WidgetRichText,
+		core.WidgetList:
 		return true
 	default:
 		return false

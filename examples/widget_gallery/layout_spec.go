@@ -58,12 +58,16 @@ func gallerySlots(width, height float32) []gallerySlot {
 		{name: "marketGraph", owner: "rightPanel", rect: core.Rect{X: 24, Y: 282, W: colW, H: 232}},
 		{name: "menuHint", owner: "rightPanel", rect: core.Rect{X: 36, Y: 524, W: colW - 24, H: 20}},
 		{name: "tooltipHint", owner: "rightPanel", rect: core.Rect{X: 36, Y: 542, W: colW - 24, H: 20}},
-		{name: "questButton", owner: "rightPanel", rect: core.Rect{X: 24, Y: 572, W: colW, H: 36}},
+		{name: "questButton", owner: "rightPanel", rect: core.Rect{X: 24, Y: 572, W: 264, H: 36}},
+		{name: "categoryButton", owner: "rightPanel", rect: core.Rect{X: 296, Y: 572, W: 256, H: 36}},
 		{name: "stateSamples", owner: "rightPanel", rect: core.Rect{X: 24, Y: panelH - 66, W: colW, H: 34}},
 		{name: "questLog", rect: core.Rect{X: (width - 420) / 2, Y: (height - 320) / 2, W: 420, H: 320}},
 		{name: "questText", owner: "questLog/content", rect: core.Rect{X: 16, Y: 12, W: 372, H: 150}},
 		{name: "questAccept", owner: "questLog/content", rect: core.Rect{X: 16, Y: 190, W: 178, H: 44}},
 		{name: "questDecline", owner: "questLog/content", rect: core.Rect{X: 210, Y: 190, W: 178, H: 44}},
+		{name: "categoryWindow", rect: core.Rect{X: (width - 300) / 2, Y: (height - 440) / 2, W: 300, H: 440}},
+		{name: "categoryList", owner: "categoryWindow/content", rect: core.Rect{X: 16, Y: 12, W: 252, H: 308}},
+		{name: "sellButton", owner: "categoryWindow/content", rect: core.Rect{X: 16, Y: 332, W: 252, H: 44}},
 	}
 }
 

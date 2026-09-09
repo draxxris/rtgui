@@ -31,6 +31,49 @@ func (g *gallery) setupGameWidgets() {
 	g.setupItemDrag()
 }
 
+// categoryDemoItems returns the auction-house category tree for the floating
+// Categories window. Materials starts expanded with Essences preselected;
+// every other category starts collapsed. Icons reuse the demo whitelist.
+func categoryDemoItems() []widgets.ListItem {
+	icon := "iron-plate"
+	return []widgets.ListItem{
+		{ID: "fav", Label: "Favorites", Icon: icon},
+		{ID: "weapons", Label: "Weapons", Icon: icon, Children: []widgets.ListItem{
+			{ID: "blades", Label: "Blades"},
+			{ID: "blunts", Label: "Blunts"},
+		}},
+		{ID: "armor", Label: "Armor", Icon: icon, Children: []widgets.ListItem{
+			{ID: "plate", Label: "Plate"},
+			{ID: "mail", Label: "Mail"},
+		}},
+		{ID: "consumables", Label: "Consumables", Icon: icon, Children: []widgets.ListItem{
+			{ID: "potions", Label: "Potions"},
+			{ID: "food", Label: "Food"},
+		}},
+		{ID: "mats", Label: "Materials", Icon: icon, Expanded: true, Children: []widgets.ListItem{
+			{ID: "herbs", Label: "Herbs"},
+			{ID: "ore", Label: "Ore"},
+			{ID: "leather", Label: "Leather"},
+			{ID: "cloth", Label: "Cloth"},
+			{ID: "essences", Label: "Essences"},
+			{ID: "gems", Label: "Gems"},
+			{ID: "enchants", Label: "Enchants"},
+		}},
+		{ID: "recipes", Label: "Recipes", Icon: icon, Children: []widgets.ListItem{
+			{ID: "weapon-plans", Label: "Weapon Plans"},
+			{ID: "armor-patterns", Label: "Armor Patterns"},
+		}},
+		{ID: "pets", Label: "Pets", Icon: icon, Children: []widgets.ListItem{
+			{ID: "companions", Label: "Companions"},
+			{ID: "mounts", Label: "Mounts"},
+		}},
+		{ID: "misc", Label: "Miscellaneous", Icon: icon, Children: []widgets.ListItem{
+			{ID: "quest-items", Label: "Quest Items"},
+			{ID: "junk", Label: "Junk"},
+		}},
+	}
+}
+
 // setupItemDrag binds a source and target without application-side pointer routing.
 // Placement stays in the slot table; this only owns drag intent.
 func (g *gallery) setupItemDrag() {

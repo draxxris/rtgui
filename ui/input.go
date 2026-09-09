@@ -221,6 +221,11 @@ func (u *UI) Activate(name string) bool {
 			u.diagnose("ui.Activate: tab bar %q has no valid selection", name)
 			return false
 		}
+	case *widgets.List:
+		if _, ok := w.Selected(); !ok {
+			u.diagnose("ui.Activate: list %q has no valid selection", name)
+			return false
+		}
 	case *widgets.Textbox:
 		u.setFocus(target)
 	}
@@ -349,20 +354,23 @@ func (u *UI) updateHover(pos core.Vec2) {
 	u.updateScrollThumbHover(pos)
 }
 
-// handleWheel scrolls the topmost scroll panel under the pointer.
+// handleWheel scrolls the innermost overflowing scroll container under the
+// pointer. Panels and lists share one owner walk so the deepest container
+// owns the gesture; other surfaces only block pass-through.
 func (u *UI) handleWheel(event MouseEvent) bool {
 	if event.Wheel == 0 {
 		return false
 	}
-	target := u.topmostAt(event.Pos, core.WidgetScrollPanel)
-	if target == nil {
+	owner := u.innermostScrollOwner(event.Pos)
+	if owner == nil {
 		return u.hitSurface(event.Pos) != nil
 	}
-	if sp, ok := target.(*widgets.ScrollPanel); ok {
-		sp.ScrollBy(0, -event.Wheel*28)
+	offset, max, _ := scrollState(owner)
+	if max <= 0 {
 		return true
 	}
-	return u.hitSurface(event.Pos) != nil
+	setScrollState(owner, offset-event.Wheel*28)
+	return true
 }
 
 // handlePress starts a gesture on the topmost eligible widget. Frame
@@ -515,6 +523,9 @@ func (u *UI) handleRelease(event MouseEvent) bool {
 	}
 	if tab, ok := active.(*widgets.TabBar); ok {
 		return u.releaseTabBar(tab, event.Pos)
+	}
+	if list, ok := active.(*widgets.List); ok {
+		return u.releaseList(list, event.Pos)
 	}
 	if rt, ok := active.(*widgets.RichText); ok {
 		return u.releaseRichText(rt, event.Pos)
@@ -771,20 +782,10 @@ func (u *UI) hitInteractive(pos core.Vec2) widgets.Widget {
 	return nil
 }
 
-// topmostAt returns the topmost enabled widget of kind under pos.
-func (u *UI) topmostAt(pos core.Vec2, kind core.WidgetKind) widgets.Widget {
-	for w := u.hitSurface(pos); w != nil; w = u.parentWidget(w) {
-		if u.available(w) && w.Kind() == kind {
-			return w
-		}
-	}
-	return nil
-}
-
 // isPressable reports the kinds that can own a UI press gesture.
 func isPressable(kind core.WidgetKind) bool {
 	switch kind {
-	case core.WidgetButton, core.WidgetCheckbox, core.WidgetTextbox, core.WidgetSlider, core.WidgetDropdown, core.WidgetTabBar, core.WidgetRichText:
+	case core.WidgetButton, core.WidgetCheckbox, core.WidgetTextbox, core.WidgetSlider, core.WidgetDropdown, core.WidgetTabBar, core.WidgetRichText, core.WidgetList:
 		return true
 	default:
 		return false

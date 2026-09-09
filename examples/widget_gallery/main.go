@@ -19,7 +19,9 @@
 // right-click context menu, hover tooltips plus a T-pinned tooltip scoped to
 // the focused demo frame, scroll panel with wheel + scissor,
 // frame with click-to-focus glow and relative-move child (layout.MoveFrame,
-// R only while demoFrame holds container focus), state-sample strip,
+// R only while demoFrame holds container focus), quest-log window,
+// floating Categories window with a collapsible list plus sell button,
+// state-sample strip,
 // status line; flags -frames / -screenshot for headless smoke.
 //
 // Headless / window behavior:
@@ -112,6 +114,7 @@ type gallery struct {
 	menuHint        *widgets.Label
 	tooltipHint     *widgets.Label
 	questLog        *widgets.TitledFrame
+	categories      *widgets.TitledFrame
 	stateCanvas     *widgets.Canvas
 	statusLabel     *widgets.Label
 	lineGraph       *widgets.LineGraph
@@ -213,7 +216,15 @@ func runHeadlessSmoke() {
 	})
 	smokeScroll := widgets.NewScrollPanel("smokeScroll", core.Rect{X: 10, Y: 260, W: 200, H: 80})
 	smokeScroll.SetMaxScroll(core.Vec2{Y: 50})
-	if err := facade.Add(button, checkbox, slider, field, tabs, chat, smokeScroll); err != nil {
+	smokeList := widgets.NewList("smokeList", core.Rect{X: 230, Y: 90, W: 200, H: 120})
+	smokeList.SetItems([]widgets.ListItem{
+		{ID: "fav", Label: "Favorites"},
+		{ID: "mats", Label: "Materials", Expanded: true, Children: []widgets.ListItem{
+			{ID: "herbs", Label: "Herbs"},
+			{ID: "ess", Label: "Essences"},
+		}},
+	})
+	if err := facade.Add(button, checkbox, slider, field, tabs, chat, smokeScroll, smokeList); err != nil {
 		log.Fatal(err)
 	}
 	clicks := 0
@@ -221,6 +232,12 @@ func runHeadlessSmoke() {
 	tabSelected := -1
 	facade.OnTabSelect("smokeTabs", func(index int) { tabSelected = index })
 	facade.SelectTab("smokeTabs", 1)
+	listSelected := ""
+	facade.OnListSelect("smokeList", func(id string) { listSelected = id })
+	listToggled := ""
+	facade.OnListToggle("smokeList", func(id string, expanded bool) { listToggled = id })
+	facade.SetListExpanded("smokeList", "mats", false)
+	facade.SelectListItem("smokeList", "fav")
 	linkClicked := ""
 	facade.OnLinkClick("smokeChat", func(link core.Link) { linkClicked = link.Target })
 	facade.ActivateLink("smokeChat", 0)
@@ -234,7 +251,7 @@ func runHeadlessSmoke() {
 	facade.CloseMenu()
 	facade.Draw()
 	calls := recorder.Calls()
-	log.Printf("headless smoke: %d draw calls logged (clicks=%d tab=%d link=%q fallback=%v)", len(calls), clicks, tabSelected, linkClicked, len(calls) > 0 && calls[0].Fallback)
+	log.Printf("headless smoke: %d draw calls logged (clicks=%d tab=%d link=%q list=%q/%q fallback=%v)", len(calls), clicks, tabSelected, linkClicked, listSelected, listToggled, len(calls) > 0 && calls[0].Fallback)
 
 	if *screenshot != "" {
 		if err := saveGalleryScreenshot(*screenshot); err != nil {
@@ -494,6 +511,33 @@ func newGallery(facade *ui.UI) *gallery {
 		g.setStatus("Quest log closed (demo)")
 	})
 
+	// Categories demo: a floating TitledFrame window with a collapsible
+	// List plus a Sell button. Categories toggle; leaves select; the
+	// button only reports status. Placement comes from the slot table.
+	categoryButton := widgets.NewButton("categoryButton", core.Rect{}, "Categories")
+	categoryList := widgets.NewList("categoryList", core.Rect{})
+	categoryList.SetItems(categoryDemoItems())
+	categoryList.Select("essences")
+	sellButton := widgets.NewButton("sellButton", core.Rect{}, "Sell Your Item")
+	g.categories = widgets.NewTitledFrame("categoryWindow", core.Rect{}, "Categories")
+	categoryButton.OnClick(func() {
+		g.categories.Show()
+		g.facade.BringToFront("categoryWindow")
+		g.setStatus("Categories opened (demo)")
+	}).SetTooltip("Open the category list window")
+	categoryList.OnSelect(func(id string) {
+		g.setStatus(fmt.Sprintf("Category %q selected", id))
+	}).SetTooltip("Collapsible list — categories toggle, leaves select")
+	categoryList.OnToggle(func(id string, expanded bool) {
+		g.setStatus(fmt.Sprintf("Category %q expanded=%v", id, expanded))
+	})
+	sellButton.OnClick(func() {
+		g.setStatus("Item listed for sale (demo)")
+	}).SetTooltip("List the selected item (demo only)")
+	g.categories.OnClose(func() {
+		g.setStatus("Categories closed (demo)")
+	})
+
 	// Self-contained scroll panel manages clipping and bounds:
 	g.scroll.SetMaxScroll(core.Vec2{Y: 170}).SetScrollContentDrawer(g.drawScrollRows)
 
@@ -513,7 +557,7 @@ func newGallery(facade *ui.UI) *gallery {
 		g.frame, g.frameCaption, g.frameButton,
 		g.scrollCaption, g.scroll,
 		g.menuHint, g.tooltipHint,
-		questButton,
+		questButton, categoryButton,
 		g.stateCanvas,
 		g.statusLabel,
 	); err != nil {
@@ -523,6 +567,12 @@ func newGallery(facade *ui.UI) *gallery {
 		panic(err)
 	}
 	if err := facade.Add(questText, questAccept, questDecline); err != nil {
+		panic(err)
+	}
+	if err := facade.Add(g.categories.Widgets()...); err != nil {
+		panic(err)
+	}
+	if err := facade.Add(categoryList, sellButton); err != nil {
 		panic(err)
 	}
 
@@ -551,6 +601,10 @@ func newGallery(facade *ui.UI) *gallery {
 		panic(err)
 	}
 	g.questLog.Hide()
+	if err := g.categories.Layout(); err != nil {
+		panic(err)
+	}
+	g.categories.Hide()
 	g.applyTab(g.tabbar.SelectedTab())
 	return g
 }
@@ -635,7 +689,6 @@ func (g *gallery) applyTab(index int) {
 	}
 	g.setStatus(fmt.Sprintf("Tab index %d selected", index))
 }
-
 
 // handleInput polls raylib input through the UI driver and animates the demo frame.
 func (g *gallery) handleInput() {

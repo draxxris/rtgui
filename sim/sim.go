@@ -63,3 +63,15 @@ func (s *Stage) ClickLink(name string, index int) bool {
 func (s *Stage) SelectTab(name string, index int) bool {
 	return s != nil && s.ui != nil && s.ui.SelectTab(name, index)
 }
+
+// SelectListItem changes a named list leaf selection through the UI's normal
+// mutation and callback path without manufacturing pointer state.
+func (s *Stage) SelectListItem(name, id string) bool {
+	return s != nil && s.ui != nil && s.ui.SelectListItem(name, id)
+}
+
+// SetListExpanded changes a named list category through the UI's normal
+// mutation and callback path without manufacturing pointer state.
+func (s *Stage) SetListExpanded(name, id string, expanded bool) bool {
+	return s != nil && s.ui != nil && s.ui.SetListExpanded(name, id, expanded)
+}

@@ -62,6 +62,8 @@ type Callbacks struct {
 	Change      func(float32)
 	Text        func(string)
 	TabSelect   func(int)
+	ListSelect  func(string)
+	ListToggle  func(string, bool)
 	LinkClick   func(core.Link)
 	LinkTooltip func(core.Link) string
 }
@@ -592,4 +594,15 @@ func AsFrame(w Widget) (*Frame, error) {
 		return f, nil
 	}
 	return nil, fmt.Errorf("%w: widget %q is %v, expected %v", ErrKindMismatch, w.Name(), w.Kind(), core.WidgetFrame)
+}
+
+// AsList asserts that w is a *List.
+func AsList(w Widget) (*List, error) {
+	if w == nil {
+		return nil, ErrNilWidget
+	}
+	if l, ok := w.(*List); ok {
+		return l, nil
+	}
+	return nil, fmt.Errorf("%w: widget %q is %v, expected %v", ErrKindMismatch, w.Name(), w.Kind(), core.WidgetList)
 }

@@ -199,6 +199,39 @@ ScrollPanel::thumb:hover {
     border-image-source-tint: #e1f2ff;
 }
 
+List {
+    background-image: url("kenney/background.png");
+    background-image-tint: #1a1d24;
+    border-image-source: url("kenney/panel_border_grey.png");
+    border-image-slice: 8;
+    padding: 4;
+    color: #c9b896;
+    font-size: 16;
+}
+List:disabled {
+    background-image-tint: #565b66;
+    border-image-source-tint: #b9b9c3;
+}
+List::highlight {
+    background-image: url("kenney/background.png");
+    background-image-tint: #3a2f1d;
+}
+List::highlight:selected {
+    background-image: url("kenney/background.png");
+    background-image-tint: #4a3a20;
+}
+List::track {
+    border-image-source: url("kenney/scrollbar_future_transparent.png");
+    border-image-slice: 8;
+}
+List::thumb {
+    border-image-source: url("kenney/scrollbar_future_grey.png");
+    border-image-slice: 8;
+}
+List::thumb:hover {
+    border-image-source-tint: #e1f2ff;
+}
+
 /* Class definitions: universal .danger and kind-scoped Button.accent */
 .danger {
     background-color: #5c1d24;

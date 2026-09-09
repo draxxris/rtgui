@@ -19,6 +19,7 @@ func (u *UI) ShowContextMenu(items []MenuItem, pos core.Vec2, onSelect func(stri
 	}
 	u.cancelDrag()
 	u.scrollThumbDragging = nil
+	u.scrollThumbHovered = nil
 	u.mouseCaptured = false
 	u.clearFocus()
 	u.clearActiveFrame()

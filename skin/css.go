@@ -110,6 +110,7 @@ var kindSelectors = map[string]core.WidgetKind{
 	"Tooltip":     core.WidgetTooltip,
 	"RichText":    core.WidgetRichText,
 	"LineGraph":   core.WidgetLineGraph,
+	"List":        core.WidgetList,
 }
 
 // pseudoSelectors maps pseudo-classes to widget states. "" is normal.
@@ -147,6 +148,7 @@ var partAllowlist = map[core.WidgetKind]map[string]bool{
 	core.WidgetMenu:        {"popup": true, "highlight": true},
 	core.WidgetRichText:    {"highlight": true},
 	core.WidgetScrollPanel: {"track": true, "thumb": true},
+	core.WidgetList:        {"highlight": true, "track": true, "thumb": true},
 }
 
 // ParseCSS parses LOOK-only CSS text into SkinRules in source order.
@@ -271,7 +273,7 @@ func resolveRuleTargets(kind core.WidgetKind, part SkinPart, hasPart bool) (imag
 	if part == PartPopup {
 		return PartPopup, PartPopupBorder, PartPopup, true, true
 	}
-	if kind == core.WidgetScrollPanel && (part == PartTrack || part == PartThumb) {
+	if (kind == core.WidgetScrollPanel || kind == core.WidgetList) && (part == PartTrack || part == PartThumb) {
 		return part, part, PartBackground, true, false
 	}
 	return part, PartBorder, PartBackground, false, false

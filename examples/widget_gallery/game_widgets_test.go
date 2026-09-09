@@ -8,6 +8,7 @@ import (
 	"github.com/draxxris/rtgui/core"
 	"github.com/draxxris/rtgui/skin"
 	"github.com/draxxris/rtgui/ui"
+	"github.com/draxxris/rtgui/widgets"
 )
 
 // TestGameWidgetGalleryHeadless exercises the actual gallery integration without GL.
@@ -72,6 +73,95 @@ func TestGalleryCSSParsesTitledVariant(t *testing.T) {
 		if !seen[class] {
 			t.Fatalf("gallery css misses .%s", class)
 		}
+	}
+}
+
+// TestGalleryCSSParsesList checks the gallery skin carries the collapsible
+// list shell, gold selection highlight, and scrollbar parts.
+func TestGalleryCSSParsesList(t *testing.T) {
+	text, err := os.ReadFile(filepath.Join("..", "..", "testdata", "skins", "gallery.css"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rules, err := skin.ParseCSS(string(text))
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := map[string]bool{}
+	for _, rule := range rules {
+		if rule.Kind != core.WidgetList {
+			continue
+		}
+		seen[listRuleBucket(rule)] = true
+	}
+	for _, part := range []string{"base", "highlight", "selected", "track", "thumb"} {
+		if !seen[part] {
+			t.Fatalf("gallery css misses list %s (seen=%v)", part, seen)
+		}
+	}
+}
+
+// listRuleBucket classifies one gallery list rule for coverage checks.
+func listRuleBucket(rule skin.SkinRule) string {
+	switch {
+	case rule.Part == skin.PartBackground:
+		return "base"
+	case rule.Part == skin.PartOverlay && rule.State == core.StateSelected:
+		return "selected"
+	case rule.Part == skin.PartOverlay:
+		return "highlight"
+	case rule.Part == skin.PartTrack:
+		return "track"
+	case rule.Part == skin.PartThumb:
+		return "thumb"
+	default:
+		return "other"
+	}
+}
+
+// TestCategoryWindowDemo exercises the floating Categories window: hidden by
+// default, opened by its button, leaf select and category toggle report
+// status, Sell reports without closing, and X closes the window.
+func TestCategoryWindowDemo(t *testing.T) {
+	u := ui.New(1280, 780)
+	g := newGallery(u)
+	if g.categories.IsOpen() {
+		t.Fatal("categories must start hidden")
+	}
+	clickGalleryButton(t, u, "categoryButton")
+	if !g.categories.IsOpen() || g.status != "Categories opened (demo)" {
+		t.Fatalf("open: open=%v status=%q", g.categories.IsOpen(), g.status)
+	}
+	if id, ok := u.Lookup("categoryList").(*widgets.List).Selected(); !ok || id != "essences" {
+		t.Fatalf("preselected = %q/%v", id, ok)
+	}
+	if !u.SelectListItem("categoryList", "herbs") || g.status != `Category "herbs" selected` {
+		t.Fatalf("select: status=%q", g.status)
+	}
+	if !u.SetListExpanded("categoryList", "weapons", true) || g.status != `Category "weapons" expanded=true` {
+		t.Fatalf("expand: status=%q", g.status)
+	}
+	clickGalleryButton(t, u, "sellButton")
+	if !g.categories.IsOpen() || g.status != "Item listed for sale (demo)" {
+		t.Fatalf("sell: open=%v status=%q", g.categories.IsOpen(), g.status)
+	}
+}
+
+// TestCategoryWindowClose exercises the X button close path and reopen.
+func TestCategoryWindowClose(t *testing.T) {
+	u := ui.New(1280, 780)
+	g := newGallery(u)
+	clickGalleryButton(t, u, "categoryButton")
+	if !g.categories.IsOpen() {
+		t.Fatal("categories must open")
+	}
+	clickGalleryButton(t, u, "categoryWindow/close")
+	if g.categories.IsOpen() || g.status != "Categories closed (demo)" {
+		t.Fatalf("close: open=%v status=%q", g.categories.IsOpen(), g.status)
+	}
+	clickGalleryButton(t, u, "categoryButton")
+	if !g.categories.IsOpen() || g.status != "Categories opened (demo)" {
+		t.Fatalf("reopen: open=%v status=%q", g.categories.IsOpen(), g.status)
 	}
 }
 

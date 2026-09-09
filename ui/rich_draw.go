@@ -19,6 +19,9 @@ func (u *UI) drawOneSpecial(widget widgets.Widget) bool {
 	case *widgets.TabBar:
 		u.drawTabBar(w, u.visualState(w))
 		return true
+	case *widgets.List:
+		u.drawList(w, u.visualState(w))
+		return true
 	case *widgets.RichText:
 		u.drawRichText(w, u.visualState(w))
 		return true
