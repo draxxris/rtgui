@@ -25,7 +25,7 @@ func (g *gallery) setupGameWidgets() {
 	}
 	g.facade.SetRichTooltip("marketGraph", core.RichTooltip{Title: "Market history", Subtitle: "Cached line graph", Segments: []core.RichSegment{{Text: "The Style tab shows numeric series with cached ticks and labels."}}})
 	g.facade.SetRichTooltip(g.frameButton.Name(), core.RichTooltip{
-		Title: "Thunderfury", Subtitle: "Legendary sword",
+		Title: "Thunderfury", Subtitle: "Legendary sword", Class: "item",
 		HasTitleColor: true, TitleColor: core.Color{R: 255, G: 180, B: 70, A: 255},
 		Segments: []core.RichSegment{{Text: "+12 Strength\n", HasColor: true, Color: core.Color{R: 120, G: 220, B: 130, A: 255}}, {Text: "Drag this button onto the left decoration panel. Escape cancels."}},
 	})

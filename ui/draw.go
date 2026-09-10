@@ -312,7 +312,7 @@ func (u *UI) drawTooltipPopup() {
 		return
 	}
 	segments := [1]core.RichSegment{{Text: text}}
-	u.richTipCache.Update(u.theme, core.RichTooltip{Segments: segments[:]}, anchor, u.logicalSize(), u.tooltipPadding())
+	u.richTipCache.Update(u.theme, core.RichTooltip{Segments: segments[:]}, anchor, u.logicalSize(), u.tooltipPadding(""))
 	u.theme.DrawRichTooltip(core.WidgetInfo{Name: "tooltip", Kind: core.WidgetTooltip}, &u.richTipCache)
 }
 
@@ -324,17 +324,18 @@ func (u *UI) drawLineGraph(graph *widgets.LineGraph) {
 }
 
 // tooltipPadding returns the maximum authored tooltip content inset so
-// outer bounds match the drawn shell. Unskinned tooltips use zero and let
-// the renderer apply its fallback inset.
-func (u *UI) tooltipPadding() float32 {
+// outer bounds match the drawn shell. The class variant selects
+// Tooltip.<class> when set. Unskinned tooltips use zero and let the
+// renderer apply its fallback inset.
+func (u *UI) tooltipPadding(class string) float32 {
 	if u == nil || u.theme == nil {
 		return 0
 	}
 	padding := float32(0)
-	if background, ok := u.theme.Lookup(core.WidgetTooltip, skin.PartBackground, core.StateNormal); ok {
+	if background, ok := u.theme.Lookup(core.WidgetTooltip, skin.PartBackground, core.StateNormal, class); ok {
 		padding = maxTooltipInset(padding, background)
 	}
-	if border, ok := u.theme.Lookup(core.WidgetTooltip, skin.PartBorder, core.StateNormal); ok {
+	if border, ok := u.theme.Lookup(core.WidgetTooltip, skin.PartBorder, core.StateNormal, class); ok {
 		padding = maxTooltipInset(padding, border)
 	}
 	return padding

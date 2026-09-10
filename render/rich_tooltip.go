@@ -155,6 +155,7 @@ func (c *RichTooltipCache) Invalidate() {
 	c.bodySpans = c.bodySpans[:0]
 	c.data.Segments = c.data.Segments[:0]
 	c.data.Title, c.data.Subtitle = "", ""
+	c.data.Class = ""
 	c.bounds, c.content, c.iconDest = core.Rect{}, core.Rect{}, core.Rect{}
 	c.ready, c.valid, c.hasIcon = false, false, false
 }
@@ -238,7 +239,7 @@ func richTooltipFontReady(theme *Theme) bool {
 // popup, and places it at the anchor. It is the only Update path that may
 // allocate, and only when layout keys change.
 func (c *RichTooltipCache) rebuild(theme *Theme, data core.RichTooltip, anchor, viewport core.Vec2, maxWidth, padding float32, revision uint64, fontReady bool) {
-	left, top, right, bottom := richTooltipInsets(theme, padding)
+	left, top, right, bottom := richTooltipInsets(theme, data.Class, padding)
 	contentW := richTooltipContentWidth(maxWidth, viewport.X, left+right)
 	icon := effectiveRichTooltipIcon(data)
 	textW := richTooltipTextWidth(contentW, icon)
@@ -263,12 +264,13 @@ func (c *RichTooltipCache) rebuild(theme *Theme, data core.RichTooltip, anchor, 
 }
 
 // richTooltipInsets returns the WidgetTooltip shell insets for the theme.
-// Padding fills every side when the skin carries no insets so the caller
-// padding always shapes geometry; a nil theme yields padding throughout.
-func richTooltipInsets(theme *Theme, padding float32) (left, top, right, bottom float32) {
+// The class variant selects Tooltip.<class> when set. Padding fills every
+// side when the skin carries no insets so the caller padding always shapes
+// geometry; a nil theme yields padding throughout.
+func richTooltipInsets(theme *Theme, class string, padding float32) (left, top, right, bottom float32) {
 	if theme != nil {
-		background, _ := theme.resolveDescriptor(core.WidgetTooltip, skin.PartBackground, core.StateNormal)
-		border, _ := theme.resolveDescriptor(core.WidgetTooltip, skin.PartBorder, core.StateNormal)
+		background, _ := theme.resolveDescriptor(core.WidgetTooltip, skin.PartBackground, core.StateNormal, class)
+		border, _ := theme.resolveDescriptor(core.WidgetTooltip, skin.PartBorder, core.StateNormal, class)
 		probe := ContentRect(core.Rect{W: 10000, H: 10000}, background, border)
 		left, top = probe.X, probe.Y
 		right, bottom = 10000-(probe.X+probe.W), 10000-(probe.Y+probe.H)
@@ -570,6 +572,8 @@ func (c *RichTooltipCache) storeBody(header richTooltipHeader, body richTooltipB
 // truncated tails never retain obsolete text or link targets.
 func (c *RichTooltipCache) retain(data core.RichTooltip) {
 	c.data.Title, c.data.Subtitle = data.Title, data.Subtitle
+	c.data.TitleColor, c.data.HasTitleColor = data.TitleColor, data.HasTitleColor
+	c.data.Class = data.Class
 	c.data.Width, c.data.Icon, c.data.HasIcon = data.Width, data.Icon, data.HasIcon
 	clearTooltipSegments(c.data.Segments)
 	if cap(c.data.Segments) < len(data.Segments) {
@@ -673,8 +677,9 @@ func (t *Theme) DrawRichTooltip(info core.WidgetInfo, cache *RichTooltipCache) {
 	}
 	info.Kind = core.WidgetTooltip
 	info.Bounds = bounds
-	t.drawPart(info.Kind, skin.PartBackground, bounds, info.State)
-	t.DrawWidgetPart(info.Kind, skin.PartBorder, bounds, info.State)
+	info.Class = cache.data.Class
+	t.drawPart(info.Kind, skin.PartBackground, bounds, info.State, info.Class)
+	t.DrawWidgetPart(info.Kind, skin.PartBorder, bounds, info.State, info.Class)
 	if t.recorder != nil {
 		t.recorder.setLastWidgetInfo(info)
 	}

@@ -435,14 +435,15 @@ func TestCSSBackgroundColorAndGradientMergeAndInherit(t *testing.T) {
 			Kind: core.WidgetButton, Part: skin.PartBackground, State: core.StateNormal,
 			BackgroundColor:   core.Color{R: 0x10, G: 0x20, B: 0x30, A: 0xFF},
 			HasBackgroundColor: true,
-			Gradient: skin.LinearGradient{
+			Gradients: [skin.MaxGradientLayers]skin.LinearGradient{{
 				Direction: skin.GradientToBottom,
-				Stops: [2]skin.ColorStop{
-					{Color: core.Color{R: 0x00, G: 0x11, B: 0x22, A: 0x80}},
-					{Color: core.Color{R: 0x33, G: 0x44, B: 0x55, A: 0x80}},
+				Stops: [skin.MaxGradientStops]skin.ColorStop{
+					{Color: core.Color{R: 0x00, G: 0x11, B: 0x22, A: 0x80}, Position: 0},
+					{Color: core.Color{R: 0x33, G: 0x44, B: 0x55, A: 0x80}, Position: 1},
 				},
-			},
-			HasGradient: true,
+				StopCount: 2,
+			}},
+			GradientCount: 1,
 		},
 		{
 			Kind: core.WidgetButton, Part: skin.PartBackground, State: core.StateHovered,
@@ -451,14 +452,15 @@ func TestCSSBackgroundColorAndGradientMergeAndInherit(t *testing.T) {
 		},
 		{
 			Kind: core.WidgetButton, Part: skin.PartBackground, State: core.StatePressed,
-			Gradient: skin.LinearGradient{
+			Gradients: [skin.MaxGradientLayers]skin.LinearGradient{{
 				Direction: skin.GradientToTop,
-				Stops: [2]skin.ColorStop{
-					{Color: core.Color{R: 0xAA, G: 0xBB, B: 0xCC, A: 0xFF}},
-					{Color: core.Color{R: 0xDD, G: 0xEE, B: 0xFF, A: 0xFF}},
+				Stops: [skin.MaxGradientStops]skin.ColorStop{
+					{Color: core.Color{R: 0xAA, G: 0xBB, B: 0xCC, A: 0xFF}, Position: 0},
+					{Color: core.Color{R: 0xDD, G: 0xEE, B: 0xFF, A: 0xFF}, Position: 1},
 				},
-			},
-			HasGradient: true,
+				StopCount: 2,
+			}},
+			GradientCount: 1,
 		},
 	}
 	merged, _ := mergeSkinRules(rules)
@@ -467,7 +469,7 @@ func TestCSSBackgroundColorAndGradientMergeAndInherit(t *testing.T) {
 	if !hover.hasBackgroundColor || hover.backgroundColor != (core.Color{R: 0x50, G: 0x60, B: 0x70, A: 0xFF}) {
 		t.Fatalf("hover background-color mismatch: %+v", hover)
 	}
-	if !hover.hasGradient || hover.gradient.Direction != skin.GradientToBottom {
+	if hover.gradientCount != 1 || hover.gradients[0].Direction != skin.GradientToBottom {
 		t.Fatalf("hover inherited gradient mismatch: %+v", hover)
 	}
 
@@ -476,7 +478,7 @@ func TestCSSBackgroundColorAndGradientMergeAndInherit(t *testing.T) {
 	if !press.hasBackgroundColor || press.backgroundColor != (core.Color{R: 0x10, G: 0x20, B: 0x30, A: 0xFF}) {
 		t.Fatalf("pressed inherited background-color mismatch: %+v", press)
 	}
-	if !press.hasGradient || press.gradient.Direction != skin.GradientToTop {
+	if press.gradientCount != 1 || press.gradients[0].Direction != skin.GradientToTop {
 		t.Fatalf("pressed gradient mismatch: %+v", press)
 	}
 }
@@ -519,7 +521,7 @@ func TestTitledNoneClearsInheritedTexture(t *testing.T) {
 	baseKey := skin.SkinKey{Widget: core.WidgetFrame, Part: skin.PartBackground, State: core.StateNormal}
 	classKey := skin.SkinKey{Widget: core.WidgetFrame, Class: "titled-titlebar", Part: skin.PartBackground, State: core.StateNormal}
 	resolved := background(baseKey).Overlay(background(classKey))
-	if resolved.HasTexture || resolved.HasGradient {
+	if resolved.HasTexture || resolved.HasGradient() {
 		t.Fatalf("none must drop inherited texture, got %+v", resolved)
 	}
 	if !resolved.HasBackgroundColor || resolved.BackgroundColor != (core.Color{R: 0x24, G: 0x35, B: 0x4c, A: 0xff}) {
@@ -559,7 +561,7 @@ func TestCSSBackgroundColorAndGradientHeadlessLoadAndDraw(t *testing.T) {
 	}
 
 	btnDesc, ok := theme.Lookup(core.WidgetButton, skin.PartBackground, core.StateNormal)
-	if !ok || !btnDesc.HasBackgroundColor || !btnDesc.HasGradient {
+	if !ok || !btnDesc.HasBackgroundColor || !btnDesc.HasGradient() {
 		t.Fatalf("expected button descriptor with color and gradient, got: ok=%v desc=%+v", ok, btnDesc)
 	}
 	if btnDesc.BackgroundColor != (core.Color{R: 0x20, G: 0x40, B: 0x60, A: 0x80}) {

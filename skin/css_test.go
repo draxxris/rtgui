@@ -219,10 +219,11 @@ func TestParseCSSLinearGradientDefault(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(rules) != 1 || !rules[0].HasGradient || rules[0].Gradient.Direction != GradientToBottom {
+	if len(rules) != 1 || !rules[0].HasGradient() || rules[0].Gradients[0].Direction != GradientToBottom {
 		t.Fatalf("expected GradientToBottom, got %+v", rules)
 	}
-	stops := rules[0].Gradient.Stops
+	grad := rules[0].Gradients[0]
+	stops := grad.Stops
 	if stops[0].Color != (core.Color{R: 0x11, G: 0x22, B: 0x33, A: 255}) || stops[1].Color != (core.Color{R: 0x44, G: 0x55, B: 0x66, A: 255}) {
 		t.Fatalf("unexpected stops: %+v", stops)
 	}
@@ -234,10 +235,11 @@ func TestParseCSSLinearGradientCardinal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(rules) != 1 || !rules[0].HasGradient || rules[0].Gradient.Direction != GradientToRight {
+	if len(rules) != 1 || !rules[0].HasGradient() || rules[0].Gradients[0].Direction != GradientToRight {
 		t.Fatalf("expected GradientToRight, got %+v", rules)
 	}
-	stops := rules[0].Gradient.Stops
+	grad := rules[0].Gradients[0]
+	stops := grad.Stops
 	if stops[0].Color.A != 0x80 || stops[1].Color.A != 0xcc {
 		t.Fatalf("expected alpha stops, got %+v", stops)
 	}
@@ -249,10 +251,11 @@ func TestParseCSSLinearGradientCorner(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(rules) != 1 || !rules[0].HasGradient || rules[0].Gradient.Direction != GradientToBottomRight {
+	if len(rules) != 1 || !rules[0].HasGradient() || rules[0].Gradients[0].Direction != GradientToBottomRight {
 		t.Fatalf("expected GradientToBottomRight, got %+v", rules)
 	}
-	stops := rules[0].Gradient.Stops
+	grad := rules[0].Gradients[0]
+	stops := grad.Stops
 	if stops[0].Position != 0.0 || stops[1].Position != 1.0 {
 		t.Fatalf("expected percentage positions, got %+v", stops)
 	}
@@ -264,7 +267,7 @@ func TestParseCSSLinearGradientToTop(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(rules) != 1 || !rules[0].HasGradient || rules[0].Gradient.Direction != GradientToTop {
+	if len(rules) != 1 || !rules[0].HasGradient() || rules[0].Gradients[0].Direction != GradientToTop {
 		t.Fatalf("expected GradientToTop, got %+v", rules)
 	}
 }
@@ -278,7 +281,7 @@ func TestParseCSSLinearGradientErrors(t *testing.T) {
 		`Button { background-image: linear-gradient(to bottom, red, #445566); }`,
 		`Button { background-image: linear-gradient(to bottom, #112233, blue); }`,
 		`Button { background-image: linear-gradient(to bottom, #112233 150%, #445566); }`,
-		`Button { background-image: linear-gradient(to bottom, #112233, #445566, #778899, #aabbcc); }`,
+		`Button { background-image: linear-gradient(to bottom, #112233, #445566, #778899, #aabbcc, #ddeeff); }`,
 		`Button { background-color: red; }`,
 		`Button { background-color: #123; }`,
 		`Button { background-color: #12345; }`,
@@ -296,7 +299,7 @@ func TestParseCSSBackgroundImageNone(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(rules) != 1 || rules[0].HasImage || rules[0].HasGradient || !rules[0].NoTexture {
+	if len(rules) != 1 || rules[0].HasImage || rules[0].HasGradient() || !rules[0].NoTexture {
 		t.Fatalf("expected clear with no image or gradient, got %+v", rules[0])
 	}
 }

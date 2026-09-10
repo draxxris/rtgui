@@ -10,6 +10,7 @@ It covers widgets, interaction, rendering, memory use, and game integration.
 
 Runtime contracts and breaking changes are in [interaction.md](interaction.md).
 Validation procedures are in [testing.md](testing.md).
+CSS skinning, gradient layers, and tooltip classes are in [skinning.md](skinning.md).
 
 ## Design Principles
 
@@ -62,6 +63,7 @@ Validation procedures are in [testing.md](testing.md).
 - **DONE — Rich tooltips**
 
   - Colored titles, subtitles, colored body segments, and borrowed atlas icons.
+  - `Tooltip.<class>` shell variants selected per payload (see [skinning.md](skinning.md)).
   - Widget hover content, explicitly anchored content, and explicit dismissal.
   - Cached layout, cursor-relative placement, edge flipping, and viewport clamping.
   - Tooltip links remain descriptive rather than interactive.
@@ -86,6 +88,8 @@ Validation procedures are in [testing.md](testing.md).
     traversal.
   - CSS skins, texture atlases, nine-patch geometry, and transactional CSS texture
     loading.
+  - Layered gradients: 1–4 stacked linear, angled, and radial fills with 2–4
+    positioned stops (see [skinning.md](skinning.md)).
   - Explicit borrowed/owned texture lifetimes and a bounded optional draw recorder.
 
 ## DONE — Ownership, Input, and Memory Fixes

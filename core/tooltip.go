@@ -38,9 +38,11 @@ func (icon TooltipIcon) SourceRect() Rect {
 //
 // Title is the item name, Subtitle is optional flavor text, and Segments
 // is the colored multiline body. Width caps the content width; non-positive
-// selects the renderer default. The icon is borrowed metadata; HasIcon
-// selects Icon. The UI layer defensive-copies data before handing it to
-// render, so render may retain strings without copying.
+// selects the renderer default. Class selects the CSS class variant for the
+// shell (Tooltip.<class>); empty uses the base Tooltip skin. The icon is
+// borrowed metadata; HasIcon selects Icon. The UI layer defensive-copies
+// data before handing it to render, so render may retain strings without
+// copying.
 type RichTooltip struct {
 	// Title is the item name drawn first.
 	Title string
@@ -57,6 +59,8 @@ type RichTooltip struct {
 	Icon TooltipIcon
 	// HasIcon selects Icon.
 	HasIcon bool
+	// Class selects the CSS class variant for the shell; empty is unclassed.
+	Class string
 }
 
 // HasTitle reports whether a title row should be laid out.
@@ -86,9 +90,12 @@ func (d RichTooltip) DesiredWidth(fallback float32) float32 {
 }
 
 // RichTooltipDataEqual reports whether two tooltip payloads match exactly,
-// including icon metadata and every body segment field.
+// including the shell class, icon metadata, and every body segment field.
 func RichTooltipDataEqual(a, b RichTooltip) bool {
 	if a.Title != b.Title || a.Subtitle != b.Subtitle {
+		return false
+	}
+	if a.Class != b.Class {
 		return false
 	}
 	if a.HasTitleColor != b.HasTitleColor || a.HasTitleColor && a.TitleColor != b.TitleColor {

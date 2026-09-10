@@ -115,9 +115,11 @@ func drawFallbackPart(dest core.Rect, tint color.RGBA) {
 	rl.DrawRectangleLinesEx(toRaylibRect(dest), 1, color.RGBA{R: 255, G: 0, B: 255, A: 255})
 }
 
-// drawDescriptorBackground renders the solid color, linear gradient, and texture layers of descriptor into dest.
-// A declared border-radius clips the layers to a rounded rectangle so square
-// fills never peek past rounded border textures; radius zero keeps the sharp path.
+// drawDescriptorBackground renders the solid color, gradient stack, and
+// texture layers of descriptor into dest. Layers composite back-to-front so
+// multiple directions and centers blend like the reference tooltip. A
+// declared border-radius clips the layers to a rounded rectangle so square
+// fills never peek past rounded border textures.
 func drawDescriptorBackground(descriptor skin.SkinDescriptor, dest core.Rect, tint color.RGBA) {
 	if radius := effectiveBackgroundRadius(descriptor, dest); radius > 0 {
 		drawRoundedBackground(descriptor, dest, tint, radius)
@@ -126,68 +128,325 @@ func drawDescriptorBackground(descriptor skin.SkinDescriptor, dest core.Rect, ti
 	if descriptor.HasBackgroundColor && descriptor.BackgroundColor.A > 0 {
 		rl.DrawRectangleRec(toRaylibRect(dest), descriptor.BackgroundColor.RGBA())
 	}
-	if descriptor.HasGradient {
-		drawLinearGradient(descriptor.Gradient, dest)
+	for i := descriptor.GradientCount - 1; i >= 0; i-- {
+		drawGradient(descriptor.Gradients[i], dest)
 	}
 	if descriptor.HasTexture && descriptor.Texture.ID != 0 {
 		drawTexturedPart(descriptor, dest, tint)
 	}
 }
 
-// hasVisualBackground reports whether descriptor contains a drawable color, gradient, or texture.
+// hasVisualBackground reports whether descriptor holds a drawable layer.
 func hasVisualBackground(descriptor skin.SkinDescriptor) bool {
 	return (descriptor.HasBackgroundColor && descriptor.BackgroundColor.A > 0) ||
-		descriptor.HasGradient ||
+		descriptor.HasGradient() ||
 		(descriptor.HasTexture && descriptor.Texture.ID != 0)
 }
 
-// drawLinearGradient renders a 2-stop linear gradient across dest using vertex colors.
-func drawLinearGradient(grad skin.LinearGradient, dest core.Rect) {
-	if dest.W <= 0 || dest.H <= 0 {
+// drawGradient dispatches one gradient layer to its linear or radial path.
+func drawGradient(grad skin.Gradient, dest core.Rect) {
+	if dest.W <= 0 || dest.H <= 0 || grad.StopCount < 2 {
 		return
 	}
-	c0 := grad.Stops[0].Color.RGBA()
-	c1 := grad.Stops[1].Color.RGBA()
-	topLeft, bottomLeft, bottomRight, topRight := gradientQuadColors(grad.Direction, c0, c1)
-	rl.DrawRectangleGradientEx(toRaylibRect(dest), topLeft, bottomLeft, bottomRight, topRight)
+	if !rl.IsWindowReady() {
+		return
+	}
+	if grad.Kind == skin.GradientRadial {
+		drawRadialGradient(grad, dest)
+		return
+	}
+	drawLinearGradient(grad, dest)
 }
 
-// gradientQuadColors returns the 4-corner vertex colors for a linear gradient direction.
-func gradientQuadColors(dir skin.GradientDirection, c0, c1 color.RGBA) (topLeft, bottomLeft, bottomRight, topRight color.RGBA) {
-	switch dir {
-	case skin.GradientToBottom:
-		return c0, c1, c1, c0
-	case skin.GradientToTop:
-		return c1, c0, c0, c1
-	case skin.GradientToRight:
-		return c0, c0, c1, c1
-	case skin.GradientToLeft:
-		return c1, c1, c0, c0
-	case skin.GradientToBottomRight:
-		mid := blendColor(c0, c1)
-		return c0, mid, c1, mid
-	case skin.GradientToBottomLeft:
-		mid := blendColor(c0, c1)
-		return mid, c1, mid, c0
-	case skin.GradientToTopRight:
-		mid := blendColor(c0, c1)
-		return mid, c0, mid, c1
-	case skin.GradientToTopLeft:
-		mid := blendColor(c0, c1)
-		return c1, mid, c0, mid
+// drawLinearGradient renders a linear gradient with stop positions honored.
+// Two-stop edge-to-edge fills use one quad; cardinal multi-stops slice into
+// exact strips; diagonal and angled multi-stops use a banded mesh.
+func drawLinearGradient(grad skin.Gradient, dest core.Rect) {
+	if isSingleQuadGradient(grad) {
+		tl, bl, br, tr := linearQuadCorners(grad)
+		rl.DrawRectangleGradientEx(toRaylibRect(dest), tl, bl, br, tr)
+		return
+	}
+	if isCardinalGradient(grad) {
+		drawCardinalStrips(grad, dest)
+		return
+	}
+	drawLinearBandedMesh(grad, dest)
+}
+
+// isSingleQuadGradient reports whether one quad reproduces the gradient.
+// Two edge-to-edge stops are linear in (u, v) for any direction or angle.
+func isSingleQuadGradient(grad skin.Gradient) bool {
+	return grad.StopCount == 2 && grad.Stops[0].Position <= 0 && grad.Stops[1].Position >= 1
+}
+
+// linearQuadCorners samples the four destination corners of a linear fill.
+func linearQuadCorners(grad skin.Gradient) (topLeft, bottomLeft, bottomRight, topRight color.RGBA) {
+	return sampleLinearRGBA(grad, 0, 0),
+		sampleLinearRGBA(grad, 0, 1),
+		sampleLinearRGBA(grad, 1, 1),
+		sampleLinearRGBA(grad, 1, 0)
+}
+
+// sampleLinearRGBA samples a linear gradient at normalized (u, v).
+func sampleLinearRGBA(grad skin.Gradient, u, v float32) color.RGBA {
+	return skin.SampleLinearAt(grad, u, v).RGBA()
+}
+
+// isCardinalGradient reports a horizontal or vertical fill without an angle.
+func isCardinalGradient(grad skin.Gradient) bool {
+	if grad.UseAngle {
+		return false
+	}
+	switch grad.Direction {
+	case skin.GradientToBottom, skin.GradientToTop, skin.GradientToRight, skin.GradientToLeft:
+		return true
 	default:
-		return c0, c1, c1, c0
+		return false
 	}
 }
 
-// blendColor computes the 50% linear midpoint between two RGBA colors.
-func blendColor(c0, c1 color.RGBA) color.RGBA {
-	return color.RGBA{
-		R: uint8((int(c0.R) + int(c1.R)) / 2),
-		G: uint8((int(c0.G) + int(c1.G)) / 2),
-		B: uint8((int(c0.B) + int(c1.B)) / 2),
-		A: uint8((int(c0.A) + int(c1.A)) / 2),
+// isVerticalGradient reports a bottom or top fill without an angle.
+func isVerticalGradient(grad skin.Gradient) bool {
+	return !grad.UseAngle && (grad.Direction == skin.GradientToBottom || grad.Direction == skin.GradientToTop)
+}
+
+// drawCardinalStrips slices a multi-stop cardinal fill into exact strips.
+func drawCardinalStrips(grad skin.Gradient, dest core.Rect) {
+	if isVerticalGradient(grad) {
+		drawVerticalStrips(grad, dest)
+		return
 	}
+	drawHorizontalStrips(grad, dest)
+}
+
+// drawVerticalStrips renders a vertical multi-stop fill as horizontal bands.
+// Boundaries come from stop positions mapped to y and sorted ascending; each
+// band samples its edge colors so hard stops and mid fades stay exact.
+func drawVerticalStrips(grad skin.Gradient, dest core.Rect) {
+	var bounds [skin.MaxGradientStops + 2]float32
+	n := verticalBounds(grad, dest, &bounds)
+	for i := 0; i+1 < n; i++ {
+		y0, y1 := bounds[i], bounds[i+1]
+		if y1 <= y0 {
+			continue
+		}
+		v0 := (y0 - dest.Y) / dest.H
+		v1 := (y1 - dest.Y) / dest.H
+		top := sampleLinearRGBA(grad, 0.5, v0)
+		bottom := sampleLinearRGBA(grad, 0.5, v1)
+		band := core.Rect{X: dest.X, Y: y0, W: dest.W, H: y1 - y0}
+		rl.DrawRectangleGradientEx(toRaylibRect(band), top, bottom, bottom, top)
+	}
+}
+
+// verticalBounds collects sorted y boundaries from stop positions.
+func verticalBounds(grad skin.Gradient, dest core.Rect, bounds *[skin.MaxGradientStops + 2]float32) int {
+	n := 0
+	bounds[n], n = dest.Y, n+1
+	for i := 0; i < grad.StopCount; i++ {
+		bounds[n], n = stopY(grad, dest, i), n+1
+	}
+	bounds[n], n = dest.Y+dest.H, n+1
+	sortAscending(bounds, n)
+	return n
+}
+
+// stopY maps one stop position to its y for the gradient direction.
+func stopY(grad skin.Gradient, dest core.Rect, index int) float32 {
+	p := grad.Stops[index].Position
+	if p < 0 {
+		p = 0
+	}
+	if p > 1 {
+		p = 1
+	}
+	if grad.Direction == skin.GradientToTop && !grad.UseAngle {
+		return dest.Y + (1-p)*dest.H
+	}
+	return dest.Y + p*dest.H
+}
+
+// drawHorizontalStrips renders a horizontal multi-stop fill as vertical bands.
+func drawHorizontalStrips(grad skin.Gradient, dest core.Rect) {
+	var bounds [skin.MaxGradientStops + 2]float32
+	n := horizontalBounds(grad, dest, &bounds)
+	for i := 0; i+1 < n; i++ {
+		x0, x1 := bounds[i], bounds[i+1]
+		if x1 <= x0 {
+			continue
+		}
+		u0 := (x0 - dest.X) / dest.W
+		u1 := (x1 - dest.X) / dest.W
+		left := sampleLinearRGBA(grad, u0, 0.5)
+		right := sampleLinearRGBA(grad, u1, 0.5)
+		band := core.Rect{X: x0, Y: dest.Y, W: x1 - x0, H: dest.H}
+		rl.DrawRectangleGradientEx(toRaylibRect(band), left, left, right, right)
+	}
+}
+
+// horizontalBounds collects sorted x boundaries from stop positions.
+func horizontalBounds(grad skin.Gradient, dest core.Rect, bounds *[skin.MaxGradientStops + 2]float32) int {
+	n := 0
+	bounds[n], n = dest.X, n+1
+	for i := 0; i < grad.StopCount; i++ {
+		bounds[n], n = stopX(grad, dest, i), n+1
+	}
+	bounds[n], n = dest.X+dest.W, n+1
+	sortAscending(bounds, n)
+	return n
+}
+
+// stopX maps one stop position to its x for the gradient direction.
+func stopX(grad skin.Gradient, dest core.Rect, index int) float32 {
+	p := grad.Stops[index].Position
+	if p < 0 {
+		p = 0
+	}
+	if p > 1 {
+		p = 1
+	}
+	if grad.Direction == skin.GradientToLeft && !grad.UseAngle {
+		return dest.X + (1-p)*dest.W
+	}
+	return dest.X + p*dest.W
+}
+
+// sortAscending bubble-sorts the used prefix of bounds in place.
+func sortAscending(bounds *[skin.MaxGradientStops + 2]float32, n int) {
+	for i := 0; i < n; i++ {
+		for j := i + 1; j < n; j++ {
+			if bounds[j] < bounds[i] {
+				bounds[i], bounds[j] = bounds[j], bounds[i]
+			}
+		}
+	}
+}
+
+// linearBandMaxRows caps the tessellation of angled multi-stop fills.
+// Rows stay at one pixel for tooltip-scale widgets and coarsen for tall
+// panels, keeping vertex emission bounded per frame.
+const linearBandMaxRows = 128
+
+// drawLinearBandedMesh renders diagonal and angled multi-stop fills.
+// Capped rows batch into a single triangle mesh with per-vertex colors,
+// so kinks between stops stay smooth without one draw call per row.
+func drawLinearBandedMesh(grad skin.Gradient, dest core.Rect) {
+	u0, v0, u1, v1, ready := beginGradientMesh()
+	if !ready {
+		return
+	}
+	rows := int(dest.H + 0.5)
+	if rows < 1 {
+		rows = 1
+	}
+	if rows > linearBandMaxRows {
+		rows = linearBandMaxRows
+	}
+	for i := 0; i < rows; i++ {
+		y0 := dest.Y + float32(i)*dest.H/float32(rows)
+		y1 := dest.Y + float32(i+1)*dest.H/float32(rows)
+		emitLinearBand(grad, dest, y0, y1, u0, v0, u1, v1)
+	}
+	endGradientMesh()
+}
+
+// emitLinearBand emits one band quad of a diagonal fill with sampled corners.
+func emitLinearBand(grad skin.Gradient, dest core.Rect, y0, y1, u0, v0, u1, v1 float32) {
+	w0 := (y0 - dest.Y) / dest.H
+	w1 := (y1 - dest.Y) / dest.H
+	emitGradientQuad(dest.X, y0, dest.X+dest.W, y1,
+		sampleLinearRGBA(grad, 0, w0), sampleLinearRGBA(grad, 0, w1),
+		sampleLinearRGBA(grad, 1, w1), sampleLinearRGBA(grad, 1, w0),
+		u0, v0, u1, v1)
+}
+
+// radialGridDivisions bounds the tessellation of radial fills.
+const radialGridDivisions = 12
+
+// drawRadialGradient renders a radial fill as a batched color mesh.
+// The center maps to position 0 and the farthest unit-square corner to 1,
+// so stop percentages behave like CSS radial stop lists.
+func drawRadialGradient(grad skin.Gradient, dest core.Rect) {
+	u0, v0, u1, v1, ready := beginGradientMesh()
+	if !ready {
+		return
+	}
+	maxDist := skin.RadialMaxDist(grad.CenterX, grad.CenterY)
+	steps := radialGridDivisions
+	for j := 0; j < steps; j++ {
+		for i := 0; i < steps; i++ {
+			emitRadialCell(grad, dest, i, j, steps, maxDist, u0, v0, u1, v1)
+		}
+	}
+	endGradientMesh()
+}
+
+// emitRadialCell emits one grid cell of a radial fill with sampled corners.
+func emitRadialCell(grad skin.Gradient, dest core.Rect, i, j, steps int, maxDist, u0, v0, u1, v1 float32) {
+	nu0 := float32(i) / float32(steps)
+	nu1 := float32(i+1) / float32(steps)
+	nv0 := float32(j) / float32(steps)
+	nv1 := float32(j+1) / float32(steps)
+	emitGradientQuad(dest.X+nu0*dest.W, dest.Y+nv0*dest.H, dest.X+nu1*dest.W, dest.Y+nv1*dest.H,
+		sampleRadialRGBA(grad, nu0, nv0, maxDist), sampleRadialRGBA(grad, nu0, nv1, maxDist),
+		sampleRadialRGBA(grad, nu1, nv1, maxDist), sampleRadialRGBA(grad, nu1, nv0, maxDist),
+		u0, v0, u1, v1)
+}
+
+// sampleRadialRGBA samples a radial gradient with a precomputed max distance.
+func sampleRadialRGBA(grad skin.Gradient, u, v, maxDist float32) color.RGBA {
+	return skin.SampleRadialAt(grad, u, v, maxDist).RGBA()
+}
+
+// beginGradientMesh binds the white shapes pixel and opens a triangle batch.
+// It reports ready=false without touching GL headlessly, matching the fill
+// mesh used below the line graph widget.
+func beginGradientMesh() (u0, v0, u1, v1 float32, ready bool) {
+	if !rl.IsWindowReady() {
+		return 0, 0, 0, 0, false
+	}
+	shapeTex := rl.GetShapesTexture()
+	shapeRec := rl.GetShapesTextureRectangle()
+	if shapeTex.Width > 0 && shapeTex.Height > 0 {
+		u0 = shapeRec.X / float32(shapeTex.Width)
+		v0 = shapeRec.Y / float32(shapeTex.Height)
+		u1 = (shapeRec.X + shapeRec.Width) / float32(shapeTex.Width)
+		v1 = (shapeRec.Y + shapeRec.Height) / float32(shapeTex.Height)
+	}
+	rl.SetTexture(shapeTex.ID)
+	rl.Begin(rl.Triangles)
+	return u0, v0, u1, v1, true
+}
+
+// endGradientMesh closes the batch opened by beginGradientMesh.
+func endGradientMesh() {
+	rl.End()
+	rl.SetTexture(0)
+}
+
+// emitGradientQuad emits two counter-clockwise triangles for an axis quad.
+// Corner colors run top-left, bottom-left, bottom-right, top-right, matching
+// the winding raylib shapes use while culling stays enabled.
+func emitGradientQuad(x0, y0, x1, y1 float32, tl, bl, br, tr color.RGBA, u0, v0, u1, v1 float32) {
+	rl.TexCoord2f(u1, v1)
+	rl.Color4ub(br.R, br.G, br.B, br.A)
+	rl.Vertex2f(x1, y1)
+	rl.TexCoord2f(u1, v0)
+	rl.Color4ub(tr.R, tr.G, tr.B, tr.A)
+	rl.Vertex2f(x1, y0)
+	rl.TexCoord2f(u0, v0)
+	rl.Color4ub(tl.R, tl.G, tl.B, tl.A)
+	rl.Vertex2f(x0, y0)
+	rl.TexCoord2f(u0, v1)
+	rl.Color4ub(bl.R, bl.G, bl.B, bl.A)
+	rl.Vertex2f(x0, y1)
+	rl.TexCoord2f(u1, v1)
+	rl.Color4ub(br.R, br.G, br.B, br.A)
+	rl.Vertex2f(x1, y1)
+	rl.TexCoord2f(u0, v0)
+	rl.Color4ub(tl.R, tl.G, tl.B, tl.A)
+	rl.Vertex2f(x0, y0)
 }
 
 // renderDescriptorOrFallback renders descriptor visuals or a debug fallback box.

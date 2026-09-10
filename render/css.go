@@ -66,8 +66,9 @@ type mergedRule struct {
 	hasBackgroundColor bool
 	radius             float32
 	hasRadius          bool
-	gradient           skin.LinearGradient
-	hasGradient        bool
+	gradients          [skin.MaxGradientLayers]skin.LinearGradient
+	gradientCount      int
+	hasGradientDecl    bool
 	font               string
 	hasFont            bool
 	italicFont         string
@@ -160,15 +161,20 @@ func mergeSkinRules(rules []skin.SkinRule) (map[skin.SkinKey]mergedRule, []skin.
 func mergeRuleImage(entry *mergedRule, rule skin.SkinRule) {
 	if rule.HasImage {
 		entry.image, entry.hasImage = rule.Image, true
+		entry.gradients, entry.gradientCount = [skin.MaxGradientLayers]skin.LinearGradient{}, 0
+		entry.hasGradientDecl = false
 		entry.noTexture = false
 	}
 	if rule.NoTexture {
 		entry.image, entry.hasImage = "", false
-		entry.gradient, entry.hasGradient = skin.LinearGradient{}, false
+		entry.gradients, entry.gradientCount = [skin.MaxGradientLayers]skin.LinearGradient{}, 0
+		entry.hasGradientDecl = false
 		entry.noTexture = true
 	}
-	if rule.HasGradient {
-		entry.gradient, entry.hasGradient = rule.Gradient, true
+	if rule.GradientCount > 0 {
+		entry.gradients, entry.gradientCount = rule.Gradients, rule.GradientCount
+		entry.image, entry.hasImage = "", false
+		entry.hasGradientDecl = true
 		entry.noTexture = false
 	}
 }
@@ -243,8 +249,10 @@ func inheritNormalVisuals(entry *mergedRule, base mergedRule) {
 	if !entry.hasRadius {
 		entry.radius, entry.hasRadius = base.radius, base.hasRadius
 	}
-	if !entry.hasGradient {
-		entry.gradient, entry.hasGradient = base.gradient, base.hasGradient
+	// An explicit background-image replaces every layer, so states inherit
+	// the whole stack only when they declare no gradient of their own.
+	if !entry.hasGradientDecl {
+		entry.gradients, entry.gradientCount = base.gradients, base.gradientCount
 	}
 }
 
@@ -367,9 +375,9 @@ func (t *Theme) buildCSSDescriptor(key skin.SkinKey, entry mergedRule, base stri
 		descriptor.Radius = entry.radius
 		descriptor.HasRadius = true
 	}
-	if entry.hasGradient {
-		descriptor.Gradient = entry.gradient
-		descriptor.HasGradient = true
+	if entry.gradientCount > 0 {
+		descriptor.Gradients = entry.gradients
+		descriptor.GradientCount = entry.gradientCount
 	}
 	applyDescriptorText(&descriptor, entry)
 	return descriptor, nil

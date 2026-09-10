@@ -68,14 +68,14 @@ func roundedRowInset(radius float32, row int) float32 {
 }
 
 // drawRoundedBackground renders descriptor layers clipped to radius. Color,
-// gradient, and single textures tile into bands; patched textures fall back
-// to sharp drawing since their tiles cannot follow the arc.
+// the gradient stack, and single textures tile into bands; patched textures
+// fall back to sharp drawing since their tiles cannot follow the arc.
 func drawRoundedBackground(descriptor skin.SkinDescriptor, dest core.Rect, tint color.RGBA, radius float32) {
 	if descriptor.HasBackgroundColor && descriptor.BackgroundColor.A > 0 {
 		drawRoundedColor(descriptor.BackgroundColor.RGBA(), dest, radius)
 	}
-	if descriptor.HasGradient {
-		drawRoundedGradient(descriptor.Gradient, dest, radius)
+	for i := descriptor.GradientCount - 1; i >= 0; i-- {
+		drawRoundedGradient(descriptor.Gradients[i], dest, radius)
 	}
 	if descriptor.HasTexture && descriptor.Texture.ID != 0 {
 		if hasNinePatchBorders(descriptor) || descriptor.HasThreePatch {
@@ -98,28 +98,149 @@ func drawRoundedColor(fill color.RGBA, dest core.Rect, radius float32) {
 	}
 }
 
-// drawRoundedGradient tiles a gradient into rounded bands. Each band samples
-// the sharp quad's bilinear surface at its own corners, so the union matches
-// drawLinearGradient exactly.
-func drawRoundedGradient(grad skin.LinearGradient, dest core.Rect, radius float32) {
-	c0 := grad.Stops[0].Color.RGBA()
-	c1 := grad.Stops[1].Color.RGBA()
-	topLeft, bottomLeft, bottomRight, topRight := gradientQuadColors(grad.Direction, c0, c1)
+// drawRoundedGradient tiles one gradient layer into rounded bands.
+// Linear bands sample their own corners so two-stop fills match the sharp
+// path exactly; radial bands subdivide into a batched mesh so the center
+// highlight survives rounded clipping.
+func drawRoundedGradient(grad skin.Gradient, dest core.Rect, radius float32) {
+	if grad.StopCount < 2 || dest.W <= 0 || dest.H <= 0 {
+		return
+	}
+	if grad.Kind == skin.GradientRadial {
+		drawRoundedRadial(grad, dest, radius)
+		return
+	}
+	drawRoundedLinear(grad, dest, radius)
+}
+
+// drawRoundedLinear tiles a linear gradient into rounded bands.
+// Corner rows draw as single quads; the tall middle band of a cardinal fill
+// subdivides at stop boundaries so multi-stop kinks match the sharp path.
+func drawRoundedLinear(grad skin.Gradient, dest core.Rect, radius float32) {
 	count := roundedBandCount(radius)
 	for i := range count {
 		band := roundedBand(dest, radius, i, count)
 		if band.W <= 0 || band.H <= 0 {
 			continue
 		}
-		u0 := (band.X - dest.X) / dest.W
-		u1 := (band.X + band.W - dest.X) / dest.W
-		v0 := (band.Y - dest.Y) / dest.H
-		v1 := (band.Y + band.H - dest.Y) / dest.H
-		rl.DrawRectangleGradientEx(toRaylibRect(band),
-			bilinearColor(topLeft, bottomLeft, bottomRight, topRight, u0, v0),
-			bilinearColor(topLeft, bottomLeft, bottomRight, topRight, u0, v1),
-			bilinearColor(topLeft, bottomLeft, bottomRight, topRight, u1, v1),
-			bilinearColor(topLeft, bottomLeft, bottomRight, topRight, u1, v0))
+		if i == count/2 && isCardinalGradient(grad) {
+			emitRoundedMiddleStrips(grad, dest, band)
+			continue
+		}
+		emitRoundedLinearBand(grad, dest, band)
+	}
+}
+
+// emitRoundedMiddleStrips subdivides the tall middle band at stop edges.
+// Each sub-strip samples its own corners, reproducing sharp-path kinks.
+func emitRoundedMiddleStrips(grad skin.Gradient, dest, band core.Rect) {
+	if isVerticalGradient(grad) {
+		emitRoundedMiddleRows(grad, dest, band)
+		return
+	}
+	emitRoundedMiddleColumns(grad, dest, band)
+}
+
+// emitRoundedMiddleRows slices a vertical middle band into horizontal strips.
+func emitRoundedMiddleRows(grad skin.Gradient, dest, band core.Rect) {
+	var bounds [skin.MaxGradientStops + 2]float32
+	n := verticalBounds(grad, dest, &bounds)
+	for i := 0; i+1 < n; i++ {
+		y0 := maxFloat(bounds[i], band.Y)
+		y1 := minFloat(bounds[i+1], band.Y+band.H)
+		if y1 <= y0 {
+			continue
+		}
+		emitRoundedLinearBand(grad, dest, core.Rect{X: band.X, Y: y0, W: band.W, H: y1 - y0})
+	}
+}
+
+// emitRoundedMiddleColumns slices a horizontal middle band into vertical strips.
+func emitRoundedMiddleColumns(grad skin.Gradient, dest, band core.Rect) {
+	var bounds [skin.MaxGradientStops + 2]float32
+	n := horizontalBounds(grad, dest, &bounds)
+	for i := 0; i+1 < n; i++ {
+		x0 := maxFloat(bounds[i], band.X)
+		x1 := minFloat(bounds[i+1], band.X+band.W)
+		if x1 <= x0 {
+			continue
+		}
+		emitRoundedLinearBand(grad, dest, core.Rect{X: x0, Y: band.Y, W: x1 - x0, H: band.H})
+	}
+}
+
+// emitRoundedLinearBand draws one rounded band with sampled corners.
+func emitRoundedLinearBand(grad skin.Gradient, dest, band core.Rect) {
+	u0 := (band.X - dest.X) / dest.W
+	u1 := (band.X + band.W - dest.X) / dest.W
+	v0 := (band.Y - dest.Y) / dest.H
+	v1 := (band.Y + band.H - dest.Y) / dest.H
+	rl.DrawRectangleGradientEx(toRaylibRect(band),
+		sampleLinearRGBA(grad, u0, v0),
+		sampleLinearRGBA(grad, u0, v1),
+		sampleLinearRGBA(grad, u1, v1),
+		sampleLinearRGBA(grad, u1, v0))
+}
+
+// roundedRadialColumns bounds the horizontal tessellation of radial bands.
+const roundedRadialColumns = 12
+
+// roundedRadialRows bounds the vertical slices of the tall middle band.
+const roundedRadialRows = 12
+
+// drawRoundedRadial tiles a radial gradient into a batched rounded mesh.
+// Corner rows emit one strip of column cells each; the tall middle band
+// splits into rows so vertical falloff stays smooth in a single batch.
+func drawRoundedRadial(grad skin.Gradient, dest core.Rect, radius float32) {
+	u0, v0, u1, v1, ready := beginGradientMesh()
+	if !ready {
+		return
+	}
+	maxDist := skin.RadialMaxDist(grad.CenterX, grad.CenterY)
+	count := roundedBandCount(radius)
+	for i := range count {
+		band := roundedBand(dest, radius, i, count)
+		if band.W <= 0 || band.H <= 0 {
+			continue
+		}
+		if i == count/2 {
+			emitRoundedRadialMiddle(grad, dest, band, maxDist, u0, v0, u1, v1)
+			continue
+		}
+		emitRoundedRadialStrip(grad, dest, band, maxDist, u0, v0, u1, v1)
+	}
+	endGradientMesh()
+}
+
+// emitRoundedRadialMiddle splits the tall middle band into row slices.
+func emitRoundedRadialMiddle(grad skin.Gradient, dest, band core.Rect, maxDist, u0, v0, u1, v1 float32) {
+	for r := range roundedRadialRows {
+		y0 := band.Y + float32(r)*band.H/float32(roundedRadialRows)
+		y1 := band.Y + float32(r+1)*band.H/float32(roundedRadialRows)
+		sub := core.Rect{X: band.X, Y: y0, W: band.W, H: y1 - y0}
+		if sub.H <= 0 {
+			continue
+		}
+		emitRoundedRadialStrip(grad, dest, sub, maxDist, u0, v0, u1, v1)
+	}
+}
+
+// emitRoundedRadialStrip emits one band row as column cells with sampled corners.
+func emitRoundedRadialStrip(grad skin.Gradient, dest, band core.Rect, maxDist, u0, v0, u1, v1 float32) {
+	for c := range roundedRadialColumns {
+		x0 := band.X + float32(c)*band.W/float32(roundedRadialColumns)
+		x1 := band.X + float32(c+1)*band.W/float32(roundedRadialColumns)
+		if x1 <= x0 {
+			continue
+		}
+		nu0 := (x0 - dest.X) / dest.W
+		nu1 := (x1 - dest.X) / dest.W
+		nv0 := (band.Y - dest.Y) / dest.H
+		nv1 := (band.Y + band.H - dest.Y) / dest.H
+		emitGradientQuad(x0, band.Y, x1, band.Y+band.H,
+			sampleRadialRGBA(grad, nu0, nv0, maxDist), sampleRadialRGBA(grad, nu0, nv1, maxDist),
+			sampleRadialRGBA(grad, nu1, nv1, maxDist), sampleRadialRGBA(grad, nu1, nv0, maxDist),
+			u0, v0, u1, v1)
 	}
 }
 

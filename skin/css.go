@@ -8,6 +8,16 @@
 // background-color, border-image-source-tint, border-radius, padding, color, font-size,
 // font-family, font-italic-family). Anything else is a hard error. Image sources
 // accept url(...) or none; none drops inherited textures and gradients.
+//
+// Gradient layers for background-image: one to four comma-separated layers,
+// first layer on top. Each layer is linear-gradient([to <dir> | <angle>deg,]
+// <color> [<pos>%], ...) with 2-4 stops, or radial-gradient([circle
+// [at <x>% <y>%],] <color> [<pos>%], ...) with 2-4 stops. Missing stop
+// positions follow CSS Images 3 (ends anchor at 0%/100%, runs interpolate).
+// Example: radial-gradient(circle at 30% 20%, #3a5a7a80, #00000000 60%),
+// linear-gradient(135deg, #17b978 0%, #0ea071 50%, #086972 100%),
+// linear-gradient(to bottom, #2b3d54, #0b1524),
+// linear-gradient(to top, #00000066, #00000000 30%).
 package skin
 
 import (
@@ -68,10 +78,10 @@ type SkinRule struct {
 	// HasRadius reports whether Radius was declared.
 	HasRadius bool
 
-	// Gradient is the parsed linear-gradient descriptor when HasGradient is true.
-	Gradient LinearGradient
-	// HasGradient reports whether Gradient was declared.
-	HasGradient bool
+	// Gradients holds parsed layers, first layer on top, when declared.
+	Gradients [MaxGradientLayers]Gradient
+	// GradientCount is the used prefix length of Gradients.
+	GradientCount int
 
 	// Font stores the font-family specification (url path or face name).
 	Font string
@@ -358,22 +368,22 @@ func applyBackgroundProp(entry *SkinRule, selector, property, value string) erro
 			entry.NoTexture = false
 			return nil
 		}
-		if strings.HasPrefix(lower, "linear-gradient(") {
-			grad, err := parseLinearGradient(selector, property, value)
+		if strings.Contains(lower, "linear-gradient(") || strings.Contains(lower, "radial-gradient(") {
+			layers, count, err := parseBackgroundGradients(selector, property, value)
 			if err != nil {
 				return err
 			}
-			entry.Gradient, entry.HasGradient = grad, true
+			entry.Gradients, entry.GradientCount = layers, count
 			entry.NoTexture = false
 			return nil
 		}
 		if lower == "none" {
 			entry.Image, entry.HasImage = "", false
-			entry.Gradient, entry.HasGradient = LinearGradient{}, false
+			entry.Gradients, entry.GradientCount = [MaxGradientLayers]Gradient{}, 0
 			entry.NoTexture = true
 			return nil
 		}
-		return fmt.Errorf("skin: %s in %q must be url(...) or linear-gradient(...), got %q", property, selector, value)
+		return fmt.Errorf("skin: %s in %q must be url(...), linear-gradient(...), radial-gradient(...), or up to four comma-separated gradient layers, got %q", property, selector, value)
 	case "border-radius":
 		return applyRadiusProp(entry, selector, property, value)
 	case "background-color":
@@ -597,39 +607,6 @@ var gradientDirections = map[string]GradientDirection{
 	"to top left":     GradientToTopLeft,
 }
 
-// parseLinearGradient parses a linear-gradient(...) CSS declaration.
-func parseLinearGradient(selector, property, value string) (LinearGradient, error) {
-	trimmed := strings.TrimSpace(value)
-	if !strings.HasSuffix(trimmed, ")") {
-		return LinearGradient{}, fmt.Errorf("skin: %s in %q has unclosed linear-gradient", property, selector)
-	}
-	prefix := "linear-gradient("
-	inner := strings.TrimSpace(trimmed[len(prefix) : len(trimmed)-1])
-	if inner == "" {
-		return LinearGradient{}, fmt.Errorf("skin: %s in %q has empty linear-gradient", property, selector)
-	}
-	args, err := splitParenArgs(inner)
-	if err != nil {
-		return LinearGradient{}, fmt.Errorf("skin: %s in %q: %w", property, selector, err)
-	}
-	dir, stop0Str, stop1Str, err := resolveGradientArgs(args)
-	if err != nil {
-		return LinearGradient{}, fmt.Errorf("skin: %s in %q: %w", property, selector, err)
-	}
-	stop0, err := parseColorStop(selector, property, stop0Str, 0.0)
-	if err != nil {
-		return LinearGradient{}, err
-	}
-	stop1, err := parseColorStop(selector, property, stop1Str, 1.0)
-	if err != nil {
-		return LinearGradient{}, err
-	}
-	return LinearGradient{
-		Direction: dir,
-		Stops:     [2]ColorStop{stop0, stop1},
-	}, nil
-}
-
 // splitParenArgs splits s by comma only when parentheses are balanced.
 func splitParenArgs(s string) ([]string, error) {
 	var args []string
@@ -666,24 +643,246 @@ func splitParenArgs(s string) ([]string, error) {
 	return args, nil
 }
 
-// resolveGradientArgs resolves direction and the two stop strings from parsed arguments.
-func resolveGradientArgs(args []string) (GradientDirection, string, string, error) {
-	if len(args) == 2 {
-		return GradientToBottom, args[0], args[1], nil
+// parseBackgroundGradients parses comma-separated gradient layers.
+// CSS paints the first layer on top; rendering composites back-to-front.
+func parseBackgroundGradients(selector, property, value string) ([MaxGradientLayers]Gradient, int, error) {
+	var out [MaxGradientLayers]Gradient
+	layers, splitErr := splitParenArgs(strings.TrimSpace(value))
+	if splitErr != nil {
+		return out, 0, fmt.Errorf("skin: %s in %q: %w", property, selector, splitErr)
 	}
-	if len(args) == 3 {
-		dirStr := strings.Join(strings.Fields(strings.ToLower(args[0])), " ")
-		dir, ok := gradientDirections[dirStr]
-		if !ok {
-			return 0, "", "", fmt.Errorf("invalid gradient direction %q", args[0])
+	if len(layers) < 1 || len(layers) > MaxGradientLayers {
+		return out, 0, fmt.Errorf("skin: %s in %q expects 1-%d gradient layers (got %d)", property, selector, MaxGradientLayers, len(layers))
+	}
+	for i, layer := range layers {
+		grad, parseErr := parseGradientLayer(selector, property, layer)
+		if parseErr != nil {
+			return out, 0, parseErr
 		}
-		return dir, args[1], args[2], nil
+		out[i] = grad
 	}
-	return 0, "", "", fmt.Errorf("expected 2 color stops (got %d arguments)", len(args))
+	return out, len(layers), nil
 }
 
-// parseColorStop parses a single color stop with optional percentage position.
-func parseColorStop(selector, property, stopStr string, defaultPos float32) (ColorStop, error) {
+// HasGradient reports whether the rule declares any gradient layer.
+func (r SkinRule) HasGradient() bool {
+	return r.GradientCount > 0
+}
+
+// parseGradientLayer dispatches one layer to its linear or radial parser.
+func parseGradientLayer(selector, property, layer string) (LinearGradient, error) {
+	trimmed := strings.TrimSpace(layer)
+	lower := strings.ToLower(trimmed)
+	if strings.HasPrefix(lower, "linear-gradient(") {
+		return parseLinearGradient(selector, property, trimmed)
+	}
+	if strings.HasPrefix(lower, "radial-gradient(") {
+		return parseRadialGradient(selector, property, trimmed)
+	}
+	return LinearGradient{}, fmt.Errorf("skin: %s in %q must be linear-gradient(...) or radial-gradient(...), got %q", property, selector, layer)
+}
+
+// parseLinearGradient parses a single linear-gradient(...) layer.
+// It accepts an optional direction or angle head plus 2-4 color stops.
+func parseLinearGradient(selector, property, value string) (LinearGradient, error) {
+	inner, err := gradientInner(selector, property, value, "linear-gradient(")
+	if err != nil {
+		return LinearGradient{}, err
+	}
+	if inner == "" {
+		return LinearGradient{}, fmt.Errorf("skin: %s in %q has empty linear-gradient", property, selector)
+	}
+	args, err := splitParenArgs(inner)
+	if err != nil {
+		return LinearGradient{}, fmt.Errorf("skin: %s in %q: %w", property, selector, err)
+	}
+	return buildLinearGradient(selector, property, args)
+}
+
+// gradientInner unwraps the parenthesized body of one gradient function.
+func gradientInner(selector, property, value, prefix string) (string, error) {
+	trimmed := strings.TrimSpace(value)
+	if !strings.HasSuffix(trimmed, ")") {
+		return "", fmt.Errorf("skin: %s in %q has unclosed %s", property, selector, strings.TrimSuffix(prefix, "("))
+	}
+	if len(trimmed) <= len(prefix) {
+		return "", fmt.Errorf("skin: %s in %q has empty %s", property, selector, strings.TrimSuffix(prefix, "("))
+	}
+	return strings.TrimSpace(trimmed[len(prefix) : len(trimmed)-1]), nil
+}
+
+// buildLinearGradient resolves the optional head and 2-4 stops.
+func buildLinearGradient(selector, property string, args []string) (LinearGradient, error) {
+	head, stopArgs, err := splitLinearHead(args)
+	if err != nil {
+		return LinearGradient{}, fmt.Errorf("skin: %s in %q: %w", property, selector, err)
+	}
+	if len(stopArgs) < 2 || len(stopArgs) > MaxGradientStops {
+		return LinearGradient{}, fmt.Errorf("skin: %s in %q expects 2-%d color stops (got %d)", property, selector, MaxGradientStops, len(stopArgs))
+	}
+	stops := make([]ColorStop, 0, len(stopArgs))
+	for _, raw := range stopArgs {
+		stop, parseErr := parseColorStopAuto(selector, property, raw)
+		if parseErr != nil {
+			return LinearGradient{}, parseErr
+		}
+		stops = append(stops, stop)
+	}
+	if head.isAngle {
+		grad, ok := NewAngleGradient(head.angle, stops...)
+		if !ok {
+			return LinearGradient{}, fmt.Errorf("skin: %s in %q has invalid stops", property, selector)
+		}
+		return grad, nil
+	}
+	grad, ok := NewLinearGradient(head.dir, stops...)
+	if !ok {
+		return LinearGradient{}, fmt.Errorf("skin: %s in %q has invalid stops", property, selector)
+	}
+	return grad, nil
+}
+
+// linearHead carries a resolved direction or angle prefix.
+type linearHead struct {
+	dir     GradientDirection
+	isAngle bool
+	angle   float32
+}
+
+// splitLinearHead separates an optional direction or angle from stops.
+func splitLinearHead(args []string) (linearHead, []string, error) {
+	if len(args) == 0 {
+		return linearHead{}, nil, fmt.Errorf("expected at least 2 color stops")
+	}
+	head, isHead, err := parseGradientHead(args[0])
+	if err != nil {
+		return linearHead{}, nil, err
+	}
+	if !isHead {
+		return linearHead{dir: GradientToBottom}, args, nil
+	}
+	return head, args[1:], nil
+}
+
+// parseGradientHead detects a direction keyword or CSS angle.
+// It reports isHead=false for color stops so callers keep the default.
+func parseGradientHead(arg string) (linearHead, bool, error) {
+	normalized := strings.Join(strings.Fields(strings.ToLower(strings.TrimSpace(arg))), " ")
+	if dir, ok := gradientDirections[normalized]; ok {
+		return linearHead{dir: dir}, true, nil
+	}
+	if strings.HasSuffix(normalized, "deg") {
+		angle, err := parseGradientAngle(strings.TrimSpace(arg))
+		if err != nil {
+			return linearHead{}, true, err
+		}
+		return linearHead{isAngle: true, angle: angle}, true, nil
+	}
+	return linearHead{}, false, nil
+}
+
+// parseGradientAngle parses a CSS angle like 135deg.
+func parseGradientAngle(arg string) (float32, error) {
+	trimmed := strings.TrimSpace(arg)
+	lower := strings.ToLower(trimmed)
+	if !strings.HasSuffix(lower, "deg") {
+		return 0, fmt.Errorf("invalid gradient angle %q", arg)
+	}
+	numStr := strings.TrimSpace(trimmed[:len(trimmed)-3])
+	angle, err := strconv.ParseFloat(numStr, 32)
+	if err != nil {
+		return 0, fmt.Errorf("invalid gradient angle %q", arg)
+	}
+	return float32(angle), nil
+}
+
+// parseRadialGradient parses a radial-gradient(circle at X% Y%, stops...).
+// The center defaults to 50% 50% and the radius reaches the farthest corner.
+func parseRadialGradient(selector, property, value string) (LinearGradient, error) {
+	inner, err := gradientInner(selector, property, value, "radial-gradient(")
+	if err != nil {
+		return LinearGradient{}, err
+	}
+	if inner == "" {
+		return LinearGradient{}, fmt.Errorf("skin: %s in %q has empty radial-gradient", property, selector)
+	}
+	args, err := splitParenArgs(inner)
+	if err != nil {
+		return LinearGradient{}, fmt.Errorf("skin: %s in %q: %w", property, selector, err)
+	}
+	return buildRadialGradient(selector, property, args)
+}
+
+// buildRadialGradient resolves the optional center and 2-4 stops.
+func buildRadialGradient(selector, property string, args []string) (LinearGradient, error) {
+	cx, cy := float32(0.5), float32(0.5)
+	stopArgs := args
+	if len(args) > 0 && isRadialCenterArg(args[0]) {
+		parsedX, parsedY, err := parseRadialCenter(args[0])
+		if err != nil {
+			return LinearGradient{}, fmt.Errorf("skin: %s in %q: %w", property, selector, err)
+		}
+		cx, cy = parsedX, parsedY
+		stopArgs = args[1:]
+	}
+	if len(stopArgs) < 2 || len(stopArgs) > MaxGradientStops {
+		return LinearGradient{}, fmt.Errorf("skin: %s in %q expects 2-%d color stops (got %d)", property, selector, MaxGradientStops, len(stopArgs))
+	}
+	stops := make([]ColorStop, 0, len(stopArgs))
+	for _, raw := range stopArgs {
+		stop, parseErr := parseColorStopAuto(selector, property, raw)
+		if parseErr != nil {
+			return LinearGradient{}, parseErr
+		}
+		stops = append(stops, stop)
+	}
+	grad, ok := NewRadialGradient(cx, cy, stops...)
+	if !ok {
+		return LinearGradient{}, fmt.Errorf("skin: %s in %q has invalid radial stops", property, selector)
+	}
+	return grad, nil
+}
+
+// isRadialCenterArg reports whether an argument selects the circle center.
+func isRadialCenterArg(arg string) bool {
+	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(arg)), "circle")
+}
+
+// parseRadialCenter parses circle or circle at X% Y% into unit coordinates.
+func parseRadialCenter(arg string) (float32, float32, error) {
+	fields := strings.Fields(strings.TrimSpace(arg))
+	if len(fields) == 1 && strings.ToLower(fields[0]) == "circle" {
+		return 0.5, 0.5, nil
+	}
+	if len(fields) == 4 && strings.ToLower(fields[0]) == "circle" && strings.ToLower(fields[1]) == "at" {
+		x, err := parsePercent(fields[2])
+		if err != nil {
+			return 0, 0, err
+		}
+		y, err := parsePercent(fields[3])
+		if err != nil {
+			return 0, 0, err
+		}
+		return x, y, nil
+	}
+	return 0, 0, fmt.Errorf("invalid radial center %q (want circle or circle at X%% Y%%)", arg)
+}
+
+// parsePercent parses a 0-100% token into a unit fraction.
+func parsePercent(token string) (float32, error) {
+	if !strings.HasSuffix(token, "%") {
+		return 0, fmt.Errorf("invalid percentage %q (must end with %%)", token)
+	}
+	num, err := strconv.ParseFloat(strings.TrimSuffix(token, "%"), 32)
+	if err != nil || num < 0 || num > 100 {
+		return 0, fmt.Errorf("invalid percentage %q", token)
+	}
+	return float32(num / 100), nil
+}
+
+// parseColorStopAuto parses one stop with an optional percentage position.
+// Missing positions return Position -1 so constructors distribute them.
+func parseColorStopAuto(selector, property, stopStr string) (ColorStop, error) {
 	fields := strings.Fields(stopStr)
 	if len(fields) == 0 {
 		return ColorStop{}, fmt.Errorf("skin: %s in %q has empty color stop", property, selector)
@@ -692,20 +891,15 @@ func parseColorStop(selector, property, stopStr string, defaultPos float32) (Col
 	if err != nil {
 		return ColorStop{}, err
 	}
-	pos := defaultPos
-	if len(fields) == 2 {
-		posStr := fields[1]
-		if !strings.HasSuffix(posStr, "%") {
-			return ColorStop{}, fmt.Errorf("skin: %s in %q has invalid color stop position %q (must be percentage)", property, selector, posStr)
-		}
-		numStr := strings.TrimSuffix(posStr, "%")
-		p, err := strconv.ParseFloat(numStr, 32)
-		if err != nil || p < 0 || p > 100 {
-			return ColorStop{}, fmt.Errorf("skin: %s in %q has invalid color stop position %q", property, selector, posStr)
-		}
-		pos = float32(p / 100.0)
-	} else if len(fields) > 2 {
-		return ColorStop{}, fmt.Errorf("skin: %s in %q has malformed color stop %q", property, selector, stopStr)
+	if len(fields) == 1 {
+		return ColorStop{Color: col, Position: -1}, nil
 	}
-	return ColorStop{Color: col, Position: pos}, nil
+	if len(fields) == 2 {
+		pos, err := parsePercent(fields[1])
+		if err != nil {
+			return ColorStop{}, fmt.Errorf("skin: %s in %q has invalid color stop position %q (must be percentage)", property, selector, fields[1])
+		}
+		return ColorStop{Color: col, Position: pos}, nil
+	}
+	return ColorStop{}, fmt.Errorf("skin: %s in %q has malformed color stop %q", property, selector, stopStr)
 }

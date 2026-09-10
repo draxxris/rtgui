@@ -53,21 +53,54 @@ const (
 	GradientToTopLeft
 )
 
-// ColorStop specifies one color stop in a linear gradient.
+// GradientKind selects the shape of a Gradient fill.
+type GradientKind uint8
+
+const (
+	// GradientLinear interpolates stops along a direction or angle.
+	GradientLinear GradientKind = iota
+	// GradientRadial interpolates stops by distance from a center point.
+	GradientRadial
+)
+
+// MaxGradientStops bounds color stops per gradient without heap use.
+const MaxGradientStops = 4
+
+// MaxGradientLayers bounds stacked fills per descriptor without heap use.
+// CSS lists the top layer first; rendering composites back-to-front.
+const MaxGradientLayers = 4
+
+// ColorStop specifies one color stop in a gradient.
 type ColorStop struct {
 	// Color is the exact RGBA color of the stop.
 	Color core.Color
-	// Position is the normalized position in [0, 1], or -1 for default.
+	// Position is the normalized position in [0, 1], or negative for auto.
 	Position float32
 }
 
-// LinearGradient stores a 2-stop linear gradient specification as a value type.
-type LinearGradient struct {
-	// Direction selects the orientation of the gradient.
+// Gradient stores a linear or radial fill as a value type. Linear uses
+// Direction or AngleDeg; radial uses CenterX/Y with farthest-corner radius.
+// Stops holds StopCount entries in [0, MaxGradientStops]; positions are
+// normalized to non-decreasing [0, 1] by the constructors and CSS parser.
+type Gradient struct {
+	// Kind selects linear or radial interpolation.
+	Kind GradientKind
+	// Direction selects the orientation of a linear gradient.
 	Direction GradientDirection
-	// Stops stores the start and end color stops.
-	Stops [2]ColorStop
+	// UseAngle selects AngleDeg over Direction when true.
+	UseAngle bool
+	// AngleDeg is the CSS gradient angle in degrees (0 is to top).
+	AngleDeg float32
+	// CenterX and CenterY are the radial center in normalized [0, 1].
+	CenterX, CenterY float32
+	// Stops stores the color stops in position order.
+	Stops [MaxGradientStops]ColorStop
+	// StopCount is the used prefix length of Stops.
+	StopCount int
 }
+
+// LinearGradient aliases Gradient for existing callers.
+type LinearGradient = Gradient
 
 // SkinPart identifies one drawable component of a widget skin.
 type SkinPart int32
@@ -156,10 +189,11 @@ type SkinDescriptor struct {
 	Radius float32
 	// HasRadius reports whether Radius was explicitly declared.
 	HasRadius bool
-	// Gradient stores the linear gradient fill when HasGradient is true.
-	Gradient LinearGradient
-	// HasGradient reports whether Gradient should be drawn.
-	HasGradient bool
+	// Gradients stores up to MaxGradientLayers fills, first layer on top.
+	// Layers composite back-to-front over the background color.
+	Gradients [MaxGradientLayers]Gradient
+	// GradientCount is the used prefix length of Gradients.
+	GradientCount int
 	// TextColor stores the authored text color when HasTextColor is true.
 	TextColor core.Color
 	// HasTextColor reports whether TextColor was explicitly declared.
@@ -185,15 +219,31 @@ func (d SkinDescriptor) Overlay(other SkinDescriptor) SkinDescriptor {
 		d.AtlasRegion = core.Rect{}
 		d.Tint = core.Color{}
 		d.HasTexture = false
-		d.Gradient = LinearGradient{}
-		d.HasGradient = false
+		d.Gradients = [MaxGradientLayers]Gradient{}
+		d.GradientCount = 0
 		d.NoTexture = true
 	}
-	if other.HasTexture {
+	if other.HasTexture && other.GradientCount > 0 {
 		d.Texture = other.Texture
 		d.AtlasRegion = other.AtlasRegion
 		d.Tint = other.Tint
 		d.HasTexture = true
+		d.Gradients = other.Gradients
+		d.GradientCount = other.GradientCount
+	} else if other.HasTexture {
+		d.Texture = other.Texture
+		d.AtlasRegion = other.AtlasRegion
+		d.Tint = other.Tint
+		d.HasTexture = true
+		d.Gradients = [MaxGradientLayers]Gradient{}
+		d.GradientCount = 0
+	} else if other.GradientCount > 0 {
+		d.Texture = Texture{}
+		d.AtlasRegion = core.Rect{}
+		d.Tint = core.Color{}
+		d.HasTexture = false
+		d.Gradients = other.Gradients
+		d.GradientCount = other.GradientCount
 	}
 	if other.HasNinePatch {
 		d.NinePatch = other.NinePatch
@@ -211,10 +261,6 @@ func (d SkinDescriptor) Overlay(other SkinDescriptor) SkinDescriptor {
 	if other.HasRadius {
 		d.Radius = other.Radius
 		d.HasRadius = true
-	}
-	if other.HasGradient {
-		d.Gradient = other.Gradient
-		d.HasGradient = true
 	}
 	if other.HasPadding {
 		d.PaddingLeft = other.PaddingLeft
@@ -240,4 +286,9 @@ func (d SkinDescriptor) Overlay(other SkinDescriptor) SkinDescriptor {
 		d.HasItalicFont = true
 	}
 	return d
+}
+
+// HasGradient reports whether the descriptor holds any gradient layer.
+func (d SkinDescriptor) HasGradient() bool {
+	return d.GradientCount > 0
 }

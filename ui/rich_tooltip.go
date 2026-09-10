@@ -49,7 +49,7 @@ func (u *UI) drawRichTooltipPopup() bool {
 	if !data.HasContent() {
 		return false
 	}
-	u.richTipCache.Update(u.theme, data, anchor, u.logicalSize(), u.tooltipPadding())
-	u.theme.DrawRichTooltip(core.WidgetInfo{Name: "tooltip", Kind: core.WidgetTooltip}, &u.richTipCache)
+	u.richTipCache.Update(u.theme, data, anchor, u.logicalSize(), u.tooltipPadding(data.Class))
+	u.theme.DrawRichTooltip(core.WidgetInfo{Name: "tooltip", Kind: core.WidgetTooltip, Class: data.Class}, &u.richTipCache)
 	return true
 }

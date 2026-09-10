@@ -500,14 +500,15 @@ func TestDrawWidgetPartColorAndGradientAllocatesNothing(t *testing.T) {
 	theme.SetSkinPart(skin.SkinKey{Widget: core.WidgetButton, Part: skin.PartBackground, State: core.StateNormal}, skin.SkinDescriptor{
 		BackgroundColor:   core.Color{R: 20, G: 40, B: 60, A: 200},
 		HasBackgroundColor: true,
-		Gradient: skin.LinearGradient{
+		Gradients: [skin.MaxGradientLayers]skin.LinearGradient{{
 			Direction: skin.GradientToBottom,
-			Stops: [2]skin.ColorStop{
-				{Color: core.Color{R: 10, G: 20, B: 30, A: 128}},
-				{Color: core.Color{R: 40, G: 50, B: 60, A: 128}},
+			Stops: [skin.MaxGradientStops]skin.ColorStop{
+				{Color: core.Color{R: 10, G: 20, B: 30, A: 128}, Position: 0},
+				{Color: core.Color{R: 40, G: 50, B: 60, A: 128}, Position: 1},
 			},
-		},
-		HasGradient: true,
+			StopCount: 2,
+		}},
+		GradientCount: 1,
 	})
 	allocations := testing.AllocsPerRun(100, func() {
 		theme.DrawWidgetPart(core.WidgetButton, skin.PartBackground, core.Rect{W: 100, H: 30}, core.StateNormal)
