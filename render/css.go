@@ -387,14 +387,15 @@ func (t *Theme) buildCSSDescriptor(key skin.SkinKey, entry mergedRule, base stri
 }
 
 // applyCSSBox populates nine-patch, three-patch, and padding geometry from
-// merged rule declarations.
+// merged rule declarations. Track and thumb caps use a vertical three-patch
+// on scroll panels, lists, and chat logs so cap art never stretches.
 func applyCSSBox(descriptor *skin.SkinDescriptor, key skin.SkinKey, entry mergedRule) {
 	if (key.Part == skin.PartBorder || key.Part == skin.PartPopupBorder) && entry.hasSlice {
 		descriptor.NinePatch.Left, descriptor.NinePatch.Top = entry.slice, entry.slice
 		descriptor.NinePatch.Right, descriptor.NinePatch.Bottom = entry.slice, entry.slice
 		descriptor.HasNinePatch = true
 		descriptor.CenterFill = false
-	} else if (key.Widget == core.WidgetScrollPanel && (key.Part == skin.PartTrack || key.Part == skin.PartThumb)) && entry.hasSlice {
+	} else if (key.Widget == core.WidgetScrollPanel || key.Widget == core.WidgetList || key.Widget == core.WidgetChatLog) && (key.Part == skin.PartTrack || key.Part == skin.PartThumb) && entry.hasSlice {
 		descriptor.ThreePatch.Top = entry.slice
 		descriptor.ThreePatch.Bottom = entry.slice
 		descriptor.HasThreePatch = true
