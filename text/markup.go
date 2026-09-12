@@ -1,6 +1,8 @@
 package text
 
 import (
+	"math"
+	"strconv"
 	"strings"
 
 	"github.com/draxxris/rtgui/core"
@@ -12,9 +14,12 @@ import (
 type IconAllowed func(name string) bool
 
 // ParsePlayerMarkup parses untrusted player markup into display segments.
-// It recognizes only [icon=name] and [link=scheme:target]text[/link];
-// every other bracket form, including color, bold, size, and font markup,
-// renders as literal text. Go code constructs those styles directly.
+// It recognizes [icon=name], [icon=name,size=N], and
+// [link=scheme:target]text[/link]; every other bracket form, including
+// color, bold, and font markup, renders as literal text. Go code constructs
+// those styles directly. N is a float pixel edge for the icon box; invalid
+// or missing sizes fall back to the default icon size while keeping the
+// icon.
 //
 // Unknown icons, unknown link schemes, malformed tags, and empty link
 // bodies render literally so abuse stays visible. A nil allowed treats
@@ -53,10 +58,17 @@ func (p *markupParser) flushPlain() {
 	p.plain.Reset()
 }
 
-// appendIconSegment emits one whitelisted icon run.
-func (p *markupParser) appendIconSegment(name string, link core.Link) {
+// appendIconSegment emits one whitelisted icon run with optional display size.
+// A missing or invalid size keeps the renderer default without changing
+// text metrics; callers validate the name against the whitelist.
+func (p *markupParser) appendIconSegment(name string, size float32, hasSize bool, link core.Link) {
 	p.flushPlain()
-	p.out = append(p.out, core.RichSegment{Icon: name, HasIcon: true, Link: link})
+	segment := core.RichSegment{Icon: name, HasIcon: true, Link: link}
+	if hasSize {
+		segment.IconSize = size
+		segment.HasIconSize = true
+	}
+	p.out = append(p.out, segment)
 }
 
 // parseTop scans one message allowing icons and links.
@@ -73,9 +85,10 @@ func (p *markupParser) parseTop(input string) {
 			pos += 2
 			continue
 		}
-		if name, next, ok := scanIconTag(input, pos); ok {
+		if raw, next, ok := scanIconTag(input, pos); ok {
+			name, size, hasSize := parseIconContent(raw)
 			if validIconName(name) && p.iconAllowed(name) {
-				p.appendIconSegment(name, core.Link{})
+				p.appendIconSegment(name, size, hasSize, core.Link{})
 				pos = next
 				continue
 			}
@@ -122,10 +135,10 @@ func parseLinkInner(body string, allowed IconAllowed, link core.Link) []core.Ric
 			pos += 2
 			continue
 		}
-		if name, next, ok := scanIconTag(body, pos); ok {
+		if raw, next, ok := scanIconTag(body, pos); ok {
+			name, size, hasSize := parseIconContent(raw)
 			if validIconName(name) && inner.iconAllowed(name) {
-				inner.flushPlain()
-				inner.out = append(inner.out, core.RichSegment{Icon: name, HasIcon: true, Link: link})
+				inner.appendIconSegment(name, size, hasSize, link)
 				pos = next
 				continue
 			}
@@ -165,6 +178,79 @@ func scanIconTag(input string, pos int) (string, int, bool) {
 		return "", 0, false
 	}
 	return input[start:end], end + 1, true
+}
+
+// parseIconContent splits raw icon tag content into name and optional size.
+// The comma form [icon=name,size=N] is required; a single space separator
+// [icon=name size=N] is tolerated. Surrounding spaces are trimmed. Invalid
+// or missing sizes fall back to default size while keeping the name, so
+// callers still emit the icon. Empty names stay empty for literal fallback.
+func parseIconContent(raw string) (string, float32, bool) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return "", 0, false
+	}
+	if comma := strings.IndexByte(trimmed, ','); comma >= 0 {
+		name := strings.TrimSpace(trimmed[:comma])
+		if name == "" {
+			return "", 0, false
+		}
+		size, ok := parseIconSizeSpec(strings.TrimSpace(trimmed[comma+1:]))
+		if !ok {
+			return name, 0, false
+		}
+		return name, size, true
+	}
+	if space := strings.IndexAny(trimmed, " \t\r\n\v\f"); space >= 0 {
+		name := strings.TrimSpace(trimmed[:space])
+		rest := strings.TrimSpace(trimmed[space+1:])
+		if name != "" && rest == "" {
+			return name, 0, false
+		}
+		if name == "" || rest == "" {
+			return trimmed, 0, false
+		}
+		lower := strings.ToLower(rest)
+		if lower != "size" && !strings.HasPrefix(lower, "size=") && !strings.HasPrefix(lower, "size ") {
+			return trimmed, 0, false
+		}
+		size, ok := parseIconSizeSpec(rest)
+		if !ok {
+			return name, 0, false
+		}
+		return name, size, true
+	}
+	return trimmed, 0, false
+}
+
+// parseIconSizeSpec parses a size=N fragment into a pixel edge. The key
+// must be size (case-insensitive) with surrounding spaces allowed. Values
+// must be finite and positive; oversized values cap at 256 so the renderer
+// budget clamps further. Anything else reports false for default-size
+// fallback.
+func parseIconSizeSpec(spec string) (float32, bool) {
+	equal := strings.IndexByte(spec, '=')
+	if equal < 0 {
+		return 0, false
+	}
+	if strings.ToLower(strings.TrimSpace(spec[:equal])) != "size" {
+		return 0, false
+	}
+	value := strings.TrimSpace(spec[equal+1:])
+	if value == "" {
+		return 0, false
+	}
+	number, err := strconv.ParseFloat(value, 32)
+	if err != nil {
+		return 0, false
+	}
+	if math.IsNaN(number) || math.IsInf(number, 0) || number <= 0 {
+		return 0, false
+	}
+	if number > 256 {
+		number = 256
+	}
+	return float32(number), true
 }
 
 // scanLinkOpen matches [link=scheme:target] at pos and reports the link.

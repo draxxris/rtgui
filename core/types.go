@@ -257,4 +257,9 @@ type RichSegment struct {
 	Icon string
 	// HasIcon marks the run as an inline icon placeholder.
 	HasIcon bool
+	// IconSize is the optional inline icon box edge in pixels. It is used only
+	// when HasIconSize is true; an unset size keeps the renderer default.
+	IconSize float32
+	// HasIconSize selects IconSize for this icon run without changing text size.
+	HasIconSize bool
 }

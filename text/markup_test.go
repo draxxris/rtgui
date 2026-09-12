@@ -96,3 +96,74 @@ func TestParsePlayerMarkupIconInLink(t *testing.T) {
 		t.Fatalf("inner icon lost = %+v", segments)
 	}
 }
+
+// TestParsePlayerMarkupIconSize verifies comma, space, and trimmed forms
+// parse an explicit display edge without changing the default icon path.
+func TestParsePlayerMarkupIconSize(t *testing.T) {
+	allowed := allowList("iron-plate")
+	assertSizedIcon(t, allowed, "[icon=iron-plate,size=32]", 32)
+	assertSizedIcon(t, allowed, "[icon=iron-plate size=32]", 32)
+	assertSizedIcon(t, allowed, "[icon= iron-plate , size = 32 ]", 32)
+	def := text.ParsePlayerMarkup("[icon=iron-plate]", allowed)
+	if len(def) != 1 || !def[0].HasIcon || def[0].HasIconSize {
+		t.Fatalf("default icon changed = %+v", def)
+	}
+	capped := text.ParsePlayerMarkup("[icon=iron-plate,size=1000]", allowed)
+	if len(capped) != 1 || !capped[0].HasIconSize || capped[0].IconSize != 256 {
+		t.Fatalf("capped icon = %+v", capped)
+	}
+}
+
+// assertSizedIcon checks one markup form yields one sized icon run.
+func assertSizedIcon(t *testing.T, allowed text.IconAllowed, input string, want float32) {
+	t.Helper()
+	got := text.ParsePlayerMarkup(input, allowed)
+	if len(got) != 1 || !got[0].HasIcon || !got[0].HasIconSize || got[0].IconSize != want {
+		t.Fatalf("%q = %+v, want size %v", input, got, want)
+	}
+}
+
+// TestParsePlayerMarkupIconSizeFallback verifies invalid sizes keep the
+// icon with default sizing instead of rendering literally.
+func TestParsePlayerMarkupIconSizeFallback(t *testing.T) {
+	allowed := allowList("iron-plate")
+	for _, input := range []string{
+		"[icon=iron-plate,size=abc]",
+		"[icon=iron-plate,size=0]",
+		"[icon=iron-plate,size=-5]",
+		"[icon=iron-plate,size=]",
+		"[icon=iron-plate,foo=32]",
+	} {
+		got := text.ParsePlayerMarkup(input, allowed)
+		if len(got) != 1 || !got[0].HasIcon || got[0].HasIconSize {
+			t.Fatalf("fallback %q = %+v", input, got)
+		}
+	}
+}
+
+// TestParsePlayerMarkupIconSizeDenied verifies unknown names with sizes
+// stay literal and bare spaces do not split names.
+func TestParsePlayerMarkupIconSizeDenied(t *testing.T) {
+	allowed := allowList("iron-plate")
+	denied := text.ParsePlayerMarkup("[icon=evil,size=32]", allowed)
+	if len(denied) != 1 || denied[0].HasIcon {
+		t.Fatalf("denied sized icon parsed = %+v", denied)
+	}
+	literal := text.ParsePlayerMarkup("[icon=iron plate]", allowed)
+	if len(literal) != 1 || literal[0].HasIcon {
+		t.Fatalf("space name parsed = %+v", literal)
+	}
+}
+
+// TestParsePlayerMarkupIconSizeInLink verifies sized icons inside links
+// preserve both display size and link payload.
+func TestParsePlayerMarkupIconSizeInLink(t *testing.T) {
+	allowed := allowList("iron-plate")
+	linked := text.ParsePlayerMarkup("[link=item:iron-plate]take [icon=iron-plate,size=32][/link]", allowed)
+	if len(linked) != 2 || !linked[1].HasIcon || !linked[1].HasIconSize || linked[1].IconSize != 32 {
+		t.Fatalf("linked sized icon = %+v", linked)
+	}
+	if linked[1].Link.Kind != core.LinkItem {
+		t.Fatalf("linked size lost link = %+v", linked)
+	}
+}

@@ -37,7 +37,8 @@ const (
 // A segment split by wrapping yields one fragment per wrapped row; all share
 // the segment index so hover, press, and tooltip state stay per segment.
 // Icon fragments have IsIcon set and Icon naming the whitelist entry; Text
-// is empty for icons.
+// is empty for icons. IconSize carries an optional display edge separately
+// from the icon segment's text metrics.
 type RichSpanLayout struct {
 	// Segment is the index into the laid-out segment slice.
 	Segment int
@@ -55,6 +56,8 @@ type RichSpanLayout struct {
 	Icon string
 	// IsIcon marks the fragment as an inline icon placeholder.
 	IsIcon bool
+	// IconSize is the resolved display edge for an icon fragment.
+	IconSize float32
 	// Bold requests faux-bold rendering for Go-authored emphasis.
 	Bold bool
 	// Size is the effective fragment size; RichFontSize when unset.
@@ -397,6 +400,7 @@ type richStyle struct {
 	bold     bool
 	size     float32
 	font     string
+	iconSize float32
 }
 
 // styleForSegment resolves a segment's effective draw style for layout.
@@ -408,11 +412,9 @@ func styleForSegment(segment core.RichSegment) richStyle {
 		bold:     segment.Bold,
 		size:     richSpanSize(segment),
 		font:     richSpanFont(segment),
+		iconSize: richSegmentIconSize(segment),
 	}
 }
-
-// layoutRichSegmentInto emits one segment's icon box (when present) followed
-// by its word-scanned text run.
 
 // layoutRichSegmentInto emits one segment's icon box (when present) followed
 // by its word-scanned text run.
@@ -537,12 +539,13 @@ func (c *richCursorState) advanceSpace(theme *Theme, byteValue byte, size float3
 
 // appendIcon emits one atomic inline icon box, wrapping first when needed.
 // Icons never split; an icon wider than the content still emits clamped so
-// layout always makes progress.
+// layout always makes progress. An explicitly sized icon segment follows its
+// icon size; an unset size retains the historical RichIconSize box.
 func (c *richCursorState) appendIcon(reuse []RichSpanLayout, index int, name string, style richStyle) []RichSpanLayout {
 	if c == nil {
 		return reuse
 	}
-	width := float32(RichIconSize)
+	width := style.iconSize
 	if width > c.content.W && c.content.W > 0 {
 		width = c.content.W
 	}
@@ -566,6 +569,7 @@ func (c *richCursorState) appendIcon(reuse []RichSpanLayout, index int, name str
 		Color:    style.color,
 		Icon:     name,
 		IsIcon:   true,
+		IconSize: style.iconSize,
 		Bold:     style.bold,
 		Size:     style.size,
 		Font:     style.font,
@@ -723,6 +727,16 @@ func clampRichWordWidth(width, x, right, contentW float32) float32 {
 		}
 	}
 	return width
+}
+
+// richSegmentIconSize resolves an optional display edge without changing
+// the segment's text metrics. The default preserves RichIconSize; explicit
+// sizes are clamped to the same raster budget as rich text.
+func richSegmentIconSize(segment core.RichSegment) float32 {
+	if !segment.HasIconSize {
+		return float32(RichIconSize)
+	}
+	return clampRichFontSize(segment.IconSize)
 }
 
 // isRichSpaceByte reports ASCII horizontal whitespace handled as advances.

@@ -124,7 +124,7 @@ func tooltipIconEqual(a, b TooltipIcon) bool {
 
 // EqualRichSegments reports whether two segment slices match under the
 // canonical unset-tolerant semantics: optional colors, sizes, faces, and
-// icons compare only when selected, so unused defaults never mismatch.
+// icon display sizes compare only when selected, so unused defaults never mismatch.
 // Widgets and render caches share this definition so change detection
 // agrees across packages.
 func EqualRichSegments(a, b []RichSegment) bool {
@@ -175,12 +175,15 @@ func richFontEqual(x, y RichSegment) bool {
 	return !x.HasFont || x.Font == y.Font
 }
 
-// richIconEqual compares optional inline icon names.
+// richIconEqual compares optional inline icon names and display sizes.
 func richIconEqual(x, y RichSegment) bool {
-	if x.HasIcon != y.HasIcon {
+	if x.HasIcon != y.HasIcon || x.HasIconSize != y.HasIconSize {
 		return false
 	}
-	return !x.HasIcon || x.Icon == y.Icon
+	if x.HasIcon && x.Icon != y.Icon {
+		return false
+	}
+	return !x.HasIconSize || x.IconSize == y.IconSize
 }
 
 // tooltipLinkEqual compares one clickable reference field by field.

@@ -118,20 +118,29 @@ func (t *Theme) richFragmentTint(span RichSpanLayout) color.RGBA {
 // Missing whitelist entries log a placeholder box without drawing pixels;
 // linked icons skip the text underline but still earn hover highlights.
 func (t *Theme) drawRichIconFragment(info core.WidgetInfo, span RichSpanLayout) {
-	t.drawRichIconBox(info, span.Icon, span.Bounds)
+	size := span.IconSize
+	if size <= 0 {
+		size = float32(RichIconSize)
+	}
+	t.drawRichIconBoxSized(info, span.Icon, span.Bounds, size)
 }
 
 // drawRichIconBox records and draws one whitelisted icon centered in row.
 // Tooltip bodies share this path with absolute rows; message fragments pass
 // their own bounds. A missing entry logs geometry without drawing pixels.
 func (t *Theme) drawRichIconBox(info core.WidgetInfo, name string, row core.Rect) {
-	size := float32(RichIconSize)
-	if size > row.H {
-		size = row.H
-	}
+	t.drawRichIconBoxSized(info, name, row, float32(RichIconSize))
+}
+
+// drawRichIconBoxSized draws a whitelisted icon at a caller-selected edge.
+// List metadata and explicitly sized action runs can use larger marks than
+// the historical inline rich-text default.
+func (t *Theme) drawRichIconBoxSized(info core.WidgetInfo, name string, row core.Rect, size float32) {
 	if size > row.W {
 		size = row.W
 	}
+	// A deliberately oversized inline icon may extend beyond the fragment's
+	// line box; the caller's content clip keeps it inside the control.
 	dest := core.Rect{X: row.X, Y: row.Y + (row.H-size)/2, W: size, H: size}
 	icon, ok := t.LookupInlineIcon(name)
 	tint := color.RGBA{R: 255, G: 255, B: 255, A: 255}

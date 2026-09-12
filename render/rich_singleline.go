@@ -31,7 +31,7 @@ func (t *Theme) LayoutRichSingleLine(content core.Rect, segments []core.RichSegm
 		spanH := richRowHeight(size)
 		spanY := y0 + (maxH-spanH)/2
 		if segment.HasIcon {
-			width := clampRichWordWidth(float32(RichIconSize), x, content.X+content.W, content.W)
+			width := clampRichWordWidth(richSegmentIconSize(segment), x, content.X+content.W, content.W)
 			if x >= content.X+content.W || width <= 0 {
 				break
 			}
@@ -43,6 +43,7 @@ func (t *Theme) LayoutRichSingleLine(content core.Rect, segments []core.RichSegm
 				Color:    segment.Color,
 				Icon:     segment.Icon,
 				IsIcon:   true,
+				IconSize: richSegmentIconSize(segment),
 				Bold:     segment.Bold,
 				Size:     size,
 				Font:     font,
@@ -98,7 +99,7 @@ func (t *Theme) measureRichSingleLine(segments []core.RichSegment) float32 {
 	total := float32(0)
 	for _, segment := range segments {
 		if segment.HasIcon {
-			total += float32(RichIconSize + RichIconGap)
+			total += richSegmentIconSize(segment) + float32(RichIconGap)
 			continue
 		}
 		total += t.measureSingleLineText(segment.Text, richSpanFont(segment), richSpanSize(segment))
