@@ -460,6 +460,36 @@ func arrangeInputWidgets(t *testing.T, root *layout.Node, button, slider widgets
 	}
 }
 
+// TestUIScaleSharesTransform verifies UI scale multiplies drawing scale and
+// input mapping while sharing the theme transform.
+func TestUIScaleSharesTransform(t *testing.T) {
+	u := New(800, 600)
+	if got := u.UIScale(); got != 1 {
+		t.Fatalf("default UI scale = %v", got)
+	}
+	if !u.SetUIScale(2) {
+		t.Fatal("SetUIScale failed")
+	}
+	if got := u.UIScale(); got != 2 {
+		t.Fatalf("UI scale = %v", got)
+	}
+	if got := u.Theme().Transform().GetUIScale(); got != 2 {
+		t.Fatalf("theme UI scale = %v", got)
+	}
+	if sx, sy := u.Scale(); sx != 2 || sy != 2 {
+		t.Fatalf("scaled UI = %v/%v", sx, sy)
+	}
+	if got := u.ToLogical(core.Vec2{X: 20, Y: 40}); got != (core.Vec2{X: 10, Y: 20}) {
+		t.Fatalf("scaled input = %+v", got)
+	}
+	if u.SetUIScale(0) || u.SetUIScale(-1) {
+		t.Fatal("invalid UI scale accepted")
+	}
+	if got := u.UIScale(); got != 2 {
+		t.Fatalf("rejected scale mutated to %v", got)
+	}
+}
+
 // TestResizeWheelCallbacksAndNilSafety covers adjacent facade contracts.
 func TestResizeWheelCallbacksAndNilSafety(t *testing.T) {
 	u := New(100, 100)

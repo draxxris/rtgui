@@ -1,8 +1,11 @@
 // Package transform maps between physical window coordinates and logical UI
 // coordinates. The logical size is the fixed design resolution chosen at
-// startup; the physical viewport tracks the live window. Resizing the window
-// rescales the mapping instead of reflowing the layout, so components scale
-// with the window. State is explicit so applications can own more than one UI.
+// startup; the physical viewport tracks the live window and always equals
+// the window rectangle at origin zero. Resizing the window rescales the
+// mapping instead of reflowing the layout, so components scale with the
+// window. An independent WoW-style UI scale multiplies that mapping for
+// user-selected magnification; layout is authored for scale 1 and may clip
+// when scaled. State is explicit so applications can own more than one UI.
 package transform
 
 import (
@@ -14,13 +17,20 @@ import (
 // Transform stores the fixed logical-to-physical viewport mapping.
 type Transform struct {
 	// Viewport contains the physical rectangle and logical design size.
+	// The physical rectangle always equals the window at origin zero;
+	// margins are layout insets, never viewport offsets.
 	Viewport core.Viewport
+	// UIScale is the WoW-style user magnification multiplying the
+	// window-derived mapping. Zero means 1; use SetUIScale to validate.
+	UIScale float32
 	// PixelSnap rounds logical positions and sizes when enabled.
 	PixelSnap bool
 }
 
-// New returns a transform initialized with viewport.
-func New(viewport core.Viewport) *Transform { return &Transform{Viewport: viewport} }
+// New returns a transform initialized with viewport and scale 1.
+func New(viewport core.Viewport) *Transform {
+	return &Transform{Viewport: viewport, UIScale: 1}
+}
 
 // SetViewport validates and replaces the physical and logical dimensions.
 func (t *Transform) SetViewport(viewport core.Viewport) error {
@@ -34,26 +44,52 @@ func (t *Transform) SetViewport(viewport core.Viewport) error {
 	return nil
 }
 
+// SetUIScale records WoW-style user magnification on top of the
+// window-derived mapping. Scale must be finite and positive; values
+// above 4 are rejected as unusable. Invalid input keeps the old scale.
+func (t *Transform) SetUIScale(scale float32) error {
+	if t == nil {
+		return core.StatusInvalidArg
+	}
+	if math.IsNaN(float64(scale)) || math.IsInf(float64(scale), 0) || scale <= 0 || scale > 4 {
+		return core.StatusInvalidArg
+	}
+	t.UIScale = scale
+	return nil
+}
+
+// GetUIScale reports the effective user magnification, treating zero
+// and invalid values as 1 so zero-value transforms stay 1:1.
+func (t Transform) GetUIScale() float32 {
+	if math.IsNaN(float64(t.UIScale)) || math.IsInf(float64(t.UIScale), 0) || t.UIScale <= 0 {
+		return 1
+	}
+	return t.UIScale
+}
+
 // Scale reports the physical-per-logical stretch on each axis: window size
-// over design size. Axes are independent (stretch); a uniform factor is the
-// caller's choice. Non-positive dimensions fall back to 1 so zero-value
-// transforms keep the old 1:1 offset behavior instead of dividing by zero.
+// over design size times the UI scale. Axes share the UI factor; the window
+// portion stays independent stretch. Non-positive dimensions fall back to 1
+// so zero-value transforms keep 1:1 behavior instead of dividing by zero.
 func (t Transform) Scale() (sx, sy float32) {
 	viewport, logical := t.Viewport.Viewport, t.Viewport.LogicalSize
 	if viewport.W <= 0 || viewport.H <= 0 || logical.X <= 0 || logical.Y <= 0 {
 		return 1, 1
 	}
-	return viewport.W / logical.X, viewport.H / logical.Y
+	ui := t.GetUIScale()
+	return viewport.W / logical.X * ui, viewport.H / logical.Y * ui
 }
 
-// ViewportToPhysical maps a logical point into the physical window rectangle.
+// ViewportToPhysical maps a logical point into the physical window
+// rectangle, including the UI scale factor.
 func (t Transform) ViewportToPhysical(p core.Vec2) core.Vec2 {
 	sx, sy := t.Scale()
 	viewport := t.Viewport.Viewport
 	return core.Vec2{X: p.X*sx + viewport.X, Y: p.Y*sy + viewport.Y}
 }
 
-// PhysicalToViewport maps a physical window point into logical coordinates.
+// PhysicalToViewport maps a physical window point into logical
+// coordinates, inverting the UI scale factor.
 func (t Transform) PhysicalToViewport(p core.Vec2) core.Vec2 {
 	sx, sy := t.Scale()
 	viewport := t.Viewport.Viewport

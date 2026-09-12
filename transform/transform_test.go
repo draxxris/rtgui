@@ -69,6 +69,40 @@ func TestViewportScaling(t *testing.T) {
 	}
 }
 
+// TestUIScale verifies WoW-style magnification multiplies the mapping,
+// round-trips input, and rejects invalid scales.
+func TestUIScale(t *testing.T) {
+	vp := core.Viewport{Viewport: core.Rect{W: 800, H: 600}, LogicalSize: core.Vec2{X: 800, Y: 600}}
+	tr := New(vp)
+	if got := tr.GetUIScale(); got != 1 {
+		t.Fatalf("default UI scale = %v, want 1", got)
+	}
+	if err := tr.SetUIScale(2); err != nil {
+		t.Fatal(err)
+	}
+	sx, sy := tr.Scale()
+	if sx != 2 || sy != 2 {
+		t.Fatalf("scaled scale = %v/%v", sx, sy)
+	}
+	if got := tr.ViewportToPhysical(core.Vec2{X: 10, Y: 20}); got != (core.Vec2{X: 20, Y: 40}) {
+		t.Fatalf("scaled physical = %+v", got)
+	}
+	if got := tr.PhysicalToViewport(core.Vec2{X: 20, Y: 40}); got != (core.Vec2{X: 10, Y: 20}) {
+		t.Fatalf("scaled logical = %+v", got)
+	}
+	for _, bad := range []float32{0, -1} {
+		if err := tr.SetUIScale(bad); err == nil {
+			t.Fatalf("invalid scale %v accepted", bad)
+		}
+	}
+	if got := tr.GetUIScale(); got != 2 {
+		t.Fatalf("rejected scale mutated to %v", got)
+	}
+	if got := (Transform{}).GetUIScale(); got != 1 {
+		t.Fatalf("zero UI scale = %v, want 1", got)
+	}
+}
+
 func approxFloat(a, b float32) bool {
 	diff := a - b
 	if diff < 0 {

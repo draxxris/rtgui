@@ -285,12 +285,39 @@ func (u *UI) Resize(w, h int) {
 	}
 }
 
-// Scale reports the physical-per-logical stretch from the owned transform.
+// Scale reports the physical-per-logical stretch from the owned transform,
+// including the WoW-style UI scale factor.
 func (u *UI) Scale() (sx, sy float32) {
 	if u == nil || u.transform == nil {
 		return 1, 1
 	}
 	return u.transform.Scale()
+}
+
+// SetUIScale records WoW-style user magnification on the shared UI/theme
+// transform. Layout is authored for scale 1; other scales magnify about
+// the origin and may clip. Invalid scales are rejected.
+func (u *UI) SetUIScale(scale float32) bool {
+	if u == nil || u.transform == nil {
+		return false
+	}
+	if err := u.transform.SetUIScale(scale); err != nil {
+		return false
+	}
+	if u.theme != nil && u.theme.Transform() != nil && u.theme.Transform() != u.transform {
+		if err := u.theme.Transform().SetUIScale(scale); err != nil {
+			return false
+		}
+	}
+	return true
+}
+
+// UIScale reports the effective user magnification, defaulting to 1.
+func (u *UI) UIScale() float32 {
+	if u == nil || u.transform == nil {
+		return 1
+	}
+	return u.transform.GetUIScale()
 }
 
 // ToLogical maps a physical window point into logical UI coordinates.
