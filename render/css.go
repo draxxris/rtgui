@@ -68,7 +68,7 @@ type mergedRule struct {
 	hasRadius          bool
 	gradients          [skin.MaxGradientLayers]skin.LinearGradient
 	gradientCount      int
-	hasGradientDecl    bool
+	hasImageDecl       bool
 	font               string
 	hasFont            bool
 	italicFont         string
@@ -156,26 +156,31 @@ func mergeSkinRules(rules []skin.SkinRule) (map[skin.SkinKey]mergedRule, []skin.
 }
 
 // mergeRuleImage applies one rule's image, gradient, and explicit none
-// declarations. Later declarations win: a url or gradient clears an earlier
-// none, and none clears an earlier image and gradient.
+// declarations. A mixed leading-url stack keeps both layers; URL-only and
+// gradient-only declarations still replace the previous background stack.
 func mergeRuleImage(entry *mergedRule, rule skin.SkinRule) {
-	if rule.HasImage {
-		entry.image, entry.hasImage = rule.Image, true
-		entry.gradients, entry.gradientCount = [skin.MaxGradientLayers]skin.LinearGradient{}, 0
-		entry.hasGradientDecl = false
-		entry.noTexture = false
+	if rule.HasImage || rule.NoTexture || rule.GradientCount > 0 {
+		entry.hasImageDecl = true
 	}
 	if rule.NoTexture {
 		entry.image, entry.hasImage = "", false
 		entry.gradients, entry.gradientCount = [skin.MaxGradientLayers]skin.LinearGradient{}, 0
-		entry.hasGradientDecl = false
 		entry.noTexture = true
+		return
+	}
+	if rule.HasImage {
+		entry.image, entry.hasImage = rule.Image, true
+		entry.noTexture = false
+		if rule.GradientCount == 0 {
+			entry.gradients, entry.gradientCount = [skin.MaxGradientLayers]skin.LinearGradient{}, 0
+		}
 	}
 	if rule.GradientCount > 0 {
 		entry.gradients, entry.gradientCount = rule.Gradients, rule.GradientCount
-		entry.image, entry.hasImage = "", false
-		entry.hasGradientDecl = true
 		entry.noTexture = false
+		if !rule.HasImage {
+			entry.image, entry.hasImage = "", false
+		}
 	}
 }
 
@@ -230,10 +235,6 @@ func inheritNormalRules(merged map[skin.SkinKey]mergedRule, order []skin.SkinKey
 
 // inheritNormalVisuals copies omitted visual declarations from the normal-state rule.
 func inheritNormalVisuals(entry *mergedRule, base mergedRule) {
-	if !entry.hasImage && !entry.noTexture {
-		entry.image, entry.hasImage = base.image, base.hasImage
-		entry.noTexture = base.noTexture
-	}
 	if !entry.hasSlice {
 		entry.slice, entry.hasSlice = base.slice, base.hasSlice
 	}
@@ -250,9 +251,11 @@ func inheritNormalVisuals(entry *mergedRule, base mergedRule) {
 		entry.radius, entry.hasRadius = base.radius, base.hasRadius
 	}
 	// An explicit background-image replaces every layer, so states inherit
-	// the whole stack only when they declare no gradient of their own.
-	if !entry.hasGradientDecl {
+	// the whole stack only when they declare no image or gradient of their own.
+	if !entry.hasImageDecl {
+		entry.image, entry.hasImage = base.image, base.hasImage
 		entry.gradients, entry.gradientCount = base.gradients, base.gradientCount
+		entry.noTexture = base.noTexture
 	}
 }
 

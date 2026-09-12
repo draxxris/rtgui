@@ -12,8 +12,10 @@
 // Gradient layers for background-image: one to four comma-separated layers,
 // first layer on top. Each layer is linear-gradient([to <dir> | <angle>deg,]
 // <color> [<pos>%], ...) with 2-4 stops, or radial-gradient([circle
-// [at <x>% <y>%],] <color> [<pos>%], ...) with 2-4 stops. Missing stop
-// positions follow CSS Images 3 (ends anchor at 0%/100%, runs interpolate).
+// [at <x>% <y>%],] <color> [<pos>%], ...) with 2-4 stops. A background
+// stack may instead start with one url(...) texture followed by up to four
+// gradient layers; the URL must be first and none cannot be mixed. Missing
+// stop positions follow CSS Images 3 (ends anchor at 0%/100%, runs interpolate).
 // Example: radial-gradient(circle at 30% 20%, #3a5a7a80, #00000000 60%),
 // linear-gradient(135deg, #17b978 0%, #0ea071 50%, #086972 100%),
 // linear-gradient(to bottom, #2b3d54, #0b1524),
@@ -359,14 +361,14 @@ func applyBackgroundProp(entry *SkinRule, selector, property, value string) erro
 	case "background-image":
 		trimmed := strings.TrimSpace(value)
 		lower := strings.ToLower(trimmed)
-		if strings.HasPrefix(lower, "url(") {
-			path, err := extractURL(selector, property, value)
-			if err != nil {
-				return err
-			}
-			entry.Image, entry.HasImage = path, true
-			entry.NoTexture = false
+		if lower == "none" {
+			entry.Image, entry.HasImage = "", false
+			entry.Gradients, entry.GradientCount = [MaxGradientLayers]Gradient{}, 0
+			entry.NoTexture = true
 			return nil
+		}
+		if strings.HasPrefix(lower, "url(") {
+			return parseBackgroundTextureStack(entry, selector, property, trimmed)
 		}
 		if strings.Contains(lower, "linear-gradient(") || strings.Contains(lower, "radial-gradient(") {
 			layers, count, err := parseBackgroundGradients(selector, property, value)
@@ -374,16 +376,11 @@ func applyBackgroundProp(entry *SkinRule, selector, property, value string) erro
 				return err
 			}
 			entry.Gradients, entry.GradientCount = layers, count
+			entry.Image, entry.HasImage = "", false
 			entry.NoTexture = false
 			return nil
 		}
-		if lower == "none" {
-			entry.Image, entry.HasImage = "", false
-			entry.Gradients, entry.GradientCount = [MaxGradientLayers]Gradient{}, 0
-			entry.NoTexture = true
-			return nil
-		}
-		return fmt.Errorf("skin: %s in %q must be url(...), linear-gradient(...), radial-gradient(...), or up to four comma-separated gradient layers, got %q", property, selector, value)
+		return fmt.Errorf("skin: %s in %q must be none, url(...), gradients, or a leading url(...) followed by gradients, got %q", property, selector, value)
 	case "border-radius":
 		return applyRadiusProp(entry, selector, property, value)
 	case "background-color":
@@ -401,6 +398,35 @@ func applyBackgroundProp(entry *SkinRule, selector, property, value string) erro
 		entry.Tint, entry.HasTint = tint, true
 		return nil
 	}
+}
+
+// parseBackgroundTextureStack parses one leading texture and its lower CSS
+// layers. Only the first comma-separated item may be url(...); all remaining
+// items must be gradients so the renderer can preserve CSS paint order.
+func parseBackgroundTextureStack(entry *SkinRule, selector, property, value string) error {
+	parts, err := splitParenArgs(value)
+	if err != nil {
+		return fmt.Errorf("skin: %s in %q: %w", property, selector, err)
+	}
+	if len(parts) > MaxGradientLayers+1 {
+		return fmt.Errorf("skin: %s in %q allows one texture and at most %d gradient layers", property, selector, MaxGradientLayers)
+	}
+	path, err := extractURL(selector, property, parts[0])
+	if err != nil {
+		return err
+	}
+	entry.Image, entry.HasImage = path, true
+	entry.Gradients, entry.GradientCount = [MaxGradientLayers]Gradient{}, 0
+	entry.NoTexture = false
+	for index, raw := range parts[1:] {
+		gradient, parseErr := parseGradientLayer(selector, property, raw)
+		if parseErr != nil {
+			return parseErr
+		}
+		entry.Gradients[index] = gradient
+		entry.GradientCount++
+	}
+	return nil
 }
 
 // applyRadiusProp stores a border-radius declaration on the entry. Zero

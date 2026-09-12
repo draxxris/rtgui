@@ -20,9 +20,22 @@ selector and declaration.
 ## Background layers
 
 `background-image` accepts `url(...)`, `none`, or one to four comma-separated
-gradient layers with the first layer on top. Layers composite back-to-front
-over `background-color`, under textures. `none` drops inherited textures and
-gradients.
+gradient layers with the first layer on top. It also accepts one leading
+`url(...)` texture followed by up to four gradient layers, for example:
+
+```css
+Button.quest-action {
+    background-image: url("quest/button_surface_v2.png"),
+        radial-gradient(circle at 50% 12%, #ffffff44, #ffffff00 62%),
+        linear-gradient(to bottom, #3b5373dd, #141c28ee);
+}
+```
+
+The mixed form is intentionally constrained: the URL must be first, there may
+be only one URL, and `none` cannot be mixed with other layers. The first item
+is the topmost layer; rendering composites the gradients back-to-front and
+then paints the leading texture, preserving CSS order. `none` drops inherited
+textures and gradients.
 
 Each layer is either linear or radial with 2–4 color stops:
 
@@ -80,10 +93,12 @@ hover and draws allocate nothing after warmup.
 Later rules for the same key win per field. States inherit omitted fields
 from their same-kind, same-part normal rule — including the whole gradient
 stack. An explicit `background-image` replaces every inherited layer, so a
-state that sets one gradient never keeps the normal rule's other layers.
-`background-image` also travels as a unit across specificity: a class that
-declares gradients drops the base texture, and one that declares a texture
-drops base gradients — a texture never silently buries class gradients.
+state that sets one gradient never keeps the normal rule's other layers. A
+mixed leading-URL declaration replaces the inherited stack with its texture
+and gradients as one unit. `background-image` also travels as a unit across
+specificity: a class that declares gradients drops the base texture, and one
+that declares a texture drops base gradients — a texture never silently buries
+class gradients.
 `border-radius` clips background layers to a rounded rectangle and never
 reshapes the border texture itself.
 

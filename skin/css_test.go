@@ -133,6 +133,48 @@ func TestParseCSSDeclarations(t *testing.T) {
 	}
 }
 
+// TestParseCSSLeadingTextureStack verifies one leading texture retains the
+// following translucent radial and linear layers in CSS order.
+func TestParseCSSLeadingTextureStack(t *testing.T) {
+	rules, err := ParseCSS(`Button {
+		background-image: url("surface.png"), radial-gradient(circle at 30% 20%, #ffffff66, #ffffff00 60%), linear-gradient(to bottom, #2b3d54aa, #0b1524ee);
+	}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rules) != 1 {
+		t.Fatalf("expected one background rule, got %d", len(rules))
+	}
+	rule := rules[0]
+	if !rule.HasImage || rule.Image != "surface.png" || rule.GradientCount != 2 {
+		t.Fatalf("mixed stack = %+v", rule)
+	}
+	if rule.Gradients[0].Kind != GradientRadial || rule.Gradients[0].CenterX != 0.3 || rule.Gradients[0].CenterY != 0.2 {
+		t.Fatalf("radial layer = %+v", rule.Gradients[0])
+	}
+	if rule.Gradients[0].Stops[0].Color.A != 0x66 || rule.Gradients[1].Stops[0].Color.A != 0xaa {
+		t.Fatalf("alpha layers = %+v/%+v", rule.Gradients[0].Stops[0], rule.Gradients[1].Stops[0])
+	}
+	if rule.Gradients[1].Kind != GradientLinear || rule.Gradients[1].Direction != GradientToBottom {
+		t.Fatalf("linear layer = %+v", rule.Gradients[1])
+	}
+}
+
+// TestParseCSSLeadingTextureStackErrors verifies the constrained syntax keeps
+// the texture first and rejects non-gradient layers after it.
+func TestParseCSSLeadingTextureStackErrors(t *testing.T) {
+	cases := []string{
+		`Button { background-image: linear-gradient(#112233, #445566), url("surface.png"); }`,
+		`Button { background-image: url("surface.png"), #112233; }`,
+		`Button { background-image: url("surface.png"), linear-gradient(#112233, #445566), linear-gradient(#112233, #445566), linear-gradient(#112233, #445566), linear-gradient(#112233, #445566), linear-gradient(#112233, #445566); }`,
+	}
+	for _, text := range cases {
+		if _, err := ParseCSS(text); err == nil {
+			t.Fatalf("expected mixed-stack error for %q", text)
+		}
+	}
+}
+
 // TestParseCSSOrder verifies source order survives for overwrite layering.
 func TestParseCSSOrder(t *testing.T) {
 	rules, err := ParseCSS("Button { padding: 1; }\nButton:hover { padding: 2; }\nButton { padding: 3; }")

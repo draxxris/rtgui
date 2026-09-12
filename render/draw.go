@@ -118,8 +118,8 @@ func drawFallbackPart(dest core.Rect, tint color.RGBA) {
 // drawDescriptorBackground renders the solid color, gradient stack, and
 // texture layers of descriptor into dest. Layers composite back-to-front so
 // multiple directions and centers blend like the reference tooltip. A
-// declared border-radius clips the layers to a rounded rectangle so square
-// fills never peek past rounded border textures.
+// declared border-radius clips the background layers to a rounded rectangle
+// while leaving the border texture square.
 func drawDescriptorBackground(descriptor skin.SkinDescriptor, dest core.Rect, tint color.RGBA) {
 	if radius := effectiveBackgroundRadius(descriptor, dest); radius > 0 {
 		drawRoundedBackground(descriptor, dest, tint, radius)

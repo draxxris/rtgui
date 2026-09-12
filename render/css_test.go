@@ -180,6 +180,33 @@ Button:hover { background-image-tint: #aabbccdd; }
 	}
 }
 
+// TestCSSLoadsLeadingTextureStack verifies render materialization preserves
+// one uploaded texture and both CSS gradient layers in their source order.
+func TestCSSLoadsLeadingTextureStack(t *testing.T) {
+	directory := t.TempDir()
+	writeTestPNG(t, directory, "surface.png", color.RGBA{R: 80, G: 100, B: 140, A: 255})
+	cssPath := writeCSS(t, directory, `Button {
+		background-image: url("surface.png"), radial-gradient(circle at 30% 20%, #ffffff66, #ffffff00 60%), linear-gradient(to bottom, #2b3d54aa, #0b1524ee);
+	}`)
+	backend := &fakeTextureBackend{isReady: true}
+	theme := newFakeTheme(backend)
+	mustLoadCSS(t, theme, cssPath)
+	key := skin.SkinKey{Widget: core.WidgetButton, Part: skin.PartBackground, State: core.StateNormal}
+	descriptor, err := theme.GetSkinPart(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !descriptor.HasTexture || descriptor.Texture.ID == 0 || descriptor.GradientCount != 2 {
+		t.Fatalf("materialized mixed stack = %+v", descriptor)
+	}
+	if backend.uploadCalls != 1 || descriptor.Gradients[0].Kind != skin.GradientRadial || descriptor.Gradients[1].Kind != skin.GradientLinear {
+		t.Fatalf("uploads/layer order = %d/%+v", backend.uploadCalls, descriptor.Gradients)
+	}
+	if descriptor.Gradients[0].Stops[0].Color.A != 0x66 || descriptor.Gradients[1].Stops[0].Color.A != 0xaa {
+		t.Fatalf("materialized alpha = %+v/%+v", descriptor.Gradients[0].Stops[0], descriptor.Gradients[1].Stops[0])
+	}
+}
+
 // TestCSSUploadFailureRollsBackCandidateAndPreservesOldLayer checks atomic failure.
 func TestCSSUploadFailureRollsBackCandidateAndPreservesOldLayer(t *testing.T) {
 	directory := t.TempDir()
@@ -433,7 +460,7 @@ func TestCSSBackgroundColorAndGradientMergeAndInherit(t *testing.T) {
 	rules := []skin.SkinRule{
 		{
 			Kind: core.WidgetButton, Part: skin.PartBackground, State: core.StateNormal,
-			BackgroundColor:   core.Color{R: 0x10, G: 0x20, B: 0x30, A: 0xFF},
+			BackgroundColor:    core.Color{R: 0x10, G: 0x20, B: 0x30, A: 0xFF},
 			HasBackgroundColor: true,
 			Gradients: [skin.MaxGradientLayers]skin.LinearGradient{{
 				Direction: skin.GradientToBottom,
@@ -447,7 +474,7 @@ func TestCSSBackgroundColorAndGradientMergeAndInherit(t *testing.T) {
 		},
 		{
 			Kind: core.WidgetButton, Part: skin.PartBackground, State: core.StateHovered,
-			BackgroundColor:   core.Color{R: 0x50, G: 0x60, B: 0x70, A: 0xFF},
+			BackgroundColor:    core.Color{R: 0x50, G: 0x60, B: 0x70, A: 0xFF},
 			HasBackgroundColor: true,
 		},
 		{

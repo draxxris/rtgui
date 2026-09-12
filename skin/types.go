@@ -169,7 +169,8 @@ type SkinDescriptor struct {
 	PaddingLeft, PaddingTop, PaddingRight, PaddingBottom float32
 	// HasPadding reports whether padding values were explicitly declared.
 	HasPadding bool
-	// HasTexture reports whether Texture should be drawn.
+	// HasTexture reports whether Texture should be drawn. It may coexist with
+	// GradientCount; render paints the gradients first and this texture last.
 	HasTexture bool
 	// NoTexture reports an explicit none that drops inherited textures and
 	// gradients through Overlay. Zero authors nothing and inherits normally.
@@ -214,6 +215,14 @@ type SkinDescriptor struct {
 
 // Overlay returns a copy of d with visual properties declared in other applied on top.
 func (d SkinDescriptor) Overlay(other SkinDescriptor) SkinDescriptor {
+	d.overlayTextureLayers(other)
+	d.overlayShape(other)
+	d.overlayText(other)
+	return d
+}
+
+// overlayTextureLayers applies texture, gradient, and explicit none layers.
+func (d *SkinDescriptor) overlayTextureLayers(other SkinDescriptor) {
 	if other.NoTexture {
 		d.Texture = Texture{}
 		d.AtlasRegion = core.Rect{}
@@ -245,6 +254,10 @@ func (d SkinDescriptor) Overlay(other SkinDescriptor) SkinDescriptor {
 		d.Gradients = other.Gradients
 		d.GradientCount = other.GradientCount
 	}
+}
+
+// overlayShape applies nine-patch, three-patch, color, radius, and padding.
+func (d *SkinDescriptor) overlayShape(other SkinDescriptor) {
 	if other.HasNinePatch {
 		d.NinePatch = other.NinePatch
 		d.HasNinePatch = true
@@ -269,6 +282,10 @@ func (d SkinDescriptor) Overlay(other SkinDescriptor) SkinDescriptor {
 		d.PaddingBottom = other.PaddingBottom
 		d.HasPadding = true
 	}
+}
+
+// overlayText applies text color, size, and font selections.
+func (d *SkinDescriptor) overlayText(other SkinDescriptor) {
 	if other.HasTextColor {
 		d.TextColor = other.TextColor
 		d.HasTextColor = true
@@ -285,7 +302,6 @@ func (d SkinDescriptor) Overlay(other SkinDescriptor) SkinDescriptor {
 		d.ItalicFont = other.ItalicFont
 		d.HasItalicFont = true
 	}
-	return d
 }
 
 // HasGradient reports whether the descriptor holds any gradient layer.
