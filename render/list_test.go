@@ -1,6 +1,7 @@
 package render
 
 import (
+	"math"
 	"testing"
 
 	"github.com/draxxris/rtgui/core"
@@ -211,6 +212,57 @@ func TestListDrawsSelectionAndChevron(t *testing.T) {
 	}
 	if icons != 1 {
 		t.Fatalf("icons = %d, want the single registered row icon", icons)
+	}
+}
+
+// TestListDividerCoversOnePhysicalPixel verifies the scale-aware divider:
+// at 1:1 it keeps the legacy 1-logical-px line, and downscaled it spans
+// exactly one physical pixel anchored inside the row bottom.
+func TestListDividerCoversOnePhysicalPixel(t *testing.T) {
+	list := widgets.NewList("rows", core.Rect{W: 386, H: 780})
+	list.SetRowHeight(82)
+	list.SetItems([]widgets.ListItem{{ID: "only", Label: "Only"}})
+	separators := func(theme *Theme) []core.Rect {
+		t.Helper()
+		recorder := newTestRecorder(t, 64)
+		theme.SetDrawRecorder(recorder)
+		theme.BeginFrame()
+		theme.DrawList(list.Snapshot(core.StateNormal), list, -1, -1, core.StateNormal)
+		var dests []core.Rect
+		for _, call := range recorder.Calls() {
+			if call.Kind == core.WidgetList && call.Part == skin.PartOverlay && call.State == core.StateNormal && call.Dest.W > 100 {
+				dests = append(dests, call.Dest)
+			}
+		}
+		return dests
+	}
+	plain := NewTheme(transform.New(core.Viewport{}))
+	dests := separators(plain)
+	if len(dests) != 1 || dests[0] != (core.Rect{X: 0, Y: 81, W: 386, H: 1}) {
+		t.Fatalf("identity dividers = %+v, want one {0 81 386 1} line", dests)
+	}
+	const eps = float32(1e-3)
+	fitted := NewTheme(transform.New(core.Viewport{
+		Viewport:    core.Rect{X: 24, Y: 24, W: 752, H: 752},
+		LogicalSize: core.Vec2{X: 1024, Y: 1024},
+	}))
+	sx, sy := fitted.transform.Scale()
+	if sx != 0.734375 || sy != 0.734375 {
+		t.Fatalf("fit scale = %v/%v, want 0.734375", sx, sy)
+	}
+	dests = separators(fitted)
+	if len(dests) != 1 {
+		t.Fatalf("scaled dividers = %d, want 1", len(dests))
+	}
+	line := dests[0]
+	if got := line.H * sy; math.Abs(float64(got-1)) > float64(eps) {
+		t.Fatalf("scaled divider height covers %v physical px, want 1", got)
+	}
+	if got := line.Y*sy + 24; math.Abs(float64(got)-math.Round(float64(got))) > float64(eps) {
+		t.Fatalf("scaled divider top sits at physical %v, want a pixel boundary", got)
+	}
+	if bottom := line.Y + line.H; bottom > 82+eps {
+		t.Fatalf("scaled divider bottom = %v, must not cross the row edge at 82", bottom)
 	}
 }
 

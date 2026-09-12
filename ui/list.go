@@ -29,14 +29,15 @@ func (u *UI) reconcileListBounds(list *widgets.List) core.Rect {
 }
 
 // listIndexAt resolves the visible row under pos, or -1. Rows lay out in the
-// track-excluded area, so scrollbar presses naturally miss.
+// track-excluded area, so scrollbar presses naturally miss. Variable row
+// heights resolve through the list offset table.
 func (u *UI) listIndexAt(list *widgets.List, pos core.Vec2) int {
 	if list == nil {
 		return -1
 	}
 	content := u.reconcileListBounds(list)
 	rows := render.ListRowsContent(content, list.MaxScroll())
-	return render.ListRowAt(rows, list.VisibleRowCount(), list.RowHeight(), list.ScrollOffset(), pos)
+	return list.RowAt(rows, pos)
 }
 
 // listHoverIndex resolves the pointer row for drawing, or -1.

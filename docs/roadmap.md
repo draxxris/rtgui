@@ -197,6 +197,8 @@ The generic drag controller and rich tooltip renderer are DONE. Item widgets sti
 - Single and multiple selection, icons, alternating rows, and aligned numeric columns.
 - Incremental data updates that preserve selection and scroll position.
 - Shared use by auction, guild roster, friends, LFG, mail, quests, and combat logs.
+- List row content is render-only (plain string fast path or a borrowed
+  widget tree); event forwarding to widgets inside rows remains planned.
 
 ### ChatBox and Combat Log
 

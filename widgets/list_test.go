@@ -118,6 +118,188 @@ func TestListCopiesItems(t *testing.T) {
 	}
 }
 
+// TestListContentSharesWidgetsButIsolatesStructure verifies the borrowed
+// content contract: item structure is copied at both boundaries while the
+// Content widget pointer is shared by design.
+func TestListContentSharesWidgetsButIsolatesStructure(t *testing.T) {
+	content := widgets.NewLabel("row-content", core.Rect{}, "rich row")
+	items := []widgets.ListItem{
+		{ID: "quest", Content: content},
+		{ID: "zone", Label: "Other Quests", Expanded: true, Children: []widgets.ListItem{
+			{ID: "child", Label: "Old Friends"},
+		}},
+	}
+	list := widgets.NewList("quests", core.Rect{W: 320, H: 200})
+	if !list.SetItems(items) {
+		t.Fatal("initial SetItems must report a change")
+	}
+	items[0].Content = widgets.NewLabel("swapped", core.Rect{}, "swapped")
+	items[1].Children[0].Label = "mutated child input"
+	rows := list.VisibleRows()
+	if rows[0].Content != widgets.Widget(content) {
+		t.Fatal("input content swap leaked into list")
+	}
+	if rows[2].Label != "Old Friends" || rows[2].Depth != 1 {
+		t.Fatalf("flattened row = %+v, want child label", rows[2])
+	}
+	snapshot := list.Items()
+	if snapshot[0].Content != widgets.Widget(content) {
+		t.Fatal("content pointer must be shared with the caller")
+	}
+	snapshot[0].Label = "mutated output"
+	snapshot[1].Children[0].Label = "mutated child output"
+	again := list.Items()
+	if again[0].Label != "" || again[1].Children[0].Label != "Old Friends" {
+		t.Fatal("output structure mutation changed list state")
+	}
+	if list.SetItems(list.Items()) {
+		t.Fatal("identical SetItems must report no change")
+	}
+	other := widgets.NewLabel("other", core.Rect{}, "other")
+	changed := []widgets.ListItem{{ID: "quest", Content: other}}
+	if !list.SetItems(changed) {
+		t.Fatal("content pointer swap must report a change")
+	}
+}
+
+// TestListContentWinsForText verifies a non-nil Content supplies Text.
+func TestListContentWinsForText(t *testing.T) {
+	list := widgets.NewList("rows", core.Rect{W: 240, H: 100})
+	list.SetItems([]widgets.ListItem{
+		{ID: "plain", Label: "Plain row"},
+		{ID: "rich", Label: "ignored", Content: widgets.NewLabel("c", core.Rect{}, "Shown")},
+	})
+	row, ok := list.VisibleRowAt(0)
+	if !ok {
+		t.Fatal("plain row is missing")
+	}
+	if row.Label != "Plain row" || row.Content != nil || row.Depth != 0 {
+		t.Fatalf("plain row changed shape: %+v", row)
+	}
+	if !list.Select("plain") || list.Text() != "Plain row" {
+		t.Fatalf("plain selection = %q", list.Text())
+	}
+	if !list.Select("rich") || list.Text() != "Shown" {
+		t.Fatalf("content selection = %q, want Shown", list.Text())
+	}
+	if index, ok := list.SelectedIndex(); !ok || index != 1 {
+		t.Fatalf("selected index = %d/%v, want 1", index, ok)
+	}
+}
+
+// fixedHeightFixture returns a mixed inherit/override list: rows stack as
+// 28 + 60 + 28 + 40 = 156 total, so a 100px viewport leaves max 56.
+func fixedHeightFixture() *widgets.List {
+	list := widgets.NewList("tall", core.Rect{W: 200, H: 100})
+	list.SetItems([]widgets.ListItem{
+		{ID: "a", Label: "A"},
+		{ID: "b", Label: "B", Height: 60},
+		{ID: "c", Label: "C", Height: -4},
+		{ID: "d", Label: "D", Height: 40},
+	})
+	return list
+}
+
+// TestListFixedRowHeights verifies per-row overrides stack into offsets
+// that drive totals, rects, and scroll limits.
+func TestListFixedRowHeights(t *testing.T) {
+	list := fixedHeightFixture()
+	if got := list.TotalHeight(); got != 156 {
+		t.Fatalf("total height = %v, want 156", got)
+	}
+	if got := list.MaxScroll(); got != 56 {
+		t.Fatalf("max scroll = %v, want 56", got)
+	}
+	if got := list.RowHeightAt(1); got != 60 {
+		t.Fatalf("override height = %v, want 60", got)
+	}
+	if got := list.RowHeightAt(2); got != widgets.DefaultListRowHeight {
+		t.Fatalf("invalid height = %v, want inherit", got)
+	}
+	content := core.Rect{Y: 0, W: 200, H: 100}
+	rect, ok := list.RowRect(content, 1)
+	if !ok || rect.Y != 28 || rect.H != 60 {
+		t.Fatalf("row rect = %+v/%v, want Y=28 H=60", rect, ok)
+	}
+	if _, ok := list.RowRect(content, 9); ok {
+		t.Fatal("out-of-range row rect must miss")
+	}
+}
+
+// TestListVariableHitTesting verifies row lookup and visible ranges over
+// stacked offsets, including scrolled viewports.
+func TestListVariableHitTesting(t *testing.T) {
+	list := fixedHeightFixture()
+	content := core.Rect{Y: 0, W: 200, H: 100}
+	for _, want := range []struct {
+		y   float32
+		row int
+	}{
+		{y: 10, row: 0},
+		{y: 80, row: 1},
+		{y: 90, row: 2},
+		{y: 150, row: -1},
+		{y: 200, row: -1},
+	} {
+		if got := list.RowAt(content, core.Vec2{X: 10, Y: want.y}); got != want.row {
+			t.Fatalf("row at Y=%v = %d, want %d", want.y, got, want.row)
+		}
+	}
+	first, last := list.VisibleRange(100)
+	if first != 0 || last != 2 {
+		t.Fatalf("visible range = %d/%d, want 0/2", first, last)
+	}
+	if !list.SetScrollOffset(56) {
+		t.Fatal("scroll to max must report a change")
+	}
+	first, last = list.VisibleRange(100)
+	if first != 1 || last != 3 {
+		t.Fatalf("scrolled range = %d/%d, want 1/3", first, last)
+	}
+}
+
+// TestListInheritSpellingsCompareEqual verifies zero, negative, and NaN
+// heights all mean the list height for change detection.
+func TestListInheritSpellingsCompareEqual(t *testing.T) {
+	list := fixedHeightFixture()
+	restated := []widgets.ListItem{
+		{ID: "a", Label: "A"},
+		{ID: "b", Label: "B", Height: 60},
+		{ID: "c", Label: "C"},
+		{ID: "d", Label: "D", Height: 40},
+	}
+	if list.SetItems(restated) {
+		t.Fatal("negative-to-zero inherit restatement must report no change")
+	}
+	if list.SetItems(list.Items()) {
+		t.Fatal("identical heights must report no change")
+	}
+}
+
+// TestListSelectedIndexRejectsUnstableReads checks ephemeral index rules.
+func TestListSelectedIndexRejectsUnstableReads(t *testing.T) {
+	var nilList *widgets.List
+	if _, ok := nilList.SelectedIndex(); ok {
+		t.Fatal("nil selected index must miss")
+	}
+	list := widgets.NewList("cats", core.Rect{W: 220, H: 300})
+	if _, ok := list.SelectedIndex(); ok {
+		t.Fatal("unselected index must miss")
+	}
+	list.SetItems(listFixture())
+	list.Select("ess")
+	if index, ok := list.SelectedIndex(); !ok || index != list.IndexOfRow("ess") {
+		t.Fatalf("selected index = %d/%v", index, ok)
+	}
+	list.SetExpanded("mats", false)
+	if _, ok := list.SelectedIndex(); ok {
+		t.Fatal("hidden selection index must miss while its Text survives")
+	}
+	if list.Text() != "Essences" {
+		t.Fatalf("Text after collapse = %q", list.Text())
+	}
+}
+
 // TestListFlattensVisibleRows checks collapsed categories hide children.
 func TestListFlattensVisibleRows(t *testing.T) {
 	list := widgets.NewList("cats", core.Rect{W: 220, H: 300})
