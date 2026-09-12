@@ -94,6 +94,7 @@ func (u *UI) removeTree(node *layout.Node) {
 	delete(u.richTips, w.Name())
 	delete(u.tooltipOpts, w.Name())
 	delete(u.richCaches, w.Name())
+	delete(u.tableLayouts, w.Name())
 	u.richTipCache.Invalidate()
 	for i := len(u.hotkeys) - 1; i >= 0; i-- {
 		if u.hotkeys[i].scope == w.Name() {

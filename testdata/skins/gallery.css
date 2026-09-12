@@ -265,6 +265,44 @@ ChatLog::thumb:hover {
     border-image-source-tint: #e1f2ff;
 }
 
+/* Table: the market window's fixed header shares slots with its rows. */
+Table {
+    background-image: url("kenney/background.png");
+    background-image-tint: #14161c;
+    border-image-source: url("kenney/panel_border_grey.png");
+    border-image-slice: 8;
+    padding: 6;
+    color: #d8dce4;
+    font-size: 16;
+}
+Table::header {
+    background-color: #1e2636;
+    color: #e8c878;
+}
+Table::highlight {
+    background-color: #2e4662;
+}
+Table::highlight:selected {
+    background-color: #4a3a20;
+}
+Table::stripe {
+    background-color: #20283a;
+}
+Table::track {
+    border-image-source: url("kenney/scrollbar_future_transparent.png");
+    border-image-slice: 8;
+}
+Table::thumb {
+    border-image-source: url("kenney/scrollbar_future_grey.png");
+    border-image-slice: 8;
+}
+Table::thumb:hover {
+    border-image-source-tint: #e1f2ff;
+}
+Table::arrow {
+    background-color: #e8c878;
+}
+
 /* Class definitions: universal .danger and kind-scoped Button.accent */
 .danger {
     background-color: #5c1d24;

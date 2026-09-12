@@ -433,7 +433,7 @@ func TestCSSBackgroundColorAndGradientMergeAndInherit(t *testing.T) {
 	rules := []skin.SkinRule{
 		{
 			Kind: core.WidgetButton, Part: skin.PartBackground, State: core.StateNormal,
-			BackgroundColor:   core.Color{R: 0x10, G: 0x20, B: 0x30, A: 0xFF},
+			BackgroundColor:    core.Color{R: 0x10, G: 0x20, B: 0x30, A: 0xFF},
 			HasBackgroundColor: true,
 			Gradients: [skin.MaxGradientLayers]skin.LinearGradient{{
 				Direction: skin.GradientToBottom,
@@ -447,7 +447,7 @@ func TestCSSBackgroundColorAndGradientMergeAndInherit(t *testing.T) {
 		},
 		{
 			Kind: core.WidgetButton, Part: skin.PartBackground, State: core.StateHovered,
-			BackgroundColor:   core.Color{R: 0x50, G: 0x60, B: 0x70, A: 0xFF},
+			BackgroundColor:    core.Color{R: 0x50, G: 0x60, B: 0x70, A: 0xFF},
 			HasBackgroundColor: true,
 		},
 		{

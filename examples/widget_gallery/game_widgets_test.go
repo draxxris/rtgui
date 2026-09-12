@@ -116,6 +116,136 @@ func TestGalleryCSSParsesScrollableParts(t *testing.T) {
 	}
 }
 
+// TestGalleryCSSParsesTableParts checks the table shell, fixed header, row
+// highlight, optional stripe, and scrollbar vocabulary used by the market.
+func TestGalleryCSSParsesTableParts(t *testing.T) {
+	text, err := os.ReadFile(filepath.Join("..", "..", "testdata", "skins", "gallery.css"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rules, err := skin.ParseCSS(string(text))
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := map[string]bool{}
+	for _, rule := range rules {
+		if rule.Kind != core.WidgetTable {
+			continue
+		}
+		switch rule.Part {
+		case skin.PartBackground:
+			seen["base"] = true
+		case skin.PartHeader:
+			seen["header"] = true
+		case skin.PartOverlay:
+			seen["highlight"] = true
+		case skin.PartStripe:
+			seen["stripe"] = true
+		case skin.PartTrack:
+			seen["track"] = true
+		case skin.PartThumb:
+			seen["thumb"] = true
+		case skin.PartArrow:
+			seen["arrow"] = true
+		}
+	}
+	for _, part := range []string{"base", "header", "highlight", "stripe", "track", "thumb", "arrow"} {
+		if !seen[part] {
+			t.Fatalf("gallery css misses Table %s (seen=%v)", part, seen)
+		}
+	}
+}
+
+// TestAuctionTableDemo exercises the market popup, stable selection, both
+// sortable numeric columns, explicit game activation, invalid-row behavior,
+// and the hidden root's input blocking boundary.
+func TestAuctionTableDemo(t *testing.T) {
+	u := ui.New(1280, 780)
+	g := newGallery(u)
+	assertMarketStartsHidden(t, u, g)
+	clickGalleryButton(t, u, "marketButton")
+	assertMarketOpened(t, g)
+	exerciseAuctionHeaderSort(t, u, g)
+	exerciseAuctionActions(t, u, g)
+	clickGalleryButton(t, u, "marketWindow/close")
+	if g.marketWindow.IsOpen() || g.status != "Market closed (demo)" {
+		t.Fatalf("close: open=%v status=%q", g.marketWindow.IsOpen(), g.status)
+	}
+}
+
+// assertMarketStartsHidden verifies that a registered hidden popup neither
+// opens accidentally nor blocks the visible scroll surface underneath it.
+func assertMarketStartsHidden(t *testing.T, u *ui.UI, g *gallery) {
+	t.Helper()
+	if g.marketWindow.IsOpen() {
+		t.Fatal("market must start hidden")
+	}
+	u.HandleMouse(ui.MouseEvent{Pos: core.Vec2{X: 700, Y: 390}})
+	if hovered := u.Hovered(); hovered == nil || hovered.Name() != "scrollPanel" {
+		t.Fatalf("hidden market blocked underlying hover: %#v", hovered)
+	}
+	if g.auctionTable.RowCount() != 8 {
+		t.Fatalf("auction row count = %d, want 8", g.auctionTable.RowCount())
+	}
+	if got, ok := g.auctionTable.CellAt("cinder-amulet", "buyout"); !ok || !got.Invalid {
+		t.Fatalf("invalid auction row missing invalid buyout: %+v/%v", got, ok)
+	}
+}
+
+// assertMarketOpened checks the demo button's popup transition and status.
+func assertMarketOpened(t *testing.T, g *gallery) {
+	t.Helper()
+	if !g.marketWindow.IsOpen() || g.status != "Market opened (demo)" {
+		t.Fatalf("open: open=%v status=%q", g.marketWindow.IsOpen(), g.status)
+	}
+}
+
+// exerciseAuctionHeaderSort drives the actual header press-release path twice
+// and verifies the required ascending/descending toggle.
+func exerciseAuctionHeaderSort(t *testing.T, u *ui.UI, g *gallery) {
+	t.Helper()
+	tableBounds := g.auctionTable.Bounds()
+	headerBuyout := core.Vec2{X: tableBounds.X + tableBounds.W - 40, Y: tableBounds.Y + 12}
+	u.HandleMouse(ui.MouseEvent{Pos: headerBuyout, Pressed: true})
+	u.HandleMouse(ui.MouseEvent{Pos: headerBuyout, Released: true})
+	if column, direction := g.auctionTable.SortColumn(); column != "buyout" || direction != core.SortAsc {
+		t.Fatalf("header buyout asc = %q/%v", column, direction)
+	}
+	u.HandleMouse(ui.MouseEvent{Pos: headerBuyout, Pressed: true})
+	u.HandleMouse(ui.MouseEvent{Pos: headerBuyout, Released: true})
+	if column, direction := g.auctionTable.SortColumn(); column != "buyout" || direction != core.SortDesc {
+		t.Fatalf("header buyout desc = %q/%v", column, direction)
+	}
+}
+
+// exerciseAuctionActions covers stable selection, both numeric sort columns,
+// and explicit activation of the invalid-but-actionable listing.
+func exerciseAuctionActions(t *testing.T, u *ui.UI, g *gallery) {
+	t.Helper()
+	if !u.SelectTableRow("auctionTable", "cinder-amulet") || g.status != `Auction "cinder-amulet" selected` {
+		t.Fatalf("select invalid row: status=%q", g.status)
+	}
+	if !u.SetTableSort("auctionTable", "buyout", core.SortAsc) || g.status != "Auction sorted by buyout ascending" {
+		t.Fatalf("buyout asc: status=%q", g.status)
+	}
+	if column, direction := g.auctionTable.SortColumn(); column != "buyout" || direction != core.SortAsc {
+		t.Fatalf("buyout asc state = %q/%v", column, direction)
+	}
+	if !u.SetTableSort("auctionTable", "buyout", core.SortDesc) || g.status != "Auction sorted by buyout descending" {
+		t.Fatalf("buyout desc: status=%q", g.status)
+	}
+	if !u.SetTableSort("auctionTable", "level", core.SortAsc) || g.status != "Auction sorted by level ascending" {
+		t.Fatalf("level asc: status=%q", g.status)
+	}
+	if !u.ActivateTableRow("auctionTable", "cinder-amulet") || g.status != `Bid/Buy "cinder-amulet" (demo)` {
+		t.Fatalf("semantic activation: status=%q", g.status)
+	}
+	clickGalleryButton(t, u, "buyButton")
+	if g.status != `Bid/Buy "cinder-amulet" (demo)` {
+		t.Fatalf("button activation: status=%q", g.status)
+	}
+}
+
 // cssPartBucket classifies one gallery rule for coverage checks.
 func cssPartBucket(rule skin.SkinRule) string {
 	switch {

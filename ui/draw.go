@@ -69,9 +69,10 @@ func (u *UI) drawPopup() {
 // drawOne creates the sole renderer-facing widget snapshot with UI state.
 // Rich segments render single-line rich runs for buttons, labels, checks,
 // and dropdowns; links stay inert there and activate only in RichText.
-// Tab bars render through the dedicated tab path so per-cell skins apply.
-// Textboxes render through the caret path so selection and caret draw with
-// the same content area used for click mapping.
+// Tab bars render through the dedicated tab path so per-cell skins apply;
+// tables use their virtual header/row path for the same reason. Textboxes
+// render through the caret path so selection and caret draw with the same
+// content area used for click mapping.
 func (u *UI) drawOne(widget widgets.Widget) {
 	if isNilWidget(widget) {
 		return
@@ -221,7 +222,8 @@ func needsBorder(kind core.WidgetKind) bool {
 		core.WidgetTabBar,
 		core.WidgetRichText,
 		core.WidgetList,
-		core.WidgetChatLog:
+		core.WidgetChatLog,
+		core.WidgetTable:
 		return true
 	default:
 		return false

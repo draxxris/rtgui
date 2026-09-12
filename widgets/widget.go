@@ -58,14 +58,18 @@ type RichProvider interface {
 // Callbacks is the single callback registry owned by a widget. UI registration
 // and fluent widget setters replace the same slots; they never add listeners.
 type Callbacks struct {
-	Click       func()
-	Change      func(float32)
-	Text        func(string)
-	TabSelect   func(int)
-	ListSelect  func(string)
-	ListToggle  func(string, bool)
-	LinkClick   func(core.Link)
-	LinkTooltip func(core.Link) string
+	Click            func()
+	Change           func(float32)
+	Text             func(string)
+	TabSelect        func(int)
+	ListSelect       func(string)
+	ListToggle       func(string, bool)
+	TableSelect      func(string)
+	TableSort        func(string, core.SortDir)
+	TableActivate    func(string)
+	TableCellTooltip func(string, string) string
+	LinkClick        func(core.Link)
+	LinkTooltip      func(core.Link) string
 }
 
 // base provides common fields and standard Widget implementation for concrete widgets.
@@ -616,4 +620,15 @@ func AsChatLog(w Widget) (*ChatLog, error) {
 		return l, nil
 	}
 	return nil, fmt.Errorf("%w: widget %q is %v, expected %v", ErrKindMismatch, w.Name(), w.Kind(), core.WidgetChatLog)
+}
+
+// AsTable asserts that w is a *Table.
+func AsTable(w Widget) (*Table, error) {
+	if w == nil {
+		return nil, ErrNilWidget
+	}
+	if table, ok := w.(*Table); ok {
+		return table, nil
+	}
+	return nil, fmt.Errorf("%w: widget %q is %v, expected %v", ErrKindMismatch, w.Name(), w.Kind(), core.WidgetTable)
 }

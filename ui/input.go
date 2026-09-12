@@ -226,6 +226,11 @@ func (u *UI) Activate(name string) bool {
 			u.diagnose("ui.Activate: list %q has no valid selection", name)
 			return false
 		}
+	case *widgets.Table:
+		// A table has no implicit current-row activation. Games must choose
+		// the stable row explicitly through ActivateTableRow.
+		u.diagnose("ui.Activate: table %q requires ActivateTableRow", name)
+		return false
 	case *widgets.Textbox:
 		u.setFocus(target)
 	}
@@ -332,6 +337,10 @@ func (u *UI) reconcileInteraction() {
 	}
 	if u.pressed != nil && !u.available(u.pressed) {
 		u.pressed = nil
+		u.clearTableArm()
+	}
+	if u.pressed == nil {
+		u.clearTableArm()
 	}
 	if u.focused != nil && !u.available(u.focused) {
 		u.clearFocus()
@@ -416,6 +425,11 @@ func (u *UI) handlePress(event MouseEvent) bool {
 	}
 	if log, ok := target.(*widgets.ChatLog); ok {
 		u.pressChatLog(log, event.Pos)
+	}
+	if table, ok := target.(*widgets.Table); ok {
+		u.tablePressArms(table, event.Pos)
+	} else {
+		u.clearTableArm()
 	}
 	return true
 }
@@ -506,9 +520,9 @@ func (u *UI) handleDrag(event MouseEvent) bool {
 	return false
 }
 
-// handleRelease ends an active gesture. Tab bars resolve the released tab
-// cell and rich text resolves the released segment before firing
-// kind-specific callbacks; other releases outside consume without activation.
+// handleRelease ends an active gesture. Tab bars, tables, and rich text
+// resolve their released cell or segment before firing kind-specific
+// callbacks; other releases outside consume without activation.
 func (u *UI) handleRelease(event MouseEvent) bool {
 	if !event.Released {
 		return false
@@ -536,6 +550,9 @@ func (u *UI) handleRelease(event MouseEvent) bool {
 	}
 	if log, ok := active.(*widgets.ChatLog); ok {
 		return u.releaseChatLog(log, event.Pos)
+	}
+	if table, ok := active.(*widgets.Table); ok {
+		return u.releaseTable(table, event.Pos)
 	}
 	if active.HitTest(event.Pos) && u.hitSurface(event.Pos) == active {
 		u.activateWidget(active)
@@ -792,7 +809,7 @@ func (u *UI) hitInteractive(pos core.Vec2) widgets.Widget {
 // isPressable reports the kinds that can own a UI press gesture.
 func isPressable(kind core.WidgetKind) bool {
 	switch kind {
-	case core.WidgetButton, core.WidgetCheckbox, core.WidgetTextbox, core.WidgetSlider, core.WidgetDropdown, core.WidgetTabBar, core.WidgetRichText, core.WidgetList, core.WidgetChatLog:
+	case core.WidgetButton, core.WidgetCheckbox, core.WidgetTextbox, core.WidgetSlider, core.WidgetDropdown, core.WidgetTabBar, core.WidgetRichText, core.WidgetList, core.WidgetChatLog, core.WidgetTable:
 		return true
 	default:
 		return false

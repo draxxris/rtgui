@@ -54,13 +54,21 @@ type UI struct {
 	activeFrame widgets.Widget
 
 	// scrollThumbHovered and scrollThumbDragging own the active scrollbar
-	// gesture for every scrollable container. Scroll panels and collapsible
-	// lists share one gesture path through scrollState helpers; the stored
-	// widget is always one of those two kinds.
+	// gesture for every scrollable container. Scroll panels, lists, chat logs,
+	// and tables share one gesture path through scrollState helpers.
 	scrollThumbHovered    widgets.Widget
 	scrollThumbDragging   widgets.Widget
 	scrollDragStartY      float32
 	scrollDragStartScroll float32
+
+	// tableArmedRow and tableArmedColumn retain stable press identities until
+	// release; only one is populated for a table press.
+	tableArmedRow    string
+	tableArmedColumn string
+	// tableLayouts and tableColumns keep column hit testing allocation-free
+	// after each table has been warmed by a draw or pointer query.
+	tableLayouts map[string]*render.TableLayoutCache
+	tableColumns []widgets.TableColumn
 
 	// hotkeys is the library-owned registry for scoped global actions.
 	// Iteration is linear and allocation-free on the hot path; N stays tiny.
@@ -119,6 +127,11 @@ type UI struct {
 	// a ChatLog. Chat message IDs are never zero, so zero means no chat tip
 	// and RichText tips never consult it.
 	tipChatMsg uint64
+	// tableTipRow and tableTipColumn identify the table cell owning tipText.
+	// They are paired with tipRevision so a data refresh under a stationary
+	// pointer requests a fresh provider value.
+	tableTipRow    string
+	tableTipColumn string
 	// linkArmedChatMsg identifies the chat message owning linkArmedSeg while
 	// a ChatLog press is armed; zero means no chat arm.
 	linkArmedChatMsg uint64
@@ -368,6 +381,7 @@ func (u *UI) clearReferences(widget widgets.Widget) {
 	}
 	if u.pressed == widget {
 		u.pressed = nil
+		u.clearTableArm()
 		u.disarmLink()
 	}
 	if u.focused == widget {

@@ -498,7 +498,7 @@ func TestDrawWidgetPartColorAndGradientAllocatesNothing(t *testing.T) {
 	theme := NewTheme(transform.New(core.Viewport{}))
 	theme.SetDrawRecorder(nil)
 	theme.SetSkinPart(skin.SkinKey{Widget: core.WidgetButton, Part: skin.PartBackground, State: core.StateNormal}, skin.SkinDescriptor{
-		BackgroundColor:   core.Color{R: 20, G: 40, B: 60, A: 200},
+		BackgroundColor:    core.Color{R: 20, G: 40, B: 60, A: 200},
 		HasBackgroundColor: true,
 		Gradients: [skin.MaxGradientLayers]skin.LinearGradient{{
 			Direction: skin.GradientToBottom,

@@ -193,10 +193,14 @@ The generic drag controller and rich tooltip renderer are DONE. Item widgets sti
 
 ### Virtualized ListView and TableView
 
-- Visible-row reuse, sortable columns, and stable row identity.
-- Single and multiple selection, icons, alternating rows, and aligned numeric columns.
-- Incremental data updates that preserve selection and scroll position.
-- Shared use by auction, guild roster, friends, LFG, mail, quests, and combat logs.
+- **PARTIAL-DONE — Generic TableView foundation:** `widgets.Table` provides a
+  virtualized fixed-header grid with stable row IDs, sortable columns, icons,
+  alternating rows, aligned numeric cells, single selection, and data refreshes
+  that preserve surviving selection and scroll position. Auction-house gallery
+  composition demonstrates the read-only game-facing contract.
+- **PLANNED — Broader table and list features:** multiple selection, richer
+  incremental feeds, and shared production use by auction, guild roster, friends,
+  LFG, mail, quests, and combat logs.
 
 ### ChatBox and Combat Log
 

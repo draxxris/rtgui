@@ -21,6 +21,7 @@
 // frame with click-to-focus glow and relative-move child (layout.MoveFrame,
 // R only while demoFrame holds container focus), quest-log window,
 // floating Categories window with a collapsible list plus sell button,
+// floating Market window with a sortable auction table plus Bid / Buy button,
 // state-sample strip,
 // status line; flags -frames / -screenshot for headless smoke.
 //
@@ -116,6 +117,10 @@ type gallery struct {
 	tooltipHint     *widgets.Label
 	questLog        *widgets.TitledFrame
 	categories      *widgets.TitledFrame
+	marketWindow    *widgets.TitledFrame
+	auctionTable    *widgets.Table
+	marketButton    *widgets.Button
+	buyButton       *widgets.Button
 	stateCanvas     *widgets.Canvas
 	statusLabel     *widgets.Label
 	lineGraph       *widgets.LineGraph
@@ -226,7 +231,8 @@ func runHeadlessSmoke() {
 		}},
 	})
 	smokeChatLog := widgets.NewChatLog("smokeChatLog", core.Rect{X: 230, Y: 220, W: 200, H: 80}, 50)
-	if err := facade.Add(button, checkbox, slider, field, tabs, chat, smokeScroll, smokeList, smokeChatLog); err != nil {
+	smokeTable := newSmokeTable()
+	if err := facade.Add(button, checkbox, slider, field, tabs, chat, smokeScroll, smokeList, smokeChatLog, smokeTable); err != nil {
 		log.Fatal(err)
 	}
 	clicks := 0
@@ -240,6 +246,21 @@ func runHeadlessSmoke() {
 	facade.OnListToggle("smokeList", func(id string, expanded bool) { listToggled = id })
 	facade.SetListExpanded("smokeList", "mats", false)
 	facade.SelectListItem("smokeList", "fav")
+	tableSortColumn := ""
+	tableSortDirection := core.None
+	tableSelected := ""
+	tableActivated := ""
+	facade.OnTableSort("smokeTable", func(columnID string, direction core.SortDir) {
+		tableSortColumn, tableSortDirection = columnID, direction
+	})
+	facade.OnTableSelect("smokeTable", func(id string) { tableSelected = id })
+	facade.OnTableActivate("smokeTable", func(id string) { tableActivated = id })
+	if !facade.SetTableSort("smokeTable", "buyout", core.SortAsc) || !facade.SelectTableRow("smokeTable", "dear") || !facade.ActivateTableRow("smokeTable", "dear") {
+		log.Fatal("headless smoke: table semantic path failed")
+	}
+	if tableSortColumn != "buyout" || tableSortDirection != core.SortAsc || tableSelected != "dear" || tableActivated != "dear" {
+		log.Fatalf("headless smoke: table callbacks sort=%q/%v select=%q activate=%q", tableSortColumn, tableSortDirection, tableSelected, tableActivated)
+	}
 	linkClicked := ""
 	facade.OnLinkClick("smokeChat", func(link core.Link) { linkClicked = link.Target })
 	facade.ActivateLink("smokeChat", 0)
@@ -261,7 +282,7 @@ func runHeadlessSmoke() {
 	facade.CloseMenu()
 	facade.Draw()
 	calls := recorder.Calls()
-	log.Printf("headless smoke: %d draw calls logged (clicks=%d tab=%d link=%q chatlink=%q list=%q/%q fallback=%v)", len(calls), clicks, tabSelected, linkClicked, chatLinkClicked, listSelected, listToggled, len(calls) > 0 && calls[0].Fallback)
+	log.Printf("headless smoke: %d draw calls logged (clicks=%d tab=%d link=%q chatlink=%q list=%q/%q table=%q/%v/%q/%q fallback=%v)", len(calls), clicks, tabSelected, linkClicked, chatLinkClicked, listSelected, listToggled, tableSortColumn, tableSortDirection, tableSelected, tableActivated, len(calls) > 0 && calls[0].Fallback)
 
 	if *screenshot != "" {
 		if err := saveGalleryScreenshot(*screenshot); err != nil {
@@ -272,6 +293,26 @@ func runHeadlessSmoke() {
 	if *frameLimit > 0 {
 		log.Printf("headless smoke completed %d frames", *frameLimit)
 	}
+}
+
+// newSmokeTable creates the small table used by the no-display interaction
+// smoke. It exercises real numeric sorting and stable row IDs without relying
+// on the gallery's windowed assets or a graphics context.
+func newSmokeTable() *widgets.Table {
+	table := widgets.NewTable("smokeTable", core.Rect{X: 450, Y: 10, W: 300, H: 150})
+	if !table.SetColumns([]widgets.TableColumn{
+		{ID: "name", Title: "Name", Width: 2},
+		{ID: "buyout", Title: "Buyout", Width: 1, Numeric: true, Sortable: true},
+	}) {
+		log.Fatal("headless smoke: table columns were rejected")
+	}
+	if !table.SetRows([]widgets.TableRow{
+		{ID: "cheap", Cells: []widgets.TableCell{{Text: "Cheap"}, {Text: "1c", SortValue: 1, HasSortValue: true}}},
+		{ID: "dear", Cells: []widgets.TableCell{{Text: "Dear"}, {Text: "2c", SortValue: 2, HasSortValue: true}}},
+	}) {
+		log.Fatal("headless smoke: table rows were rejected")
+	}
+	return table
 }
 
 // saveGalleryScreenshot saves the current framebuffer, falling back to a
@@ -436,6 +477,10 @@ func newGallery(facade *ui.UI) *gallery {
 		chatLog:       widgets.NewChatLog("chatLog", core.Rect{}, 50),
 		menuHint:      widgets.NewStyledLabel("menuHint", core.Rect{}, "Right-click anywhere for the context menu", 20, true, core.AlignLeft).SetTextColor(captionColor),
 		tooltipHint:   widgets.NewStyledLabel("tooltipHint", core.Rect{}, "Click demoFrame then T for a pinned tooltip (Esc dismisses)", 20, true, core.AlignLeft).SetTextColor(captionColor),
+		marketWindow:  widgets.NewTitledFrame("marketWindow", core.Rect{}, "Auction House"),
+		auctionTable:  newAuctionTable("auctionTable"),
+		marketButton:  widgets.NewButton("marketButton", core.Rect{}, "Open Market"),
+		buyButton:     widgets.NewButton("buyButton", core.Rect{}, "Bid / Buy"),
 		status:        "Click demoFrame to focus it — R moves, T pins a tooltip",
 	}
 	g.statusLabel = widgets.NewStyledLabel("statusLabel", core.Rect{}, g.status, 18, true, core.AlignLeft).SetTextColor(core.Color{R: 161, G: 192, B: 224, A: 255})
@@ -549,41 +594,45 @@ func newGallery(facade *ui.UI) *gallery {
 		g.setStatus("Categories closed (demo)")
 	})
 
+	// Market demo: the game owns the auction data and explicitly activates the
+	// selected stable row through the Bid / Buy button. Table pointer release
+	// only selects; there is intentionally no double-click activation path.
+	g.marketButton.OnClick(func() {
+		g.marketWindow.Show()
+		g.facade.BringToFront("marketWindow")
+		g.setStatus("Market opened (demo)")
+	}).SetTooltip("Open the auction table window")
+	g.auctionTable.OnSelect(func(id string) {
+		g.setStatus(fmt.Sprintf("Auction %q selected", id))
+	}).OnSort(func(columnID string, direction core.SortDir) {
+		word := "ascending"
+		if direction == core.SortDesc {
+			word = "descending"
+		}
+		g.setStatus(fmt.Sprintf("Auction sorted by %s %s", columnID, word))
+	}).OnActivate(func(id string) {
+		g.setStatus(fmt.Sprintf("Bid/Buy %q (demo)", id))
+	}).OnCellTooltip(func(rowID, columnID string) string {
+		return fmt.Sprintf("Auction %s — %s", rowID, columnID)
+	})
+	g.buyButton.OnClick(func() {
+		id, ok := g.facade.TableSelection("auctionTable")
+		if !ok {
+			g.setStatus("Select an auction before Bid / Buy (demo)")
+			return
+		}
+		if !g.facade.ActivateTableRow("auctionTable", id) {
+			g.setStatus("Bid / Buy unavailable (demo)")
+		}
+	}).SetTooltip("Bid on or buy the selected auction (demo only)")
+	g.marketWindow.OnClose(func() {
+		g.setStatus("Market closed (demo)")
+	})
+
 	// Self-contained scroll panel manages clipping and bounds:
 	g.scroll.SetMaxScroll(core.Vec2{Y: 170}).SetScrollContentDrawer(g.drawScrollRows)
 
-	if err := facade.Add(
-		g.leftPanel, g.rightPanel,
-		g.titleLabel, g.subtitleLabel,
-		g.leftTitle, g.rightTitle,
-		g.button, g.checkbox,
-		g.textboxCaption, g.textbox,
-		g.dropdownCaption, g.dropdown,
-		g.sliderCaption, g.slider,
-		g.progress,
-		g.panel, g.panelText,
-		g.label,
-		g.tabbarCaption, g.tabbar,
-		g.chatCaption, g.chat,
-		g.frame, g.frameCaption, g.frameButton,
-		g.scrollCaption, g.scroll, g.chatLog,
-		g.menuHint, g.tooltipHint,
-		questButton, categoryButton,
-		g.stateCanvas,
-		g.statusLabel,
-	); err != nil {
-		panic(err)
-	}
-	if err := facade.Add(g.questLog.Widgets()...); err != nil {
-		panic(err)
-	}
-	if err := facade.Add(questText, questAccept, questDecline); err != nil {
-		panic(err)
-	}
-	if err := facade.Add(g.categories.Widgets()...); err != nil {
-		panic(err)
-	}
-	if err := facade.Add(categoryList, sellButton); err != nil {
+	if err := registerGalleryWidgets(facade, g, questButton, questText, questAccept, questDecline, categoryButton, categoryList, sellButton); err != nil {
 		panic(err)
 	}
 
@@ -616,8 +665,57 @@ func newGallery(facade *ui.UI) *gallery {
 		panic(err)
 	}
 	g.categories.Hide()
+	if err := g.marketWindow.Layout(); err != nil {
+		panic(err)
+	}
+	g.marketWindow.Hide()
 	g.applyTab(g.tabbar.SelectedTab())
 	return g
+}
+
+// registerGalleryWidgets keeps the deliberate registry/draw order in one
+// place: base gallery controls, quest window, category window, then market
+// window and its table/action child. Each popup subtree is registered before
+// its builder is laid out, so ownership and locked slots remain deterministic.
+func registerGalleryWidgets(facade *ui.UI, g *gallery, questButton *widgets.Button, questText *widgets.Label, questAccept, questDecline *widgets.Button, categoryButton *widgets.Button, categoryList *widgets.List, sellButton *widgets.Button) error {
+	if err := facade.Add(
+		g.leftPanel, g.rightPanel,
+		g.titleLabel, g.subtitleLabel,
+		g.leftTitle, g.rightTitle,
+		g.button, g.checkbox,
+		g.textboxCaption, g.textbox,
+		g.dropdownCaption, g.dropdown,
+		g.sliderCaption, g.slider,
+		g.progress,
+		g.panel, g.panelText,
+		g.label,
+		g.tabbarCaption, g.tabbar,
+		g.chatCaption, g.chat,
+		g.frame, g.frameCaption, g.frameButton,
+		g.scrollCaption, g.scroll, g.chatLog,
+		g.menuHint, g.tooltipHint,
+		questButton, categoryButton, g.marketButton,
+		g.stateCanvas,
+		g.statusLabel,
+	); err != nil {
+		return err
+	}
+	if err := facade.Add(g.questLog.Widgets()...); err != nil {
+		return err
+	}
+	if err := facade.Add(questText, questAccept, questDecline); err != nil {
+		return err
+	}
+	if err := facade.Add(g.categories.Widgets()...); err != nil {
+		return err
+	}
+	if err := facade.Add(categoryList, sellButton); err != nil {
+		return err
+	}
+	if err := facade.Add(g.marketWindow.Widgets()...); err != nil {
+		return err
+	}
+	return facade.Add(g.auctionTable, g.buyButton)
 }
 
 // defaultTabPages returns the index-aligned demo pages for demoTabs labels

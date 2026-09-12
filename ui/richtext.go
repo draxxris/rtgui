@@ -124,6 +124,10 @@ func (u *UI) refreshLinkTip() {
 		u.refreshChatTip(log)
 		return
 	}
+	if table, ok := u.hovered.(*widgets.Table); ok {
+		u.refreshTableTip(table)
+		return
+	}
 	if u.hovered.Kind() != core.WidgetRichText {
 		u.dismissLinkTip()
 		return
@@ -183,4 +187,6 @@ func (u *UI) clearLinkTip() {
 	u.tipSeg = -1
 	u.tipText = ""
 	u.tipChatMsg = 0
+	u.tableTipRow = ""
+	u.tableTipColumn = ""
 }

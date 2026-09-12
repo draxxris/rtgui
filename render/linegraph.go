@@ -182,10 +182,10 @@ func newGraphGlow(tint color.RGBA, thickness float32, fx widgets.LineSeriesFX) g
 	outer, mid := haloColors(tint, fx)
 	return graphGlow{
 		enabled: true,
-		outer:    outer,
-		mid:      mid,
-		outerW:   thickness + fx.GlowWidth,
-		midW:     thickness + fx.GlowWidth/2,
+		outer:   outer,
+		mid:     mid,
+		outerW:  thickness + fx.GlowWidth,
+		midW:    thickness + fx.GlowWidth/2,
 	}
 }
 

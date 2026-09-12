@@ -95,8 +95,23 @@ const (
 	WidgetList
 	// WidgetChatLog displays a bounded read-only log of wrapped rich-text messages.
 	WidgetChatLog
+	// WidgetTable displays a sortable, selectable multi-column data table.
+	WidgetTable
 	// WidgetAny represents any widget kind for universal CSS rules.
 	WidgetAny WidgetKind = -1
+)
+
+// SortDir selects the direction of a table's sorted view. None is reserved
+// for programmatic clearing; headers choose SortAsc or SortDesc.
+type SortDir int32
+
+const (
+	// None disables table sorting and restores insertion order.
+	None SortDir = iota
+	// SortAsc orders values from smallest to largest or text from low to high.
+	SortAsc
+	// SortDesc orders values from largest to smallest or text from high to low.
+	SortDesc
 )
 
 // WidgetState is the visual state selected by UI interaction ownership.

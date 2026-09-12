@@ -9,6 +9,8 @@
 // font-family, font-italic-family). Anything else is a hard error. Image sources
 // accept url(...) or none; none drops inherited textures and gradients.
 //
+// Table supports the additional ::header, ::stripe, and geometry-only ::arrow
+// parts; Table::arrow accepts color/tint but rejects image and gradient art.
 // Gradient layers for background-image: one to four comma-separated layers,
 // first layer on top. Each layer is linear-gradient([to <dir> | <angle>deg,]
 // <color> [<pos>%], ...) with 2-4 stops, or radial-gradient([circle
@@ -122,6 +124,7 @@ var kindSelectors = map[string]core.WidgetKind{
 	"LineGraph":   core.WidgetLineGraph,
 	"List":        core.WidgetList,
 	"ChatLog":     core.WidgetChatLog,
+	"Table":       core.WidgetTable,
 }
 
 // pseudoSelectors maps pseudo-classes to widget states. "" is normal.
@@ -146,6 +149,8 @@ var partSelectors = map[string]SkinPart{
 	"fill":      PartOverlay,
 	"spark":     PartSpark,
 	"tab":       PartTab,
+	"header":    PartHeader,
+	"stripe":    PartStripe,
 }
 
 // partAllowlist restricts which parts each kind accepts. Pairings outside it
@@ -161,6 +166,7 @@ var partAllowlist = map[core.WidgetKind]map[string]bool{
 	core.WidgetScrollPanel: {"track": true, "thumb": true},
 	core.WidgetList:        {"highlight": true, "track": true, "thumb": true},
 	core.WidgetChatLog:     {"highlight": true, "track": true, "thumb": true},
+	core.WidgetTable:       {"header": true, "highlight": true, "track": true, "thumb": true, "stripe": true, "arrow": true},
 }
 
 // ParseCSS parses LOOK-only CSS text into SkinRules in source order.
@@ -285,7 +291,7 @@ func resolveRuleTargets(kind core.WidgetKind, part SkinPart, hasPart bool) (imag
 	if part == PartPopup {
 		return PartPopup, PartPopupBorder, PartPopup, true, true
 	}
-	if (kind == core.WidgetScrollPanel || kind == core.WidgetList || kind == core.WidgetChatLog) && (part == PartTrack || part == PartThumb) {
+	if (kind == core.WidgetScrollPanel || kind == core.WidgetList || kind == core.WidgetChatLog || kind == core.WidgetTable) && (part == PartTrack || part == PartThumb) {
 		return part, part, PartBackground, true, false
 	}
 	return part, PartBorder, PartBackground, false, false
@@ -313,36 +319,8 @@ func parseBlock(selector string, kind core.WidgetKind, className string, part Sk
 	}
 	imageTarget, borderTarget, paddingTarget, allowBorder, allowPadding := resolveRuleTargets(kind, part, hasPart)
 	for _, style := range styles {
-		property := strings.TrimSpace(style.Property)
-		value := strings.TrimSpace(style.Value.Text())
-		switch property {
-		case "background-image", "background-image-tint", "background-color", "border-radius":
-			if err := applyBackgroundProp(take(imageTarget), selector, property, value); err != nil {
-				return nil, err
-			}
-		case "border-image-source", "border-image-source-tint", "border-image-slice":
-			if !allowBorder {
-				return nil, fmt.Errorf("skin: %s in %q applies to widgets, ::popup, ::track, and ::thumb parts, not other parts", property, selector)
-			}
-			if err := applyBorderProp(take(borderTarget), selector, property, value); err != nil {
-				return nil, err
-			}
-		case "padding":
-			if !allowPadding {
-				return nil, fmt.Errorf("skin: padding in %q applies to widgets and ::popup parts, not other parts", selector)
-			}
-			padding, err := expandPadding(selector, value)
-			if err != nil {
-				return nil, err
-			}
-			entry := take(paddingTarget)
-			entry.Padding, entry.HasPadding = padding, true
-		case "color", "font-size", "font-family", "font-italic-family":
-			if err := applyTextProp(take(imageTarget), selector, property, value); err != nil {
-				return nil, err
-			}
-		default:
-			return nil, fmt.Errorf("skin: unsupported property %q in %q (LOOK-only subset)", property, selector)
+		if err := parseBlockStyle(selector, kind, part, hasPart, imageTarget, borderTarget, paddingTarget, allowBorder, allowPadding, take, style); err != nil {
+			return nil, err
 		}
 	}
 	entries := make([]SkinRule, 0, len(order))
@@ -350,6 +328,40 @@ func parseBlock(selector string, kind core.WidgetKind, className string, part Sk
 		entries = append(entries, *byPart[part])
 	}
 	return entries, nil
+}
+
+// parseBlockStyle routes one declaration to the target part selected by its
+// selector, keeping parseBlock focused on ordering and rule assembly.
+func parseBlockStyle(selector string, kind core.WidgetKind, part SkinPart, hasPart bool, imageTarget, borderTarget, paddingTarget SkinPart, allowBorder, allowPadding bool, take func(SkinPart) *SkinRule, style *css.CSSStyleDeclaration) error {
+	property := strings.TrimSpace(style.Property)
+	value := strings.TrimSpace(style.Value.Text())
+	switch property {
+	case "background-image", "background-image-tint", "background-color", "border-radius":
+		if kind == core.WidgetTable && hasPart && part == PartArrow && property == "background-image" && strings.ToLower(strings.TrimSpace(value)) != "none" {
+			return fmt.Errorf("skin: background-image in %q is not allowed on Table::arrow; the sort arrow is geometry-only (use color or background-image-tint)", selector)
+		}
+		return applyBackgroundProp(take(imageTarget), selector, property, value)
+	case "border-image-source", "border-image-source-tint", "border-image-slice":
+		if !allowBorder {
+			return fmt.Errorf("skin: %s in %q applies to widgets, ::popup, ::track, and ::thumb parts, not other parts", property, selector)
+		}
+		return applyBorderProp(take(borderTarget), selector, property, value)
+	case "padding":
+		if !allowPadding {
+			return fmt.Errorf("skin: padding in %q applies to widgets and ::popup parts, not other parts", selector)
+		}
+		padding, err := expandPadding(selector, value)
+		if err != nil {
+			return err
+		}
+		entry := take(paddingTarget)
+		entry.Padding, entry.HasPadding = padding, true
+		return nil
+	case "color", "font-size", "font-family", "font-italic-family":
+		return applyTextProp(take(imageTarget), selector, property, value)
+	default:
+		return fmt.Errorf("skin: unsupported property %q in %q (LOOK-only subset)", property, selector)
+	}
 }
 
 // applyBackgroundProp stores background-image, background-image-tint,

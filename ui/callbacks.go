@@ -55,6 +55,34 @@ func (u *UI) OnListToggle(name string, fn func(string, bool)) {
 	}
 }
 
+// OnTableSelect replaces the registered table's stable-row selection callback.
+func (u *UI) OnTableSelect(name string, fn func(string)) {
+	if c := u.callback(name); c != nil {
+		c.TableSelect = fn
+	}
+}
+
+// OnTableSort replaces the registered table's sorted-column callback.
+func (u *UI) OnTableSort(name string, fn func(string, core.SortDir)) {
+	if c := u.callback(name); c != nil {
+		c.TableSort = fn
+	}
+}
+
+// OnTableActivate replaces the registered table's semantic activation callback.
+func (u *UI) OnTableActivate(name string, fn func(string)) {
+	if c := u.callback(name); c != nil {
+		c.TableActivate = fn
+	}
+}
+
+// OnTableCellTooltip replaces the registered table cell tooltip provider.
+func (u *UI) OnTableCellTooltip(name string, fn func(string, string) string) {
+	if c := u.callback(name); c != nil {
+		c.TableCellTooltip = fn
+	}
+}
+
 // OnLinkClick replaces the registered widget's link callback.
 func (u *UI) OnLinkClick(name string, fn func(core.Link)) {
 	if c := u.callback(name); c != nil {
@@ -120,6 +148,27 @@ func (u *UI) fireOnListSelect(name, id string) {
 func (u *UI) fireOnListToggle(name, id string, expanded bool) {
 	if c := u.callback(name); c != nil && c.ListToggle != nil {
 		c.ListToggle(id, expanded)
+	}
+}
+
+// fireOnTableSelect invokes the current table selection callback once.
+func (u *UI) fireOnTableSelect(name, id string) {
+	if c := u.callback(name); c != nil && c.TableSelect != nil {
+		c.TableSelect(id)
+	}
+}
+
+// fireOnTableSort invokes the current table sort callback once.
+func (u *UI) fireOnTableSort(name, columnID string, dir core.SortDir) {
+	if c := u.callback(name); c != nil && c.TableSort != nil {
+		c.TableSort(columnID, dir)
+	}
+}
+
+// fireOnTableActivate invokes the current semantic table activation callback.
+func (u *UI) fireOnTableActivate(name, id string) {
+	if c := u.callback(name); c != nil && c.TableActivate != nil {
+		c.TableActivate(id)
 	}
 }
 

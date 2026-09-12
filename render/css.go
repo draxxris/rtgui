@@ -279,7 +279,7 @@ func loadRuleImages(base string, merged map[skin.SkinKey]mergedRule, order []ski
 	imageOrder := make([]string, 0)
 	for _, key := range order {
 		entry := merged[key]
-		if entry.hasTint && !entry.hasImage {
+		if entry.hasTint && !entry.hasImage && !tableTintWithoutImage(key) {
 			return nil, nil, fmt.Errorf("render: css tint without an image for %v", key)
 		}
 		if !entry.hasImage {
@@ -365,6 +365,14 @@ func (t *Theme) buildCSSDescriptor(key skin.SkinKey, entry mergedRule, base stri
 		descriptor.AtlasRegion = core.Rect{W: float32(texture.Width), H: float32(texture.Height)}
 		descriptor.HasTexture = true
 		descriptor.Tint = cssTint(entry)
+	} else if entry.hasTint && tableTintWithoutImage(key) {
+		// Table component rules may use tint as a solid geometry color. Sort
+		// arrows consume it directly; header and stripe use it as a fill.
+		descriptor.Tint = entry.tint
+		// A solid geometry color also gives SkinDescriptor.Overlay a
+		// declared field to replace when a class or state rule overrides it.
+		descriptor.BackgroundColor = entry.tint
+		descriptor.HasBackgroundColor = true
 	}
 	applyCSSBox(&descriptor, key, entry)
 	if entry.hasBackgroundColor {
@@ -391,7 +399,7 @@ func applyCSSBox(descriptor *skin.SkinDescriptor, key skin.SkinKey, entry merged
 		descriptor.NinePatch.Right, descriptor.NinePatch.Bottom = entry.slice, entry.slice
 		descriptor.HasNinePatch = true
 		descriptor.CenterFill = false
-	} else if (key.Widget == core.WidgetScrollPanel && (key.Part == skin.PartTrack || key.Part == skin.PartThumb)) && entry.hasSlice {
+	} else if (key.Widget == core.WidgetScrollPanel || key.Widget == core.WidgetList || key.Widget == core.WidgetChatLog || key.Widget == core.WidgetTable) && (key.Part == skin.PartTrack || key.Part == skin.PartThumb) && entry.hasSlice {
 		descriptor.ThreePatch.Top = entry.slice
 		descriptor.ThreePatch.Bottom = entry.slice
 		descriptor.HasThreePatch = true
@@ -453,6 +461,15 @@ func (t *Theme) loadCSSFonts(base string, merged map[skin.SkinKey]mergedRule, or
 func isFontFilePath(value string) bool {
 	ext := strings.ToLower(filepath.Ext(value))
 	return ext == ".ttf" || ext == ".otf" || strings.Contains(value, "/") || strings.Contains(value, "\\")
+}
+
+// tableTintWithoutImage reports the table component rules whose tint is a
+// deliberate geometry color rather than a texture-only modifier.
+func tableTintWithoutImage(key skin.SkinKey) bool {
+	if key.Widget != core.WidgetTable {
+		return false
+	}
+	return key.Part == skin.PartArrow || key.Part == skin.PartHeader || key.Part == skin.PartStripe
 }
 
 // cssTint returns exact authored tint or explicit no-tint opaque white.

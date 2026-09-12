@@ -25,6 +25,9 @@ func (u *UI) drawOneSpecial(widget widgets.Widget) bool {
 	case *widgets.ChatLog:
 		u.drawChatLog(w, u.visualState(w))
 		return true
+	case *widgets.Table:
+		u.drawTable(w, u.visualState(w))
+		return true
 	case *widgets.RichText:
 		u.drawRichText(w, u.visualState(w))
 		return true

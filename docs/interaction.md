@@ -93,12 +93,39 @@ Manual input adapters must call it when their input device loses focus.
 - Widget removal releases UI cache entries. Retained capacity in reusable buffers is intentional.
 - Font atlases have a bounded size cache. Graphics resources still require explicit unloading.
 
+### Table view and column-cache lifetime
+
+Tables retain insertion-order rows and build a separate stable-ID sort view; sorting
+never mutates the game's row order. Numeric columns sort by a cell's
+`SortValue` only when `HasSortValue` is true. Missing numeric values go last and
+use their text as a deterministic tie-breaker, so formatted currency must not be
+parsed from display text.
+
+The UI owns the one resolved-column cache for the lifetime of the registered table/UI
+pair. It is invalidated when columns, bounds, scrollbar presence, skin
+padding/state/class, or pixel snapping changes, and the entry is released when
+the widget is removed. The UI passes those track-excluded slots to the typed
+renderer draw; a direct renderer call without slots resolves a one-shot fallback.
+Draw and hit testing therefore use the same slots, and warmed virtual draw/hover
+paths reuse the UI-owned storage.
+
+Table pointer input follows the armed press-release (MSFT) rule: a press arms a
+row or header identity, and only a release on that same identity commits. A
+mismatched release is consumed without selecting or sorting. Row release only
+selects; activation is a game-owned semantic call such as
+`ActivateTableRow`. Tables have no double-click activation and no keyboard
+navigation or keyboard activation in this version. Table scroll bounds are always
+derived from `EnsureScrollBounds`/layout reconciliation; there is no explicit
+Table max-scroll override. Sort directions use `core.SortAsc`, `core.SortDesc`,
+and `core.None`.
+
 Headless allocation tests cover warmed full-widget drawing, rich hover, tooltips, and graphs.
 They do not measure native raylib allocations, font uploads, or GPU costs.
 
 ## Deferred features
 
-This change does not add auction tables, item grids, inventory transactions, or network logic.
+The gallery includes only a scripted auction-table demonstration; this change does not add
+production auction transactions, item grids, inventory transactions, or network logic.
 Rich tooltips are non-interactive. Text shaping, IME support, and broader glyph coverage remain separate work.
 
 The [roadmap](roadmap.md) records completed foundations and the remaining widget, renderer, and game-integration work.

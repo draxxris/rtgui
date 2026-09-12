@@ -33,6 +33,56 @@ func (g *gallery) setupGameWidgets() {
 	g.setupChatLog()
 }
 
+// newAuctionTable builds the fixed demo columns and a small auction feed.
+// The table deliberately keeps the data in insertion order until a header is
+// clicked, while numeric level and copper values remain available to the
+// widget's stable sorted view.
+func newAuctionTable(name string) *widgets.Table {
+	table := widgets.NewTable(name, core.Rect{}).
+		SetRowHeight(28).
+		SetHeaderHeight(32).
+		SetFontSize(16).
+		SetTextColor(core.Color{R: 216, G: 220, B: 228, A: 255})
+	_ = table.SetColumns([]widgets.TableColumn{
+		{ID: "name", Title: "Name", Width: 3, MinWidth: 180},
+		{ID: "level", Title: "Lvl", Width: 1, MinWidth: 48, Align: core.AlignRight, Numeric: true, Sortable: true},
+		{ID: "stack", Title: "Stack", Width: 1, MinWidth: 64, Align: core.AlignRight, Numeric: true},
+		{ID: "buyout", Title: "Buyout", Width: 1.5, MinWidth: 120, Align: core.AlignRight, Numeric: true, Sortable: true},
+	})
+	_ = table.SetRows(auctionDemoRows())
+	return table
+}
+
+// auctionDemoRows returns eight scripted listings, including one unaffordable
+// listing whose cells are invalid for tinting but remain selectable and
+// activatable through the game's explicit Bid / Buy action.
+func auctionDemoRows() []widgets.TableRow {
+	return []widgets.TableRow{
+		auctionRow("ash-sabre", "Ashen Sabre", 60, 1, "125g 40s 12c", 1254012, false),
+		auctionRow("iron-plate", "Iron Plate", 42, 20, "3g 75s 0c", 37500, false),
+		auctionRow("mooncloth", "Mooncloth", 55, 4, "18g 2s 9c", 180209, false),
+		auctionRow("rune-stone", "Runed Stone", 48, 8, "7g 90s 44c", 79044, false),
+		auctionRow("cinder-amulet", "Cinder Amulet", 63, 1, "240g 0s 0c", 2400000, true),
+		auctionRow("frost-oil", "Frost Oil", 37, 12, "1g 18s 50c", 11850, false),
+		auctionRow("verdant-bow", "Verdant Bow", 58, 1, "86g 11s 3c", 861103, false),
+		auctionRow("star-dust", "Star Dust", 50, 16, "12g 5s 75c", 120575, false),
+	}
+}
+
+// auctionRow creates the four display cells in the same order as the demo
+// columns and marks every cell in an invalid listing for a clear row tint.
+func auctionRow(id, name string, level, stack int, buyout string, copper float64, invalid bool) widgets.TableRow {
+	return widgets.TableRow{
+		ID: id,
+		Cells: []widgets.TableCell{
+			{Text: name, Icon: "iron-plate", Invalid: invalid},
+			{Text: fmt.Sprintf("%d", level), SortValue: float64(level), HasSortValue: true, Invalid: invalid},
+			{Text: fmt.Sprintf("%d", stack), SortValue: float64(stack), HasSortValue: true, Invalid: invalid},
+			{Text: buyout, SortValue: copper, HasSortValue: true, Invalid: invalid},
+		},
+	}
+}
+
 // categoryDemoItems returns the auction-house category tree for the floating
 // Categories window. Materials starts expanded with Essences preselected;
 // every other category starts collapsed. Icons reuse the demo whitelist.

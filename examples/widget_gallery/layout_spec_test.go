@@ -46,8 +46,9 @@ func TestGalleryLayoutPlacement(t *testing.T) {
 		"chatLog":                 {X: 676, Y: 356, W: 552, H: 232},
 		"menuHint":                {X: 688, Y: 598, W: 528, H: 20},
 		"tooltipHint":             {X: 688, Y: 616, W: 528, H: 20},
-		"questButton":             {X: 676, Y: 646, W: 264, H: 36},
-		"categoryButton":          {X: 948, Y: 646, W: 256, H: 36},
+		"questButton":             {X: 676, Y: 646, W: 168, H: 36},
+		"categoryButton":          {X: 854, Y: 646, W: 168, H: 36},
+		"marketButton":            {X: 1032, Y: 646, W: 172, H: 36},
 		"stateSamples":            {X: 676, Y: 690, W: 552, H: 34},
 		"questLog":                {X: 430, Y: 230, W: 420, H: 320},
 		"questLog/titlebar":       {X: 438, Y: 238, W: 404, H: 32},
@@ -64,6 +65,13 @@ func TestGalleryLayoutPlacement(t *testing.T) {
 		"categoryWindow/content":  {X: 498, Y: 210, W: 284, H: 392},
 		"categoryList":            {X: 514, Y: 222, W: 252, H: 308},
 		"sellButton":              {X: 514, Y: 542, W: 252, H: 44},
+		"marketWindow":            {X: 320, Y: 195, W: 640, H: 390},
+		"marketWindow/titlebar":   {X: 328, Y: 203, W: 624, H: 32},
+		"marketWindow/title":      {X: 338, Y: 203, W: 582, H: 32},
+		"marketWindow/close":      {X: 924, Y: 207, W: 24, H: 24},
+		"marketWindow/content":    {X: 328, Y: 235, W: 624, H: 342},
+		"auctionTable":            {X: 344, Y: 247, W: 592, H: 250},
+		"buyButton":               {X: 344, Y: 513, W: 280, H: 44},
 	}
 	for name, wantRect := range want {
 		w := u.Lookup(name)

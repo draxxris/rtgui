@@ -16,8 +16,6 @@ const (
 	ScrollTrackWidth = float32(16)
 	// ScrollThumbMinHeight bounds scrollbar thumb retention.
 	ScrollThumbMinHeight = float32(24)
-	// ListSelectedAccent is the gold selection tick drawn on selected rows.
-	ListSelectedAccent = float32(3)
 )
 
 // ListContent returns the skin-aware list viewport used for row drawing,
@@ -25,12 +23,7 @@ const (
 // bounds — so hovered, pressed, and drawn rows always agree. It is safe on
 // a nil theme, where it returns bounds.
 func (t *Theme) ListContent(bounds core.Rect, state core.WidgetState, class ...string) core.Rect {
-	var background, border skin.SkinDescriptor
-	if t != nil {
-		background, _ = t.resolveDescriptor(core.WidgetList, skin.PartBackground, state, class...)
-		border, _ = t.resolveDescriptor(core.WidgetList, skin.PartBorder, state, class...)
-	}
-	return t.snap(ContentRect(bounds, background, border))
+	return t.fixedRowsContent(core.WidgetList, bounds, state, class...)
 }
 
 // ListRowRect returns one fixed-height row rect inside content, translated
@@ -110,15 +103,7 @@ func ScrollThumbRect(track core.Rect, scrollY, maxScroll float32) core.Rect {
 // scrollbar track when overflowing. Draw and hit-test paths must both use
 // this — never raw content — so chevrons never slide under the track.
 func ListRowsContent(content core.Rect, maxScroll float32) core.Rect {
-	track, ok := ScrollTrackRect(content, maxScroll)
-	if !ok {
-		return content
-	}
-	content.W = track.X - content.X
-	if content.W < 0 {
-		content.W = 0
-	}
-	return content
+	return fixedRowsViewport(content, maxScroll)
 }
 
 // DrawList renders a collapsible list shell, visible rows, and scrollbar.
@@ -163,11 +148,11 @@ func (t *Theme) drawListRows(info core.WidgetInfo, list *widgets.List, content c
 			continue
 		}
 		state := listRowState(info.State, row.ID == selected, index == hovered, index == pressed)
-		t.drawListRowHighlight(info, rect, state)
+		t.drawFixedRowHighlight(info, rect, state)
 		if row.ID == selected {
-			t.drawListAccent(info, rect)
+			t.drawFixedRowAccent(info, rect, ListSelectedAccent)
 		}
-		t.drawListSeparator(info, rect)
+		t.drawFixedRowSeparator(info, rect)
 		t.drawListRowContent(info, list, row, rect, state)
 	}
 }
@@ -188,61 +173,6 @@ func listRowState(listState core.WidgetState, selected, hovered, pressed bool) c
 		return core.StateHovered
 	}
 	return core.StateNormal
-}
-
-// drawListRowHighlight records and draws one row background. An authored
-// ::highlight replaces the fixed fill; without one the fixed fill draws so
-// unskinned lists keep selection, hover, and press feedback. The row state
-// selects the descriptor directly so :active rules can match presses.
-func (t *Theme) drawListRowHighlight(info core.WidgetInfo, row core.Rect, state core.WidgetState) {
-	if state == core.StateNormal || state == core.StateDisabled {
-		return
-	}
-	descriptor, fallback := t.resolveDescriptor(info.Kind, skin.PartOverlay, state, info.Class)
-	if !fallback && hasVisualBackground(descriptor) {
-		tint := effectiveTint(descriptor, false)
-		t.logDrawCall(info.Kind, skin.PartOverlay, state, row, t.snap(row), descriptor, tint, false)
-		if rl.IsWindowReady() {
-			drawDescriptorBackground(descriptor, t.snap(row), tint)
-		}
-		return
-	}
-	tint := listFallbackTint(state)
-	t.logDrawCall(info.Kind, skin.PartOverlay, state, row, t.snap(row), skin.SkinDescriptor{}, tint, false)
-	if rl.IsWindowReady() {
-		rl.DrawRectangleRec(toRaylibRect(t.snap(row)), tint)
-	}
-}
-
-// listFallbackTint selects the fixed row fill when no ::highlight is authored.
-func listFallbackTint(state core.WidgetState) color.RGBA {
-	if state == core.StateSelected {
-		return color.RGBA{R: 74, G: 58, B: 32, A: 255}
-	}
-	if state == core.StatePressed {
-		return color.RGBA{R: 44, G: 34, B: 20, A: 255}
-	}
-	return color.RGBA{R: 44, G: 58, B: 78, A: 255}
-}
-
-// drawListAccent records and draws the gold selection tick on selected rows.
-func (t *Theme) drawListAccent(info core.WidgetInfo, row core.Rect) {
-	accent := core.Rect{X: row.X, Y: row.Y, W: ListSelectedAccent, H: row.H}
-	tint := color.RGBA{R: 232, G: 200, B: 118, A: 255}
-	t.logDrawCall(info.Kind, skin.PartOverlay, core.StateSelected, row, t.snap(accent), skin.SkinDescriptor{}, tint, false)
-	if rl.IsWindowReady() {
-		rl.DrawRectangleRec(toRaylibRect(t.snap(accent)), tint)
-	}
-}
-
-// drawListSeparator records and draws one subtle row divider.
-func (t *Theme) drawListSeparator(info core.WidgetInfo, row core.Rect) {
-	line := core.Rect{X: row.X, Y: row.Y + row.H - 1, W: row.W, H: 1}
-	tint := color.RGBA{R: 255, G: 255, B: 255, A: 16}
-	t.logDrawCall(info.Kind, skin.PartOverlay, core.StateNormal, row, t.snap(line), skin.SkinDescriptor{}, tint, false)
-	if rl.IsWindowReady() {
-		rl.DrawRectangleRec(toRaylibRect(t.snap(line)), tint)
-	}
 }
 
 // drawListRowContent renders one row's icon, label, and expander chevron.
@@ -301,8 +231,8 @@ func (t *Theme) drawListChevron(info core.WidgetInfo, row core.Rect, state core.
 	}
 }
 
-// drawListScrollbar renders the track and thumb when overflowing. Lists and
-// chat logs share this path; parts resolve from info.Kind.
+// drawListScrollbar renders the track and thumb when overflowing. Lists,
+// chat logs, and tables share this path; parts resolve from info.Kind.
 func (t *Theme) drawListScrollbar(info core.WidgetInfo, content core.Rect, scrollY, maxScroll float32, thumbState core.WidgetState) {
 	track, ok := ScrollTrackRect(content, maxScroll)
 	if !ok {

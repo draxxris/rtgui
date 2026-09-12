@@ -98,3 +98,14 @@ func (s *Stage) SelectListItem(name, id string) bool {
 func (s *Stage) SetListExpanded(name, id string, expanded bool) bool {
 	return s != nil && s.ui != nil && s.ui.SetListExpanded(name, id, expanded)
 }
+
+// SelectTable changes a table selection through the UI's stable-ID semantic
+// path without manufacturing pointer or hover state.
+func (s *Stage) SelectTable(name, id string) bool {
+	return s != nil && s.ui != nil && s.ui.SelectTableRow(name, id)
+}
+
+// SortTable changes or clears a table sort through the UI's semantic path.
+func (s *Stage) SortTable(name, columnID string, direction core.SortDir) bool {
+	return s != nil && s.ui != nil && s.ui.SetTableSort(name, columnID, direction)
+}

@@ -10,8 +10,9 @@ import (
 )
 
 // scrollState reports the vertical scroll offset and limit shared by every
-// scrollbar owner. Scroll panels keep an explicit app-set limit while lists
-// derive theirs; gestures only need offset and limit, so one path serves both.
+// scrollbar owner. Scroll panels keep an explicit app-set limit while lists,
+// chat logs, and tables derive theirs; gestures only need offset and limit, so
+// one path serves every vertical owner.
 func scrollState(w widgets.Widget) (offset, max float32, ok bool) {
 	switch v := w.(type) {
 	case *widgets.ScrollPanel:
@@ -25,6 +26,11 @@ func scrollState(w widgets.Widget) (offset, max float32, ok bool) {
 		}
 		return v.ScrollOffset(), v.MaxScroll(), true
 	case *widgets.ChatLog:
+		if v == nil {
+			return 0, 0, false
+		}
+		return v.ScrollOffset(), v.MaxScroll(), true
+	case *widgets.Table:
 		if v == nil {
 			return 0, 0, false
 		}
@@ -49,6 +55,11 @@ func setScrollState(w widgets.Widget, offset float32) bool {
 		}
 		return v.SetScrollOffset(offset)
 	case *widgets.ChatLog:
+		if v == nil {
+			return false
+		}
+		return v.SetScrollOffset(offset)
+	case *widgets.Table:
 		if v == nil {
 			return false
 		}
@@ -78,6 +89,12 @@ func (u *UI) scrollOwnerContent(w widgets.Widget) (core.Rect, bool) {
 		}
 		content, _, _, _ := u.reconcileChatBounds(v)
 		return content, true
+	case *widgets.Table:
+		if v == nil {
+			return core.Rect{}, false
+		}
+		content := u.reconcileTableBounds(v)
+		return content, true
 	default:
 		return core.Rect{}, false
 	}
@@ -91,7 +108,19 @@ func (u *UI) innermostScrollOwner(pos core.Vec2) widgets.Widget {
 		if !u.available(w) {
 			continue
 		}
-		if _, _, ok := scrollState(w); ok {
+		_, max, ok := scrollState(w)
+		if !ok {
+			continue
+		}
+		// A fitting table must not swallow a wheel event intended for an
+		// overflowing scroll-panel ancestor. Reconcile it before deciding
+		// whether it is a real owner; other containers retain their legacy
+		// ownership behavior.
+		if table, isTable := w.(*widgets.Table); isTable {
+			u.reconcileTableBounds(table)
+			_, max, _ = scrollState(table)
+		}
+		if max > 0 {
 			return w
 		}
 	}
@@ -292,7 +321,7 @@ func (u *UI) drawScrollbar(widget *widgets.ScrollPanel) {
 }
 
 // ScrollThumbState reports the visual state (Normal, Hovered, Pressed) of a
-// scroll panel or collapsible list scrollbar thumb.
+// scroll panel, list, chat-log, or table scrollbar thumb.
 func (u *UI) ScrollThumbState(name string) (core.WidgetState, error) {
 	if u == nil {
 		return core.StateNormal, ErrNilWidget
@@ -302,7 +331,7 @@ func (u *UI) ScrollThumbState(name string) (core.WidgetState, error) {
 		return core.StateNormal, fmt.Errorf("ui: widget %q not found", name)
 	}
 	switch w.(type) {
-	case *widgets.ScrollPanel, *widgets.List:
+	case *widgets.ScrollPanel, *widgets.List, *widgets.ChatLog, *widgets.Table:
 		return u.scrollThumbStateFor(w), nil
 	default:
 		return core.StateNormal, fmt.Errorf("ui: widget %q is not scrollable", name)

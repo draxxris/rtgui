@@ -137,6 +137,10 @@ const (
 	// PartCaret identifies a textbox caret line. It is geometry-only and
 	// never authored through CSS; unauthored textboxes still show a caret.
 	PartCaret
+	// PartHeader identifies a table's fixed header background and text rule.
+	PartHeader
+	// PartStripe identifies an optional alternating table-row tint.
+	PartStripe
 )
 
 // SkinKey selects a descriptor by widget kind, class, part, and visual state.
