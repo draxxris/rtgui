@@ -189,6 +189,71 @@ func TestTitledFrameBorderInset(t *testing.T) {
 	}
 }
 
+// TestTitledFrameCustomChrome checks title inset, vertical offset, and close
+// sizing remain layout-controlled rather than renderer-specific.
+func TestTitledFrameCustomChrome(t *testing.T) {
+	tf := widgets.NewTitledFrame("questLog", core.Rect{X: 100, Y: 100, W: 420, H: 320}, "Quest Log")
+	tf.SetTitleLeftInset(20).SetTitleTopOffset(-3).SetCloseButtonSize(40)
+	if err := tf.Layout(); err != nil {
+		t.Fatal(err)
+	}
+	byName := titledByName(t, tf)
+	if got := byName["questLog/title"].Bounds(); got.X != 128 || got.Y != 105 || got.W != 352 || got.H != 35 {
+		t.Fatalf("custom title = %+v", got)
+	}
+	if got := byName["questLog/close"].Bounds(); got != (core.Rect{X: 468, Y: 112, W: 40, H: 40}) {
+		t.Fatalf("custom close = %+v", got)
+	}
+}
+
+// TestTitledFramePerSideInsets checks asymmetric rings place the titlebar
+// and content with a divider gap between them.
+func TestTitledFramePerSideInsets(t *testing.T) {
+	tf := widgets.NewTitledFrame("questLog", core.Rect{X: 100, Y: 100, W: 420, H: 320}, "Quest Log")
+	tf.SetBorderInsets(30, 18, 30, 75).SetTitleBarHeight(60).SetContentTopGap(17)
+	if err := tf.Layout(); err != nil {
+		t.Fatal(err)
+	}
+	byName := titledByName(t, tf)
+	if got := byName["questLog/titlebar"].Bounds(); got != (core.Rect{X: 130, Y: 118, W: 360, H: 60}) {
+		t.Fatalf("titlebar = %+v", got)
+	}
+	if got := byName["questLog/content"].Bounds(); got != (core.Rect{X: 130, Y: 195, W: 360, H: 150}) {
+		t.Fatalf("content = %+v", got)
+	}
+	tf.SetCloseInset(-19, -8).SetCloseButtonSize(35)
+	if err := tf.Layout(); err != nil {
+		t.Fatal(err)
+	}
+	if got := titledByName(t, tf)["questLog/close"].Bounds(); got != (core.Rect{X: 474, Y: 110, W: 35, H: 35}) {
+		t.Fatalf("close overlap = %+v", got)
+	}
+	tf.SetBorderInsets(float32(math.NaN()), -1, float32(math.Inf(1)), 12)
+	if err := tf.Layout(); err != nil {
+		t.Fatal(err)
+	}
+	if got := titledByName(t, tf)["questLog/titlebar"].Bounds(); got.X != 100 || got.W != 420 {
+		t.Fatalf("sanitized insets titlebar = %+v", got)
+	}
+}
+
+// TestTitledFrameTitleBarSideInsets checks the titlebar keeps its own side
+// margins while the content follows the body insets.
+func TestTitledFrameTitleBarSideInsets(t *testing.T) {
+	tf := widgets.NewTitledFrame("questLog", core.Rect{X: 100, Y: 100, W: 420, H: 320}, "Quest Log")
+	tf.SetBorderInsets(15, 11, 15, 18).SetTitleBarSideInsets(25, 25).SetTitleBarHeight(42).SetContentTopGap(11)
+	if err := tf.Layout(); err != nil {
+		t.Fatal(err)
+	}
+	byName := titledByName(t, tf)
+	if got := byName["questLog/titlebar"].Bounds(); got != (core.Rect{X: 125, Y: 111, W: 370, H: 42}) {
+		t.Fatalf("titlebar = %+v", got)
+	}
+	if got := byName["questLog/content"].Bounds(); got != (core.Rect{X: 115, Y: 164, W: 390, H: 238}) {
+		t.Fatalf("content = %+v", got)
+	}
+}
+
 // TestTitledFrameTitleBarHeight checks chrome height and content shift.
 func TestTitledFrameTitleBarHeight(t *testing.T) {
 	tf := widgets.NewTitledFrame("questLog", core.Rect{X: 100, Y: 100, W: 420, H: 320}, "Quest Log")

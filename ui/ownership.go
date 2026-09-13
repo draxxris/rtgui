@@ -159,34 +159,49 @@ func (u *UI) hitNode(node *layout.Node, pos core.Vec2) widgets.Widget {
 }
 
 // drawNode renders one ownership subtree with nested, intersected clipping.
+// Frame borders paint after children so body content draws first and the
+// ring finishes on top without a second overlay pass.
 func (u *UI) drawNode(node *layout.Node, clip core.Rect, clipped bool) {
 	w := u.byNode[node]
 	if w != nil && !w.Visible() {
 		return
 	}
+	isFrame := w != nil && w.Kind() == core.WidgetFrame
 	if w != nil {
 		u.drawOne(w)
 	}
 	if node.ChildCount() == 0 {
+		if isFrame {
+			u.drawFrameBorder(w)
+		}
 		return
 	}
+	childClip, childClipped := clip, clipped
 	if w != nil {
 		next := u.childClip(w)
 		if clipped {
 			var ok bool
 			next, ok = transform.Intersect(clip, next)
 			if !ok {
+				if isFrame {
+					u.drawFrameBorder(w)
+				}
 				return
 			}
 		}
-		clip, clipped = next, true
+		childClip, childClipped = next, true
 	}
-	if clipped {
-		u.theme.PushClip(clip)
-		defer u.theme.PopClip()
+	if childClipped {
+		u.theme.PushClip(childClip)
 	}
 	for i := 0; i < node.ChildCount(); i++ {
-		u.drawNode(node.ChildAt(i), clip, clipped)
+		u.drawNode(node.ChildAt(i), childClip, childClipped)
+	}
+	if childClipped {
+		u.theme.PopClip()
+	}
+	if isFrame {
+		u.drawFrameBorder(w)
 	}
 }
 

@@ -72,11 +72,17 @@ func (u *UI) drawPopup() {
 // Tab bars render through the dedicated tab path so per-cell skins apply.
 // Textboxes render through the caret path so selection and caret draw with
 // the same content area used for click mapping.
+// Frames draw only their background here; drawNode paints the frame border
+// after children so overlapping body content never covers the ring.
 func (u *UI) drawOne(widget widgets.Widget) {
 	if isNilWidget(widget) {
 		return
 	}
 	if u.drawOneSpecial(widget) {
+		return
+	}
+	if widget.Kind() == core.WidgetFrame {
+		u.drawFrameBackground(widget)
 		return
 	}
 	state := u.visualState(widget)
@@ -89,6 +95,29 @@ func (u *UI) drawOne(widget widgets.Widget) {
 	if dd, ok := widget.(*widgets.Dropdown); ok {
 		u.drawDropdownArrow(dd, state)
 	}
+}
+
+// drawFrameBackground renders a frame's background and text without its border.
+func (u *UI) drawFrameBackground(widget widgets.Widget) {
+	if isNilWidget(widget) {
+		return
+	}
+	state := u.visualState(widget)
+	val, chk := drawOneValue(widget)
+	info := widget.Snapshot(state)
+	u.theme.DrawControl(info, widgetText(widget), u.controlSegments(widget), val, chk)
+}
+
+// drawFrameBorder renders a frame's border ring on top of its children.
+func (u *UI) drawFrameBorder(widget widgets.Widget) {
+	if isNilWidget(widget) {
+		return
+	}
+	if !needsBorder(widget.Kind()) {
+		return
+	}
+	state := u.visualState(widget)
+	u.theme.DrawWidgetPart(widget.Kind(), skin.PartBorder, widget.Bounds(), state, widget.Class())
 }
 
 // drawScrollPanel renders a scroll panel background, border, and scissored contents.
