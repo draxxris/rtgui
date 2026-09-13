@@ -24,6 +24,13 @@ func NewRadialGradient(cx, cy float32, stops ...ColorStop) (Gradient, bool) {
 	return makeGradient(GradientRadial, GradientToBottom, false, 0, cx, cy, stops)
 }
 
+// NewInnerGradient builds an inner gradient from 2-4 border-to-center stops.
+// Position 0 is every border and 1 is the center, so translucent edge
+// colors blend inward like four composited linear gradients.
+func NewInnerGradient(stops ...ColorStop) (Gradient, bool) {
+	return makeGradient(GradientInner, GradientToBottom, false, 0, 0.5, 0.5, stops)
+}
+
 // makeGradient validates stop count and center then normalizes positions.
 func makeGradient(kind GradientKind, dir GradientDirection, useAngle bool, angle, cx, cy float32, stops []ColorStop) (Gradient, bool) {
 	if len(stops) < 2 || len(stops) > MaxGradientStops {
@@ -276,7 +283,32 @@ func sampleAt(g Gradient, u, v float32) core.Color {
 	if g.Kind == GradientRadial {
 		return SampleRadialAt(g, u, v, RadialMaxDist(g.CenterX, g.CenterY))
 	}
+	if g.Kind == GradientInner {
+		return SampleInnerAt(g, u, v)
+	}
 	return sampleGradient(g, linearT(g, u, v))
+}
+
+// innerT maps normalized (u, v) to border distance: 0 on every border,
+// 1 at the center of a square. Wide widgets stretch the falloff, which
+// reads as a soft inset glow rather than a geometric contour.
+func innerT(u, v float32) float32 {
+	edge := u
+	if 1-u < edge {
+		edge = 1 - u
+	}
+	if v < edge {
+		edge = v
+	}
+	if 1-v < edge {
+		edge = 1 - v
+	}
+	return clamp01f(2 * edge)
+}
+
+// SampleInnerAt samples an inner gradient at normalized (u, v).
+func SampleInnerAt(g Gradient, u, v float32) core.Color {
+	return sampleGradient(g, innerT(u, v))
 }
 
 // SampleRadialAt samples a radial gradient with a precomputed max distance.

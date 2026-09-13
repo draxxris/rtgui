@@ -455,6 +455,25 @@ func TestScrollbarThreePatchCSS(t *testing.T) {
 	}
 }
 
+// TestInnerGradientCSS verifies an inner layer survives the registry with
+// its kind intact so the mesh dispatcher draws four-sided falloff.
+func TestInnerGradientCSS(t *testing.T) {
+	directory := t.TempDir()
+	cssText := `List { background-image: inner-gradient(#7fb2f0B0, #1e3a5a00 70%), linear-gradient(to bottom, #3a6a9a, #1e3a5a); }`
+	cssPath := writeCSS(t, directory, cssText)
+	theme := newFakeTheme(&fakeTextureBackend{isReady: true})
+	if err := theme.LoadCSSFile(cssPath, ""); err != nil {
+		t.Fatalf("LoadCSSFile: %v", err)
+	}
+	desc, ok := theme.Lookup(core.WidgetList, skin.PartBackground, core.StateNormal)
+	if !ok || desc.GradientCount != 2 {
+		t.Fatalf("list background missing stack: ok=%v desc=%+v", ok, desc)
+	}
+	if desc.Gradients[0].Kind != skin.GradientInner {
+		t.Fatalf("top kind = %v", desc.Gradients[0].Kind)
+	}
+}
+
 // TestCSSBackgroundColorAndGradientMergeAndInherit tests merge rules and state inheritance for color and gradient.
 func TestCSSBackgroundColorAndGradientMergeAndInherit(t *testing.T) {
 	rules := []skin.SkinRule{

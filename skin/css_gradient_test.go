@@ -57,6 +57,37 @@ func TestParseCSSRadialGradient(t *testing.T) {
 	}
 }
 
+// TestParseCSSInnerGradient verifies one layer reads as four borders at
+// once, with stops running border-to-center over the linear base.
+func TestParseCSSInnerGradient(t *testing.T) {
+	rules, err := ParseCSS(`List { background-image: inner-gradient(#7fb2f0B0, #1e3a5a00 70%), linear-gradient(to bottom, #3a6a9a, #1e3a5a); }`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rules) != 1 || rules[0].GradientCount != 2 {
+		t.Fatalf("expected inner over linear, got %+v", rules)
+	}
+	top := rules[0].Gradients[0]
+	if top.Kind != GradientInner {
+		t.Fatalf("top kind = %v", top.Kind)
+	}
+	if top.StopCount != 2 || top.Stops[0].Position != 0 || top.Stops[1].Position != 0.7 {
+		t.Fatalf("inner stops = %+v", top.Stops)
+	}
+	if rules[0].Gradients[1].Kind != GradientLinear {
+		t.Fatalf("base = %+v", rules[0].Gradients[1])
+	}
+	for _, text := range []string{
+		`Button { background-image: inner-gradient(#112233); }`,
+		`Button { background-image: inner-gradient(); }`,
+		`Button { background-image: inner-gradient(#112233, #445566, #778899, #aabbcc, #ddeeff); }`,
+	} {
+		if _, err := ParseCSS(text); err == nil {
+			t.Fatalf("expected inner-gradient error for %q", text)
+		}
+	}
+}
+
 // TestParseCSSRadialDefaultCenter verifies bare circle centers at half.
 func TestParseCSSRadialDefaultCenter(t *testing.T) {
 	rules, err := ParseCSS(`Tooltip { background-image: radial-gradient(circle, #ffffff, #000000); }`)

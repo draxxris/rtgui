@@ -705,7 +705,10 @@ func parseGradientLayer(selector, property, layer string) (LinearGradient, error
 	if strings.HasPrefix(lower, "radial-gradient(") {
 		return parseRadialGradient(selector, property, trimmed)
 	}
-	return LinearGradient{}, fmt.Errorf("skin: %s in %q must be linear-gradient(...) or radial-gradient(...), got %q", property, selector, layer)
+	if strings.HasPrefix(lower, "inner-gradient(") {
+		return parseInnerGradient(selector, property, trimmed)
+	}
+	return LinearGradient{}, fmt.Errorf("skin: %s in %q must be linear-gradient(...), radial-gradient(...), or inner-gradient(...), got %q", property, selector, layer)
 }
 
 // parseLinearGradient parses a single linear-gradient(...) layer.
@@ -837,6 +840,39 @@ func parseRadialGradient(selector, property, value string) (LinearGradient, erro
 		return LinearGradient{}, fmt.Errorf("skin: %s in %q: %w", property, selector, err)
 	}
 	return buildRadialGradient(selector, property, args)
+}
+
+// parseInnerGradient parses an inner-gradient(stop, ...) layer. Stops run
+// from every border (position 0) to the center (position 1) with no head
+// argument, so one layer replaces four directional linear gradients.
+func parseInnerGradient(selector, property, value string) (LinearGradient, error) {
+	inner, err := gradientInner(selector, property, value, "inner-gradient(")
+	if err != nil {
+		return LinearGradient{}, err
+	}
+	if inner == "" {
+		return LinearGradient{}, fmt.Errorf("skin: %s in %q has empty inner-gradient", property, selector)
+	}
+	args, err := splitParenArgs(inner)
+	if err != nil {
+		return LinearGradient{}, fmt.Errorf("skin: %s in %q: %w", property, selector, err)
+	}
+	if len(args) < 2 || len(args) > MaxGradientStops {
+		return LinearGradient{}, fmt.Errorf("skin: %s in %q expects 2-%d color stops (got %d)", property, selector, MaxGradientStops, len(args))
+	}
+	stops := make([]ColorStop, 0, len(args))
+	for _, raw := range args {
+		stop, parseErr := parseColorStopAuto(selector, property, raw)
+		if parseErr != nil {
+			return LinearGradient{}, parseErr
+		}
+		stops = append(stops, stop)
+	}
+	grad, ok := NewInnerGradient(stops...)
+	if !ok {
+		return LinearGradient{}, fmt.Errorf("skin: %s in %q has invalid inner stops", property, selector)
+	}
+	return grad, nil
 }
 
 // buildRadialGradient resolves the optional center and 2-4 stops.

@@ -155,6 +155,10 @@ func drawGradient(grad skin.Gradient, dest core.Rect) {
 		drawRadialGradient(grad, dest)
 		return
 	}
+	if grad.Kind == skin.GradientInner {
+		drawInnerGradient(grad, dest)
+		return
+	}
 	drawLinearGradient(grad, dest)
 }
 
@@ -380,6 +384,40 @@ func drawRadialGradient(grad skin.Gradient, dest core.Rect) {
 		}
 	}
 	endGradientMesh()
+}
+
+// drawInnerGradient renders an inner fill as a batched color mesh. Every
+// border maps to stop position 0 and the center to 1, so translucent edge
+// colors glow inward from all four sides at once.
+func drawInnerGradient(grad skin.Gradient, dest core.Rect) {
+	u0, v0, u1, v1, ready := beginGradientMesh()
+	if !ready {
+		return
+	}
+	steps := radialGridDivisions
+	for j := 0; j < steps; j++ {
+		for i := 0; i < steps; i++ {
+			emitInnerCell(grad, dest, i, j, steps, u0, v0, u1, v1)
+		}
+	}
+	endGradientMesh()
+}
+
+// emitInnerCell emits one grid cell of an inner fill with sampled corners.
+func emitInnerCell(grad skin.Gradient, dest core.Rect, i, j, steps int, u0, v0, u1, v1 float32) {
+	nu0 := float32(i) / float32(steps)
+	nu1 := float32(i+1) / float32(steps)
+	nv0 := float32(j) / float32(steps)
+	nv1 := float32(j+1) / float32(steps)
+	emitGradientQuad(dest.X+nu0*dest.W, dest.Y+nv0*dest.H, dest.X+nu1*dest.W, dest.Y+nv1*dest.H,
+		sampleInnerRGBA(grad, nu0, nv0), sampleInnerRGBA(grad, nu0, nv1),
+		sampleInnerRGBA(grad, nu1, nv1), sampleInnerRGBA(grad, nu1, nv0),
+		u0, v0, u1, v1)
+}
+
+// sampleInnerRGBA samples an inner gradient at normalized (u, v).
+func sampleInnerRGBA(grad skin.Gradient, u, v float32) color.RGBA {
+	return skin.SampleInnerAt(grad, u, v).RGBA()
 }
 
 // emitRadialCell emits one grid cell of a radial fill with sampled corners.

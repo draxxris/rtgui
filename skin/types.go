@@ -61,6 +61,10 @@ const (
 	GradientLinear GradientKind = iota
 	// GradientRadial interpolates stops by distance from a center point.
 	GradientRadial
+	// GradientInner interpolates stops from all four borders (position 0)
+	// to the center (position 1), so one layer reads as four linear
+	// gradients composited from each edge.
+	GradientInner
 )
 
 // MaxGradientStops bounds color stops per gradient without heap use.

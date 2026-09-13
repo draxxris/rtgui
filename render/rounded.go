@@ -110,6 +110,10 @@ func drawRoundedGradient(grad skin.Gradient, dest core.Rect, radius float32) {
 		drawRoundedRadial(grad, dest, radius)
 		return
 	}
+	if grad.Kind == skin.GradientInner {
+		drawRoundedInner(grad, dest, radius)
+		return
+	}
 	drawRoundedLinear(grad, dest, radius)
 }
 
@@ -240,6 +244,61 @@ func emitRoundedRadialStrip(grad skin.Gradient, dest, band core.Rect, maxDist, u
 		emitGradientQuad(x0, band.Y, x1, band.Y+band.H,
 			sampleRadialRGBA(grad, nu0, nv0, maxDist), sampleRadialRGBA(grad, nu0, nv1, maxDist),
 			sampleRadialRGBA(grad, nu1, nv1, maxDist), sampleRadialRGBA(grad, nu1, nv0, maxDist),
+			u0, v0, u1, v1)
+	}
+}
+
+// drawRoundedInner tiles an inner gradient into a batched rounded mesh.
+// Corner rows emit one strip of column cells each; the tall middle band
+// splits into rows so the vertical falloff stays smooth in one batch.
+func drawRoundedInner(grad skin.Gradient, dest core.Rect, radius float32) {
+	u0, v0, u1, v1, ready := beginGradientMesh()
+	if !ready {
+		return
+	}
+	count := roundedBandCount(radius)
+	for i := range count {
+		band := roundedBand(dest, radius, i, count)
+		if band.W <= 0 || band.H <= 0 {
+			continue
+		}
+		if i == count/2 {
+			emitRoundedInnerMiddle(grad, dest, band, u0, v0, u1, v1)
+			continue
+		}
+		emitRoundedInnerStrip(grad, dest, band, u0, v0, u1, v1)
+	}
+	endGradientMesh()
+}
+
+// emitRoundedInnerMiddle splits the tall middle band into row slices.
+func emitRoundedInnerMiddle(grad skin.Gradient, dest, band core.Rect, u0, v0, u1, v1 float32) {
+	for r := range roundedRadialRows {
+		y0 := band.Y + float32(r)*band.H/float32(roundedRadialRows)
+		y1 := band.Y + float32(r+1)*band.H/float32(roundedRadialRows)
+		sub := core.Rect{X: band.X, Y: y0, W: band.W, H: y1 - y0}
+		if sub.H <= 0 {
+			continue
+		}
+		emitRoundedInnerStrip(grad, dest, sub, u0, v0, u1, v1)
+	}
+}
+
+// emitRoundedInnerStrip emits one band row as column cells with sampled corners.
+func emitRoundedInnerStrip(grad skin.Gradient, dest, band core.Rect, u0, v0, u1, v1 float32) {
+	for c := range roundedRadialColumns {
+		x0 := band.X + float32(c)*band.W/float32(roundedRadialColumns)
+		x1 := band.X + float32(c+1)*band.W/float32(roundedRadialColumns)
+		if x1 <= x0 {
+			continue
+		}
+		nu0 := (x0 - dest.X) / dest.W
+		nu1 := (x1 - dest.X) / dest.W
+		nv0 := (band.Y - dest.Y) / dest.H
+		nv1 := (band.Y + band.H - dest.Y) / dest.H
+		emitGradientQuad(x0, band.Y, x1, band.Y+band.H,
+			sampleInnerRGBA(grad, nu0, nv0), sampleInnerRGBA(grad, nu0, nv1),
+			sampleInnerRGBA(grad, nu1, nv1), sampleInnerRGBA(grad, nu1, nv0),
 			u0, v0, u1, v1)
 	}
 }

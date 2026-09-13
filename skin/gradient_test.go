@@ -176,6 +176,28 @@ func TestSampleRadialAt(t *testing.T) {
 	}
 }
 
+// TestSampleInnerAt verifies borders sample the first stop and the center
+// samples the last, with the midpoint blending halfway on each edge.
+func TestSampleInnerAt(t *testing.T) {
+	grad, ok := NewInnerGradient(
+		ColorStop{Color: gradientTestColor(255), Position: 0},
+		ColorStop{Color: gradientTestColor(0), Position: 1})
+	if !ok {
+		t.Fatal("inner gradient rejected two stops")
+	}
+	for _, pt := range [][2]float32{{0, 0}, {1, 1}, {0.5, 0}, {0, 0.5}, {1, 0.5}} {
+		if got := SampleInnerAt(grad, pt[0], pt[1]); got != gradientTestColor(255) {
+			t.Fatalf("border %v = %+v", pt, got)
+		}
+	}
+	if got := SampleInnerAt(grad, 0.5, 0.5); got != gradientTestColor(0) {
+		t.Fatalf("center = %+v", got)
+	}
+	if got := sampleAt(grad, 0.25, 0.5); got.R != 127 && got.R != 128 {
+		t.Fatalf("quarter blend = %+v", got)
+	}
+}
+
 // TestSampleAtDispatchesKind verifies linear and radial sampling agree.
 func TestSampleAtDispatchesKind(t *testing.T) {
 	linear, _ := NewLinearGradient(GradientToBottom,
