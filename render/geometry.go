@@ -132,10 +132,11 @@ func ContentRect(bounds core.Rect, descriptors ...skin.SkinDescriptor) core.Rect
 		right = maxFloat(right, maxFloat(0, descriptor.PaddingRight))
 		bottom = maxFloat(bottom, maxFloat(0, descriptor.PaddingBottom))
 		if descriptor.HasNinePatch {
-			left = maxFloat(left, float32(descriptor.NinePatch.Left))
-			top = maxFloat(top, float32(descriptor.NinePatch.Top))
-			right = maxFloat(right, float32(descriptor.NinePatch.Right))
-			bottom = maxFloat(bottom, float32(descriptor.NinePatch.Bottom))
+			borders := destBorders(descriptor)
+			left = maxFloat(left, borders.Left)
+			top = maxFloat(top, borders.Top)
+			right = maxFloat(right, borders.Right)
+			bottom = maxFloat(bottom, borders.Bottom)
 		}
 	}
 	bounds.W = nonNegative(bounds.W)

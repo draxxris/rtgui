@@ -101,7 +101,7 @@ func mustLoadCSS(t *testing.T, theme *Theme, path string) {
 func TestMergeSkinRules(t *testing.T) {
 	rules := []skin.SkinRule{
 		{Kind: core.WidgetButton, Part: skin.PartBorder, State: core.StateNormal,
-			Image: "line.png", HasImage: true, Slice: 8, HasSlice: true,
+			Image: "line.png", HasImage: true, Slice: [4]int32{8, 8, 8, 8}, HasSlice: true,
 			Padding: [4]float32{8, 8, 8, 8}, HasPadding: true},
 		{Kind: core.WidgetButton, Part: skin.PartBorder, State: core.StateHovered,
 			Image: "hover.png", HasImage: true},
@@ -113,7 +113,7 @@ func TestMergeSkinRules(t *testing.T) {
 		t.Fatalf("order=%v", order)
 	}
 	hover := merged[skin.SkinKey{Widget: core.WidgetButton, Part: skin.PartBorder, State: core.StateHovered}]
-	if hover.image != "hover.png" || !hover.hasSlice || hover.slice != 8 || !hover.hasPadding {
+	if hover.image != "hover.png" || !hover.hasSlice || hover.slice != [4]int32{8, 8, 8, 8} || !hover.hasPadding {
 		t.Fatalf("hover inheritance = %+v", hover)
 	}
 	disabled := merged[skin.SkinKey{Widget: core.WidgetButton, Part: skin.PartBorder, State: core.StateDisabled}]
@@ -452,6 +452,61 @@ func TestScrollbarThreePatchCSS(t *testing.T) {
 	assertThreePatchDescriptor(t, thumbHover, ok, 8)
 	if thumbHover.Tint != (core.Color{R: 0xE1, G: 0xF2, B: 0xFF, A: 255}) {
 		t.Fatalf("thumb hover tint mismatch: %v", thumbHover.Tint)
+	}
+}
+
+// TestNinePatchPerSideCSS verifies a 4-value slice maps top/right/bottom/left.
+func TestNinePatchPerSideCSS(t *testing.T) {
+	directory := t.TempDir()
+	writeTestPNG(t, directory, "frame.png", color.RGBA{R: 50, G: 60, B: 70, A: 255})
+	cssText := `Frame { border-image-source: url("frame.png"); border-image-slice: 95 75 75 75; }`
+	cssPath := writeCSS(t, directory, cssText)
+	theme := newFakeTheme(&fakeTextureBackend{isReady: true})
+	if err := theme.LoadCSSFile(cssPath, ""); err != nil {
+		t.Fatalf("LoadCSSFile: %v", err)
+	}
+	desc, ok := theme.Lookup(core.WidgetFrame, skin.PartBorder, core.StateNormal)
+	if !ok || !desc.HasNinePatch {
+		t.Fatalf("frame border missing: ok=%v desc=%+v", ok, desc)
+	}
+	if desc.NinePatch.Top != 95 || desc.NinePatch.Right != 75 || desc.NinePatch.Bottom != 75 || desc.NinePatch.Left != 75 {
+		t.Fatalf("per-side nine-patch = %+v", desc.NinePatch)
+	}
+	if desc.HasBorderWidth {
+		t.Fatalf("destination must default to slice: %+v", desc)
+	}
+	if got := destBorders(desc); got.Top != 95 || got.Right != 75 || got.Bottom != 75 || got.Left != 75 {
+		t.Fatalf("default dest borders = %+v", got)
+	}
+}
+
+// TestNinePatchWidthCSS verifies border-image-width separates destination
+// sizes from source slices for scaled frame art.
+func TestNinePatchWidthCSS(t *testing.T) {
+	directory := t.TempDir()
+	writeTestPNG(t, directory, "frame.png", color.RGBA{R: 50, G: 60, B: 70, A: 255})
+	cssText := `Frame { border-image-source: url("frame.png"); border-image-slice: 95 75 75 75; border-image-width: 64 45 45 45; }`
+	cssPath := writeCSS(t, directory, cssText)
+	theme := newFakeTheme(&fakeTextureBackend{isReady: true})
+	if err := theme.LoadCSSFile(cssPath, ""); err != nil {
+		t.Fatalf("LoadCSSFile: %v", err)
+	}
+	desc, ok := theme.Lookup(core.WidgetFrame, skin.PartBorder, core.StateNormal)
+	if !ok || !desc.HasNinePatch || !desc.HasBorderWidth {
+		t.Fatalf("frame border missing: ok=%v desc=%+v", ok, desc)
+	}
+	if desc.NinePatch.Top != 95 || desc.NinePatch.Left != 75 {
+		t.Fatalf("source slice must stay 95/75: %+v", desc.NinePatch)
+	}
+	if desc.BorderWidth != [4]int32{64, 45, 45, 45} {
+		t.Fatalf("dest width = %+v", desc.BorderWidth)
+	}
+	if got := destBorders(desc); got.Top != 64 || got.Right != 45 || got.Bottom != 45 || got.Left != 45 {
+		t.Fatalf("dest borders = %+v", got)
+	}
+	content := ContentRect(core.Rect{W: 752, H: 752}, desc)
+	if expected := (core.Rect{X: 45, Y: 64, W: 662, H: 643}); content != expected {
+		t.Fatalf("ContentRect = %+v, want %+v", content, expected)
 	}
 }
 

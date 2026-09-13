@@ -164,7 +164,14 @@ type SkinDescriptor struct {
 	// AtlasRegion selects the source rectangle within Texture.
 	AtlasRegion core.Rect
 	// NinePatch contains border thicknesses when HasNinePatch is true.
+	// Values are source-image pixels; destination sizes come from
+	// BorderWidth when HasBorderWidth is true, otherwise NinePatch.
 	NinePatch NinePatch
+	// BorderWidth holds border-image-width as top, right, bottom, left
+	// destination pixels, independent of the source slice.
+	BorderWidth [4]int32
+	// HasBorderWidth reports whether BorderWidth was explicitly declared.
+	HasBorderWidth bool
 	// ThreePatch contains cap thicknesses when HasThreePatch is true.
 	ThreePatch ThreePatch
 	// Tint is exact RGBA draw data; opaque white means no tint.
@@ -266,6 +273,8 @@ func (d *SkinDescriptor) overlayShape(other SkinDescriptor) {
 		d.NinePatch = other.NinePatch
 		d.HasNinePatch = true
 		d.CenterFill = other.CenterFill
+		d.BorderWidth = other.BorderWidth
+		d.HasBorderWidth = other.HasBorderWidth
 	}
 	if other.HasThreePatch {
 		d.ThreePatch = other.ThreePatch

@@ -55,10 +55,18 @@ type SkinRule struct {
 	// entry, so one flag serves both properties.
 	NoTexture bool
 
-	// Slice is border-image-slice in pixels when HasSlice is true.
-	Slice int32
+	// Slice holds border-image-slice as top, right, bottom, left pixels.
+	// A single CSS value expands to all four sides to keep uniform
+	// nine-patches working without per-side authoring.
+	Slice [4]int32
 	// HasSlice reports whether Slice was declared.
 	HasSlice bool
+	// Width holds border-image-width as top, right, bottom, left
+	// destination pixels. Empty means destination matches Slice, so
+	// existing uniform nine-patches keep their 1:1 source mapping.
+	Width [4]int32
+	// HasWidth reports whether Width was declared.
+	HasWidth bool
 
 	// Tint is the authored *-tint color when HasTint is true.
 	Tint core.Color
@@ -322,7 +330,7 @@ func parseBlock(selector string, kind core.WidgetKind, className string, part Sk
 			if err := applyBackgroundProp(take(imageTarget), selector, property, value); err != nil {
 				return nil, err
 			}
-		case "border-image-source", "border-image-source-tint", "border-image-slice":
+		case "border-image-source", "border-image-source-tint", "border-image-slice", "border-image-width":
 			if !allowBorder {
 				return nil, fmt.Errorf("skin: %s in %q applies to widgets, ::popup, ::track, and ::thumb parts, not other parts", property, selector)
 			}
@@ -467,8 +475,15 @@ func applyBorderProp(entry *SkinRule, selector, property, value string) error {
 		}
 		entry.Tint, entry.HasTint = tint, true
 		return nil
+	case "border-image-width":
+		width, err := expandSlice(selector, property, value)
+		if err != nil {
+			return err
+		}
+		entry.Width, entry.HasWidth = width, true
+		return nil
 	default:
-		slice, err := parsePixels(selector, property, value, true)
+		slice, err := expandSlice(selector, property, value)
 		if err != nil {
 			return err
 		}
@@ -567,6 +582,36 @@ func parsePixels(selector, property, value string, whole bool) (int32, error) {
 		return 0, fmt.Errorf("skin: %s in %q must be numeric, got %q", property, selector, value)
 	}
 	return int32(number), nil
+}
+
+// expandSlice expands CSS 1-4 value border-image-slice or border-image-width
+// into top, right, bottom, left. One value covers uniform nine-patches;
+// four values carry the titled-frame top band (for example 95 75 75 75).
+// Values are non-negative integers with optional px suffix.
+func expandSlice(selector, property, value string) ([4]int32, error) {
+	fields := strings.Fields(value)
+	numbers := make([]int32, 0, len(fields))
+	for _, field := range fields {
+		trimmed := strings.TrimSuffix(strings.TrimSpace(field), "px")
+		trimmed = strings.TrimSpace(trimmed)
+		number, err := strconv.Atoi(trimmed)
+		if err != nil || number < 0 {
+			return [4]int32{}, fmt.Errorf("skin: %s in %q must be non-negative integers, got %q", property, selector, value)
+		}
+		numbers = append(numbers, int32(number))
+	}
+	switch len(numbers) {
+	case 1:
+		return [4]int32{numbers[0], numbers[0], numbers[0], numbers[0]}, nil
+	case 2:
+		return [4]int32{numbers[0], numbers[1], numbers[0], numbers[1]}, nil
+	case 3:
+		return [4]int32{numbers[0], numbers[1], numbers[2], numbers[1]}, nil
+	case 4:
+		return [4]int32{numbers[0], numbers[1], numbers[2], numbers[3]}, nil
+	default:
+		return [4]int32{}, fmt.Errorf("skin: %s in %q needs 1-4 values, got %q", property, selector, value)
+	}
 }
 
 // expandPadding expands CSS 1–4 value padding into top, right, bottom, left.

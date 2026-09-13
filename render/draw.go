@@ -518,15 +518,29 @@ func drawSingleTexture(texture rl.Texture2D, source, dest core.Rect, tint color.
 	rl.DrawTexturePro(texture, toRaylibRect(source), toRaylibRect(dest), rl.NewVector2(0, 0), 0, tint)
 }
 
-// drawNinePatch renders source across the deterministic nine destination rectangles.
-func drawNinePatch(texture rl.Texture2D, source core.Rect, descriptor skin.SkinDescriptor, dest core.Rect, tint color.RGBA) {
-	sourceRects := NinePatchSourceRects(source, descriptor.NinePatch)
-	destinationRects := NinePatchRects(NinePatchConfig{
+// destBorders resolves the destination border widths: border-image-width
+// when authored, otherwise the source slice for 1:1 uniform nine-patches.
+func destBorders(descriptor skin.SkinDescriptor) NinePatchConfig {
+	if descriptor.HasBorderWidth {
+		return NinePatchConfig{
+			Left:   float32(descriptor.BorderWidth[3]),
+			Top:    float32(descriptor.BorderWidth[0]),
+			Right:  float32(descriptor.BorderWidth[1]),
+			Bottom: float32(descriptor.BorderWidth[2]),
+		}
+	}
+	return NinePatchConfig{
 		Left:   float32(descriptor.NinePatch.Left),
 		Top:    float32(descriptor.NinePatch.Top),
 		Right:  float32(descriptor.NinePatch.Right),
 		Bottom: float32(descriptor.NinePatch.Bottom),
-	}, dest)
+	}
+}
+
+// drawNinePatch renders source across the deterministic nine destination rectangles.
+func drawNinePatch(texture rl.Texture2D, source core.Rect, descriptor skin.SkinDescriptor, dest core.Rect, tint color.RGBA) {
+	sourceRects := NinePatchSourceRects(source, descriptor.NinePatch)
+	destinationRects := NinePatchRects(destBorders(descriptor), dest)
 	for i := range destinationRects {
 		destination := destinationRects[i]
 		sourceRect := sourceRects[i]

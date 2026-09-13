@@ -56,8 +56,10 @@ type mergedRule struct {
 	image              string
 	hasImage           bool
 	noTexture          bool
-	slice              int32
+	slice              [4]int32
 	hasSlice           bool
+	width              [4]int32
+	hasWidth           bool
 	tint               core.Color
 	hasTint            bool
 	padding            [4]float32
@@ -190,6 +192,9 @@ func mergeRuleStyle(entry *mergedRule, rule skin.SkinRule) {
 	if rule.HasSlice {
 		entry.slice, entry.hasSlice = rule.Slice, true
 	}
+	if rule.HasWidth {
+		entry.width, entry.hasWidth = rule.Width, true
+	}
 	if rule.HasTint {
 		entry.tint, entry.hasTint = rule.Tint, true
 	}
@@ -237,6 +242,9 @@ func inheritNormalRules(merged map[skin.SkinKey]mergedRule, order []skin.SkinKey
 func inheritNormalVisuals(entry *mergedRule, base mergedRule) {
 	if !entry.hasSlice {
 		entry.slice, entry.hasSlice = base.slice, base.hasSlice
+	}
+	if !entry.hasWidth {
+		entry.width, entry.hasWidth = base.width, base.hasWidth
 	}
 	if !entry.hasTint {
 		entry.tint, entry.hasTint = base.tint, base.hasTint
@@ -391,13 +399,17 @@ func (t *Theme) buildCSSDescriptor(key skin.SkinKey, entry mergedRule, base stri
 // on scroll panels, lists, and chat logs so cap art never stretches.
 func applyCSSBox(descriptor *skin.SkinDescriptor, key skin.SkinKey, entry mergedRule) {
 	if (key.Part == skin.PartBorder || key.Part == skin.PartPopupBorder) && entry.hasSlice {
-		descriptor.NinePatch.Left, descriptor.NinePatch.Top = entry.slice, entry.slice
-		descriptor.NinePatch.Right, descriptor.NinePatch.Bottom = entry.slice, entry.slice
+		descriptor.NinePatch.Top, descriptor.NinePatch.Right = entry.slice[0], entry.slice[1]
+		descriptor.NinePatch.Bottom, descriptor.NinePatch.Left = entry.slice[2], entry.slice[3]
 		descriptor.HasNinePatch = true
 		descriptor.CenterFill = false
+		if entry.hasWidth {
+			descriptor.BorderWidth = entry.width
+			descriptor.HasBorderWidth = true
+		}
 	} else if (key.Widget == core.WidgetScrollPanel || key.Widget == core.WidgetList || key.Widget == core.WidgetChatLog) && (key.Part == skin.PartTrack || key.Part == skin.PartThumb) && entry.hasSlice {
-		descriptor.ThreePatch.Top = entry.slice
-		descriptor.ThreePatch.Bottom = entry.slice
+		descriptor.ThreePatch.Top = entry.slice[0]
+		descriptor.ThreePatch.Bottom = entry.slice[2]
 		descriptor.HasThreePatch = true
 	}
 	if entry.hasPadding {
