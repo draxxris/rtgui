@@ -14,6 +14,10 @@ run = "go vet ./..."
 description = "Run the widget gallery example"
 run = "go run ./examples/widget_gallery"
 
+[tasks.quest]
+description = "Run the MMORPG quest window example"
+run = "go run ./examples/quest_window"
+
 [tasks.build-linux]
 description = "Build the widget gallery for Linux into dist/"
 run = "mkdir -p dist && go build -o dist/widget-gallery-linux ./examples/widget_gallery"

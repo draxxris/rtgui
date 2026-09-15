@@ -77,6 +77,19 @@ xvfb-run --auto-servernum --server-args="-screen 0 1280x800x24" \
 Without a display, the gallery runs its headless interaction smoke and writes a
 standard-library placeholder PNG when `-screenshot` is supplied.
 
+The MMORPG quest journal uses a fixed 1024x1024 logical design rendered
+through a centered, uniform aspect-fit viewport in an 800x800 physical window
+by default. It reserves a 24px backdrop margin on every edge; rectangular
+client areas keep the panel square and centered.
+
+```sh
+go run ./examples/quest_window -frames 3 -screenshot quest.png
+# or: mise run quest
+```
+
+The real framebuffer screenshot is 800x800 at the default size; the window can
+be resized down to 640x640 while retaining the logical layout and fit margins.
+
 ## UI and callbacks
 
 Most applications should use `ui.UI`. It owns the registry, transform, theme,

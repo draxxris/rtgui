@@ -1,0 +1,243 @@
+/* quest.css — MMORPG quest-log LOOK for examples/quest_window.
+   Asset paths resolve against this file's directory.
+   Every pixel requires a CSS->texture pathway; unauthored keys stay
+   invisible (text still draws) and unauthored states inherit base rules.
+   Variant "quest" drives the TitledFrame chrome: quest-frame,
+   quest-titlebar, quest-title, quest-close, quest-content.
+   The root carries the dark fill plus the v6 ornate shell (95/75/75/75
+   slice drawn at 64/45/45/45 with a transparent center). Frame borders
+   paint after children, so the moldings finish OVER the full-bleed
+   titlebar and content edges with no overlay widget. */
+
+* {
+    font-family: url("../fonts/Grenze-Regular.ttf");
+    font-italic-family: url("../fonts/Grenze-Italic.ttf");
+    color: #e6f0ff;
+}
+
+/* Root window fill plus v6 shell: sliced 95 top / 75 right / 75 bottom /
+   75 left from the 1254px source, drawn at 64 top / 45 sides to match the
+   752px window scale. The transparent center leaves titlebar/content
+   pixels visible while the moldings cover their outer edges. */
+Frame.quest-frame {
+    background-color: #0f141c;
+    background-image: none;
+    border-image-source: url("quest/ornate_frame_v6.png");
+    border-image-slice: 95 75 75 75;
+    border-image-width: 64 45 45 45;
+    padding: 7;
+}
+
+/* Textured blue title bar: baked gradient plus grain. */
+Frame.quest-titlebar {
+    background-image: url("quest/titlebar_blue_v2.png");
+    border-image-source: none;
+    padding: 3;
+}
+Label.quest-title {
+    color: #f2f5fa;
+    font-size: 38;
+}
+Button.quest-close {
+    background-color: #00000000;
+    background-image: url("quest/close_button_v3.png");
+    border-image-source: none;
+    color: #00000000;
+}
+Button.quest-close:hover {
+    background-image: url("quest/close_button_v3.png");
+    background-image-tint: #d8e8ff;
+}
+Button.quest-close:active {
+    background-image: url("quest/close_button_v3.png");
+    background-image-tint: #9aa8b8;
+}
+
+/* Dark content well behind tabs, list, sheet, and bottom bar. */
+Frame.quest-content {
+    background-color: #11161f;
+    background-image: url("kenney/background.png");
+    background-image-tint: #1c2740;
+    border-image-source: none;
+    padding: 0;
+}
+
+/* Tabs above the quest list: selected tab glows blue, other stays dark. */
+TabBar.quest-tabs {
+    border-image-source: none;
+    padding: 3;
+    color: #9aa3b2;
+    font-size: 21;
+}
+TabBar.quest-tabs:selected {
+    color: #ffffff;
+}
+TabBar.quest-tabs::tab {
+    background-color: #1a2233;
+    background-image: linear-gradient(to bottom, #232f45, #121826);
+}
+TabBar.quest-tabs::tab:hover {
+    background-color: #24354c;
+    background-image: linear-gradient(to bottom, #33475f, #1a2233);
+}
+TabBar.quest-tabs::tab:active {
+    background-color: #101721;
+    background-image: linear-gradient(to bottom, #141c28, #2b3d54);
+}
+TabBar.quest-tabs::tab:selected {
+    background-color: #2e5a8a;
+    background-image: linear-gradient(to bottom, #4a7aaa, #1e3a5a);
+}
+TabBar.quest-tabs::tab:disabled {
+    background-color: #565b66;
+}
+
+/* Dark quest list with two-line rows (title plus zone and level). */
+List.quest-list {
+    background-image: url("kenney/background.png");
+    background-image-tint: #161b24;
+    border-image-source: none;
+    padding: 3;
+    color: #e8eaf0;
+    font-size: 21;
+}
+List.quest-list:disabled {
+    background-image-tint: #565b66;
+}
+List.quest-list::highlight {
+    background-color: #24354c;
+}
+List.quest-list::highlight:selected {
+    background-color: #2e5a8a;
+    background-image: inner-gradient(#8ab4f055 0%, #2e5a8a00 60%), linear-gradient(to bottom, #3a6a9a, #1e3a5a);
+}
+List.quest-list::track {
+    background-image: url("quest/scroll_track_v3.png");
+    border-image-slice: 8;
+}
+List.quest-list::thumb {
+    background-image: url("quest/scroll_thumb_v3.png");
+    border-image-slice: 8;
+}
+List.quest-list::thumb:hover {
+    background-image-tint: #c8ddf2;
+}
+
+/* Parchment sheet: baked grain plus edge darkening, no extra ring. */
+Frame.quest-sheet {
+    background-image: url("quest/parchment_v2.png");
+    border-image-source: none;
+    padding: 9;
+}
+
+/* Transparent parchment text: sheet texture shows through. */
+Label.quest-heading {
+    color: #2a1f0f;
+    font-size: 26;
+}
+Label.quest-sub {
+    color: #5a4a33;
+    font-size: 21;
+}
+RichText.quest-body {
+    color: #2a1f0f;
+    font-size: 18;
+}
+RichText.quest-body::highlight {
+    background-color: #43719b;
+}
+RichText.quest-rewards {
+    color: #2a1f0f;
+    font-size: 18;
+}
+RichText.quest-rewards::highlight {
+    background-color: #43719b;
+}
+RichText.quest-reward {
+    border-image-source: none;
+    padding: 0;
+    color: #2a1f0f;
+    font-size: 19;
+}
+
+/* Parchment tale (legacy body class kept for compatibility). */
+RichText.quest-parchment {
+    background-image: url("quest/parchment_v2.png");
+    border-image-source: none;
+    padding: 9;
+    color: #2a1f0f;
+    font-size: 18;
+}
+RichText.quest-parchment::highlight {
+    background-color: #43719b;
+}
+Label.quest-count {
+    color: #c9b896;
+    font-size: 13;
+}
+Label.quest-status {
+    color: #a1b8d8;
+    font-size: 13;
+}
+
+/* Bottom action buttons: dark 3D with blue primary for Track Quest. */
+Button.quest-action {
+    border-radius: 5;
+    background-color: #121620;
+    background-image: url("quest/button_surface_v3.png"), radial-gradient(circle at 50% 12%, #ffffff22, #ffffff00 58%), linear-gradient(to bottom, #222c3acc, #10151fee);
+    border-image-source: none;
+    padding: 6;
+    color: #dfe8f5;
+    font-size: 21;
+}
+Button.quest-action:hover {
+    background-color: #1a222f;
+    background-image: url("quest/button_surface_hover_v3.png"), radial-gradient(circle at 50% 12%, #ffffff33, #ffffff00 58%), linear-gradient(to bottom, #2e3a4ecc, #151d28ee);
+    border-image-source: none;
+}
+Button.quest-action:active {
+    background-color: #0e1218;
+    background-image: url("quest/button_surface_pressed_v3.png"), radial-gradient(circle at 50% 75%, #ffffff18, #ffffff00 58%), linear-gradient(to bottom, #0e131bee, #1e2735cc);
+    border-image-source: none;
+}
+Button.quest-action:focus {
+    background-image-tint: #d5e2f2;
+}
+Button.quest-action:disabled {
+    background-image-tint: #6a707c;
+}
+Button.quest-primary {
+    border-radius: 5;
+    background-color: #13273d;
+    background-image: url("quest/button_surface_primary_v3.png"), radial-gradient(circle at 50% 15%, #5aa0e044, #00000000 65%), linear-gradient(to bottom, #2a527ecc, #14263bee);
+    background-image-tint: #6ea3dd;
+    border-image-source: none;
+    padding: 6;
+    color: #ffffff;
+    font-size: 21;
+}
+Button.quest-primary:hover {
+    background-image: url("quest/button_surface_primary_v3.png"), radial-gradient(circle at 50% 15%, #6eb4f855, #00000000 65%), linear-gradient(to bottom, #346498cc, #19324eee);
+    background-image-tint: #7fb8ec;
+    border-image-source: none;
+}
+Button.quest-primary:active {
+    background-color: #0d1a28;
+    background-image: url("quest/button_surface_primary_pressed_v3.png"), radial-gradient(circle at 50% 75%, #4686c033, #00000000 58%), linear-gradient(to bottom, #102030ee, #22446acc);
+    background-image-tint: #4e7cb0;
+    border-image-source: none;
+}
+Button.quest-primary:focus {
+    background-image-tint: #9cc4ee;
+}
+Button.quest-primary:disabled {
+    background-image-tint: #3a404a;
+}
+
+Tooltip {
+    background-image: url("kenney/background.png");
+    background-image-tint: #141c2e;
+    border-image-source: url("kenney/panel_border_grey.png");
+    border-image-slice: 6;
+    padding: 8;
+}
