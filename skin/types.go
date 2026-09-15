@@ -61,6 +61,10 @@ const (
 	GradientLinear GradientKind = iota
 	// GradientRadial interpolates stops by distance from a center point.
 	GradientRadial
+	// GradientInner interpolates stops from all four borders (position 0)
+	// to the center (position 1), so one layer reads as four linear
+	// gradients composited from each edge.
+	GradientInner
 )
 
 // MaxGradientStops bounds color stops per gradient without heap use.
@@ -164,7 +168,14 @@ type SkinDescriptor struct {
 	// AtlasRegion selects the source rectangle within Texture.
 	AtlasRegion core.Rect
 	// NinePatch contains border thicknesses when HasNinePatch is true.
+	// Values are source-image pixels; destination sizes come from
+	// BorderWidth when HasBorderWidth is true, otherwise NinePatch.
 	NinePatch NinePatch
+	// BorderWidth holds border-image-width as top, right, bottom, left
+	// destination pixels, independent of the source slice.
+	BorderWidth [4]int32
+	// HasBorderWidth reports whether BorderWidth was explicitly declared.
+	HasBorderWidth bool
 	// ThreePatch contains cap thicknesses when HasThreePatch is true.
 	ThreePatch ThreePatch
 	// Tint is exact RGBA draw data; opaque white means no tint.
@@ -173,7 +184,8 @@ type SkinDescriptor struct {
 	PaddingLeft, PaddingTop, PaddingRight, PaddingBottom float32
 	// HasPadding reports whether padding values were explicitly declared.
 	HasPadding bool
-	// HasTexture reports whether Texture should be drawn.
+	// HasTexture reports whether Texture should be drawn. It may coexist with
+	// GradientCount; render paints the gradients first and this texture last.
 	HasTexture bool
 	// NoTexture reports an explicit none that drops inherited textures and
 	// gradients through Overlay. Zero authors nothing and inherits normally.
@@ -218,6 +230,14 @@ type SkinDescriptor struct {
 
 // Overlay returns a copy of d with visual properties declared in other applied on top.
 func (d SkinDescriptor) Overlay(other SkinDescriptor) SkinDescriptor {
+	d.overlayTextureLayers(other)
+	d.overlayShape(other)
+	d.overlayText(other)
+	return d
+}
+
+// overlayTextureLayers applies texture, gradient, and explicit none layers.
+func (d *SkinDescriptor) overlayTextureLayers(other SkinDescriptor) {
 	if other.NoTexture {
 		d.Texture = Texture{}
 		d.AtlasRegion = core.Rect{}
@@ -249,10 +269,16 @@ func (d SkinDescriptor) Overlay(other SkinDescriptor) SkinDescriptor {
 		d.Gradients = other.Gradients
 		d.GradientCount = other.GradientCount
 	}
+}
+
+// overlayShape applies nine-patch, three-patch, color, radius, and padding.
+func (d *SkinDescriptor) overlayShape(other SkinDescriptor) {
 	if other.HasNinePatch {
 		d.NinePatch = other.NinePatch
 		d.HasNinePatch = true
 		d.CenterFill = other.CenterFill
+		d.BorderWidth = other.BorderWidth
+		d.HasBorderWidth = other.HasBorderWidth
 	}
 	if other.HasThreePatch {
 		d.ThreePatch = other.ThreePatch
@@ -273,6 +299,10 @@ func (d SkinDescriptor) Overlay(other SkinDescriptor) SkinDescriptor {
 		d.PaddingBottom = other.PaddingBottom
 		d.HasPadding = true
 	}
+}
+
+// overlayText applies text color, size, and font selections.
+func (d *SkinDescriptor) overlayText(other SkinDescriptor) {
 	if other.HasTextColor {
 		d.TextColor = other.TextColor
 		d.HasTextColor = true
@@ -289,7 +319,6 @@ func (d SkinDescriptor) Overlay(other SkinDescriptor) SkinDescriptor {
 		d.ItalicFont = other.ItalicFont
 		d.HasItalicFont = true
 	}
-	return d
 }
 
 // HasGradient reports whether the descriptor holds any gradient layer.

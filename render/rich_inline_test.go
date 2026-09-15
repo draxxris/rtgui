@@ -89,6 +89,10 @@ func TestSingleLineLayoutAligns(t *testing.T) {
 	if len(withIcon) != 2 || !withIcon[0].IsIcon {
 		t.Fatalf("single-line icon = %+v", withIcon)
 	}
+	sized := theme.LayoutRichSingleLine(content, []core.RichSegment{{Icon: "iron-plate", HasIcon: true, HasIconSize: true, IconSize: 32}, {Text: "hi"}}, core.AlignLeft, nil)
+	if len(sized) != 2 || sized[0].Bounds.W != 32 || sized[0].IconSize != 32 || sized[0].Bounds.H != withIcon[0].Bounds.H {
+		t.Fatalf("sized single-line icon = %+v, default=%+v", sized, withIcon)
+	}
 }
 
 // TestStyledSpansCarrySizeAndFace checks per-segment style flows to spans.

@@ -21,13 +21,27 @@ const (
 // toggle-only category; an item without children is a selectable leaf.
 // IDs must be unique across the whole tree and stable across updates so
 // selection and expanded state survive data refreshes by identity.
+//
+// Row content follows two contracts: Label (plus the optional Icon) covers
+// the common single-line case, while Content holds an arbitrary widget
+// (usually a Frame built with Attach) for richer rows. A non-nil Content
+// wins for rendering. Content widgets are borrowed by reference: the list
+// copies item structure but never clones content, so callers must not reuse
+// one widget across rows and should preserve widget identity across
+// SetItems calls when the content is unchanged.
 type ListItem struct {
 	// ID is the stable row identity used by selection and expansion.
 	ID string
-	// Label is the plain row text.
+	// Label is the plain row text, used when Content is nil.
 	Label string
+	// Content is the rich row widget; nil renders Label instead.
+	Content Widget
 	// Icon names a UI-whitelisted inline graphic; empty draws no icon.
+	// It applies to Label rows only and is ignored when Content is set.
 	Icon string
+	// Height overrides the list row height for this row; values <= 0 or NaN
+	// inherit the list height. Auto-measured heights are not supported.
+	Height float32
 	// Expanded controls whether a category shows its children.
 	Expanded bool
 	// Children holds nested rows; empty means a selectable leaf.
@@ -41,8 +55,14 @@ type ListRow struct {
 	ID string
 	// Label is the plain row text from the source item.
 	Label string
+	// Content is the borrowed row widget from the source item; nil renders
+	// Label instead.
+	Content Widget
 	// Icon names a UI-whitelisted inline graphic; empty draws no icon.
 	Icon string
+	// Height is the resolved row height: the item override or the list
+	// height when the item inherits.
+	Height float32
 	// Depth is the nesting level, used for indentation.
 	Depth int
 	// HasChildren reports a toggle-only category row.
@@ -58,6 +78,7 @@ type List struct {
 	base
 	items      []ListItem
 	rows       []ListRow
+	offsets    []float32
 	selected   string
 	rowHeight  float32
 	indent     float32
@@ -113,8 +134,9 @@ func (l *List) SetIndent(width float32) *List {
 	return l
 }
 
-// Text returns the selected leaf label, or the plain base text when unset.
-// The label resolves from the item tree so it survives collapsing the
+// Text returns the selected leaf content text, or the plain base text when
+// unset. A non-nil row Content wins over Label so text and rendering agree.
+// The value resolves from the item tree so it survives collapsing the
 // selected leaf's parent category.
 func (l *List) Text() string {
 	if l == nil {
@@ -122,6 +144,9 @@ func (l *List) Text() string {
 	}
 	if l.selected != "" {
 		if item := findListItem(l.items, l.selected); item != nil {
+			if item.Content != nil {
+				return item.Content.Text()
+			}
 			return item.Label
 		}
 	}
@@ -143,7 +168,7 @@ func (l *List) SetItems(items []ListItem) bool {
 	if l == nil {
 		return false
 	}
-	if equalListItems(l.items, items) {
+	if equalListItems(l.items, items, l.RowHeight()) {
 		return false
 	}
 	selected := l.selected
@@ -206,6 +231,108 @@ func (l *List) Selected() (string, bool) {
 		return "", false
 	}
 	return l.selected, true
+}
+
+// SelectedIndex returns the visible index of the selected leaf. Indices are
+// ephemeral: expansion, collapse, and data refreshes renumber them, so
+// prefer Selected IDs for stable identity and use the index only for
+// viewport concerns like scroll-into-view.
+func (l *List) SelectedIndex() (int, bool) {
+	if l == nil || l.selected == "" {
+		return -1, false
+	}
+	index := l.IndexOfRow(l.selected)
+	if index < 0 {
+		return -1, false
+	}
+	return index, true
+}
+
+// TotalHeight returns the stacked height of all visible rows.
+func (l *List) TotalHeight() float32 {
+	if l == nil || len(l.offsets) == 0 {
+		return 0
+	}
+	return l.offsets[len(l.offsets)-1]
+}
+
+// RowHeightAt returns the resolved height of one visible row: the item
+// override or the list height when the item inherits.
+func (l *List) RowHeightAt(index int) float32 {
+	if l == nil || index < 0 || index >= len(l.rows) {
+		return DefaultListRowHeight
+	}
+	if l.rows[index].Height > 0 {
+		return l.rows[index].Height
+	}
+	return l.RowHeight()
+}
+
+// RowRect returns one variable-height row rect inside content, translated
+// by the scroll offset. Rows stack from content.Y using the cached offsets.
+func (l *List) RowRect(content core.Rect, index int) (core.Rect, bool) {
+	if l == nil || index < 0 || index >= len(l.rows) || content.W <= 0 {
+		return core.Rect{}, false
+	}
+	if len(l.offsets) != len(l.rows)+1 {
+		return core.Rect{}, false
+	}
+	height := l.offsets[index+1] - l.offsets[index]
+	if height <= 0 {
+		return core.Rect{}, false
+	}
+	return core.Rect{X: content.X, Y: content.Y + l.offsets[index] - l.scrollY, W: content.W, H: height}, true
+}
+
+// RowAt returns the visible row index under pos, or -1 outside content.
+// It inverts RowRect exactly; scrolled-off rows never hit.
+func (l *List) RowAt(content core.Rect, pos core.Vec2) int {
+	if l == nil || len(l.rows) == 0 || len(l.offsets) != len(l.rows)+1 {
+		return -1
+	}
+	if content.W <= 0 || content.H <= 0 {
+		return -1
+	}
+	if pos.X < content.X || pos.X > content.X+content.W || pos.Y < content.Y || pos.Y > content.Y+content.H {
+		return -1
+	}
+	y := pos.Y - content.Y + l.scrollY
+	lo, hi := 0, len(l.rows)-1
+	for lo <= hi {
+		mid := (lo + hi) / 2
+		if y < l.offsets[mid] {
+			hi = mid - 1
+		} else if y >= l.offsets[mid+1] {
+			lo = mid + 1
+		} else {
+			return mid
+		}
+	}
+	return -1
+}
+
+// VisibleRange returns the first and last row indices intersecting a
+// viewport of contentH logical pixels, clamped to the visible rows.
+// An empty range reports last < first.
+func (l *List) VisibleRange(contentH float32) (int, int) {
+	if l == nil || len(l.rows) == 0 || contentH <= 0 {
+		return 0, -1
+	}
+	if len(l.offsets) != len(l.rows)+1 {
+		return 0, -1
+	}
+	first := l.RowAt(core.Rect{W: 1, H: contentH}, core.Vec2{X: 0, Y: 0})
+	last := l.RowAt(core.Rect{W: 1, H: contentH}, core.Vec2{X: 0, Y: contentH - 1})
+	if first < 0 {
+		first = 0
+	}
+	if last < 0 {
+		last = len(l.rows) - 1
+		if l.offsets[last] >= l.scrollY+contentH {
+			last = first - 1
+		}
+	}
+	return first, last
 }
 
 // Select chooses a leaf row and reports whether the selection changed.
@@ -350,7 +477,7 @@ func (l *List) EnsureScrollBounds(viewportH float32) bool {
 		return false
 	}
 	changed := false
-	max := listMaxScroll(len(l.rows), l.RowHeight(), viewportH)
+	max := listMaxScrollTotal(l.TotalHeight(), viewportH)
 	if max != l.maxScrollY {
 		l.maxScrollY = max
 		changed = true
@@ -429,46 +556,78 @@ func (l *List) isLeaf(id string) bool {
 	return item != nil && len(item.Children) == 0
 }
 
-// refresh rebuilds the visible rows and reconciles scroll bounds.
+// refresh rebuilds the visible rows, the stacked height offsets, and the
+// scroll bounds.
 func (l *List) refresh() {
 	if l == nil {
 		return
 	}
-	l.rows = flattenListItems(l.items, l.rows[:0], 0)
+	l.rows = flattenListItems(l.items, l.rows[:0], 0, l.RowHeight())
+	l.offsets = rebuildListOffsets(l.rows, l.offsets[:0])
 	bounds := l.Bounds()
-	l.maxScrollY = listMaxScroll(len(l.rows), l.RowHeight(), bounds.H)
+	l.maxScrollY = listMaxScrollTotal(l.TotalHeight(), bounds.H)
 	l.scrollY = clampScroll(l.scrollY, l.maxScrollY)
 }
 
-// listMaxScroll derives the scroll limit from row count and viewport height.
-func listMaxScroll(count int, rowH, viewportH float32) float32 {
-	if count <= 0 || rowH <= 0 {
+// listMaxScrollTotal derives the scroll limit from stacked content height
+// and viewport height.
+func listMaxScrollTotal(total, viewportH float32) float32 {
+	if total <= 0 {
 		return 0
 	}
 	if math.IsNaN(float64(viewportH)) || viewportH < 0 {
 		viewportH = 0
 	}
-	total := float32(count) * rowH
 	if total <= viewportH {
 		return 0
 	}
 	return total - viewportH
 }
 
+// rebuildListOffsets stacks resolved row heights into a prefix sum reused
+// across refreshes: offsets[i] is the top of row i and offsets[len] is the
+// total height.
+func rebuildListOffsets(rows []ListRow, dst []float32) []float32 {
+	if cap(dst) < len(rows)+1 {
+		dst = make([]float32, len(rows)+1)
+	} else {
+		dst = dst[:len(rows)+1]
+	}
+	if len(rows) == 0 {
+		return dst[:0]
+	}
+	for i, row := range rows {
+		dst[i+1] = dst[i] + row.Height
+	}
+	return dst
+}
+
+// resolveListHeight maps an item height override to a concrete row height:
+// positive finite values win, anything else inherits the list height.
+func resolveListHeight(override, inherit float32) float32 {
+	if math.IsNaN(float64(override)) || math.IsInf(float64(override), 0) || override <= 0 {
+		return inherit
+	}
+	return override
+}
+
 // flattenListItems appends visible rows in order. Trees stay shallow
 // (game-authored categories), so recursion beats an explicit stack.
-func flattenListItems(items []ListItem, dst []ListRow, depth int) []ListRow {
+// Row heights resolve against defaultH; Content widgets stay borrowed.
+func flattenListItems(items []ListItem, dst []ListRow, depth int, defaultH float32) []ListRow {
 	for _, item := range items {
 		dst = append(dst, ListRow{
 			ID:          item.ID,
 			Label:       item.Label,
+			Content:     item.Content,
 			Icon:        item.Icon,
+			Height:      resolveListHeight(item.Height, defaultH),
 			Depth:       depth,
 			HasChildren: len(item.Children) > 0,
 			Expanded:    item.Expanded,
 		})
 		if len(item.Children) > 0 && item.Expanded {
-			dst = flattenListItems(item.Children, dst, depth+1)
+			dst = flattenListItems(item.Children, dst, depth+1, defaultH)
 		}
 	}
 	return dst
@@ -505,7 +664,9 @@ func setAllListExpanded(items []ListItem, expanded bool) bool {
 	return changed
 }
 
-// copyListItems deep-copies an item tree.
+// copyListItems copies the item structure. Scalar fields and child slices
+// are duplicated so structural mutations stay isolated; Content widgets are
+// borrowed by reference and shared with the caller by design.
 func copyListItems(items []ListItem) []ListItem {
 	if len(items) == 0 {
 		return nil
@@ -514,24 +675,29 @@ func copyListItems(items []ListItem) []ListItem {
 	for i, item := range items {
 		out[i].ID = item.ID
 		out[i].Label = item.Label
+		out[i].Content = item.Content
 		out[i].Icon = item.Icon
+		out[i].Height = item.Height
 		out[i].Expanded = item.Expanded
 		out[i].Children = copyListItems(item.Children)
 	}
 	return out
 }
 
-// equalListItems compares item trees without allocating.
-func equalListItems(left, right []ListItem) bool {
+// equalListItems compares item trees without allocating. Heights compare
+// resolved so every inherit spelling (zero, negative, NaN) equals itself.
+func equalListItems(left, right []ListItem, defaultH float32) bool {
 	if len(left) != len(right) {
 		return false
 	}
 	for i := range left {
 		if left[i].ID != right[i].ID || left[i].Label != right[i].Label ||
-			left[i].Icon != right[i].Icon || left[i].Expanded != right[i].Expanded {
+			left[i].Content != right[i].Content || left[i].Icon != right[i].Icon ||
+			left[i].Expanded != right[i].Expanded ||
+			resolveListHeight(left[i].Height, defaultH) != resolveListHeight(right[i].Height, defaultH) {
 			return false
 		}
-		if !equalListItems(left[i].Children, right[i].Children) {
+		if !equalListItems(left[i].Children, right[i].Children, defaultH) {
 			return false
 		}
 	}

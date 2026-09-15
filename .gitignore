@@ -1,6 +1,8 @@
 # Binaries — never commit compiled outputs
 /widget_gallery
 /examples/widget_gallery/widget_gallery
+/quest_window
+/examples/quest_window/quest_window
 dist/
 *.exe
 *.test

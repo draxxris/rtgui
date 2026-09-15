@@ -2,6 +2,7 @@ package render
 
 import (
 	"image/color"
+	"math"
 
 	"github.com/draxxris/rtgui/core"
 	"github.com/draxxris/rtgui/skin"
@@ -119,11 +120,10 @@ func (t *Theme) DrawList(info core.WidgetInfo, list *widgets.List, hovered, pres
 	}
 	content := t.ListContent(info.Bounds, info.State, info.Class)
 	count := list.VisibleRowCount()
-	rowH := list.RowHeight()
 	scrollY := list.ScrollOffset()
 	maxScroll := list.MaxScroll()
 	rowsContent := ListRowsContent(content, maxScroll)
-	if rowsContent.W > 0 && rowsContent.H > 0 && count > 0 && rowH > 0 {
+	if rowsContent.W > 0 && rowsContent.H > 0 && count > 0 && list.TotalHeight() > 0 {
 		t.PushClip(rowsContent)
 		t.drawListRows(info, list, rowsContent, hovered, pressed)
 		t.PopClip()
@@ -133,17 +133,14 @@ func (t *Theme) DrawList(info core.WidgetInfo, list *widgets.List, hovered, pres
 
 // drawListRows renders the visible window of cached rows with per-row state.
 func (t *Theme) drawListRows(info core.WidgetInfo, list *widgets.List, content core.Rect, hovered, pressed int) {
-	count := list.VisibleRowCount()
-	rowH := list.RowHeight()
-	scrollY := list.ScrollOffset()
-	first, last := ListVisibleRange(content.H, count, rowH, scrollY)
+	first, last := list.VisibleRange(content.H)
 	selected, _ := list.Selected()
 	for index := first; index <= last; index++ {
 		row, ok := list.VisibleRowAt(index)
 		if !ok {
 			continue
 		}
-		rect, ok := ListRowRect(content, count, rowH, scrollY, index)
+		rect, ok := list.RowRect(content, index)
 		if !ok {
 			continue
 		}
@@ -175,8 +172,19 @@ func listRowState(listState core.WidgetState, selected, hovered, pressed bool) c
 	return core.StateNormal
 }
 
-// drawListRowContent renders one row's icon, label, and expander chevron.
+// drawListRowContent renders one row: a borrowed Content widget wins over
+// the Label fast path, and the expander chevron always draws for categories.
+// Row content is render-only; inner widgets never take input.
 func (t *Theme) drawListRowContent(info core.WidgetInfo, list *widgets.List, row widgets.ListRow, rect core.Rect, state core.WidgetState) {
+	if row.Content != nil {
+		t.drawListWidgetRow(info, list, row, rect, state)
+		return
+	}
+	t.drawListSingleLine(info, list, row, rect, state)
+}
+
+// drawListSingleLine renders the legacy one-line row with icon and chevron.
+func (t *Theme) drawListSingleLine(info core.WidgetInfo, list *widgets.List, row widgets.ListRow, rect core.Rect, state core.WidgetState) {
 	x := rect.X + float32(row.Depth)*list.Indent() + 6
 	availableW := rect.W
 	if row.HasChildren {
@@ -200,6 +208,119 @@ func (t *Theme) drawListRowContent(info core.WidgetInfo, list *widgets.List, row
 	t.drawTextInContent(rowInfo, row.Label, core.Rect{X: x, Y: rect.Y, W: textW, H: rect.H}, state)
 	if row.HasChildren {
 		t.drawListChevron(info, rect, state, row.Expanded)
+	}
+}
+
+// drawListWidgetRow positions a borrowed Content widget inside the row
+// content area (indented, chevron-reserved) and draws its subtree clipped
+// to the row. The list owns row chrome (highlight, accent, separator,
+// chevron); the content owns everything inside its bounds. Positioning
+// mutates the borrowed widget bounds on the owning goroutine, mirroring
+// layout arrangement.
+func (t *Theme) drawListWidgetRow(info core.WidgetInfo, list *widgets.List, row widgets.ListRow, rect core.Rect, state core.WidgetState) {
+	x := rect.X + float32(row.Depth)*list.Indent() + 6
+	availableW := rect.W - (x - rect.X)
+	if row.HasChildren {
+		availableW -= widgets.ListChevronWidth
+	}
+	contentW := availableW - 6
+	if contentW < 0 {
+		contentW = 0
+	}
+	content := core.Rect{X: x, Y: rect.Y, W: contentW, H: rect.H}
+	row.Content.SetBounds(content)
+	t.PushClip(rect)
+	t.drawRowWidget(row.Content, content, state)
+	t.PopClip()
+	if row.HasChildren {
+		t.drawListChevron(info, rect, state, row.Expanded)
+	}
+}
+
+// drawRowWidget draws one borrowed content widget at its resolved bounds:
+// children carry content-local bounds, so each frame level translates its
+// children by its own resolved origin without mutating child bounds.
+func (t *Theme) drawRowWidget(w widgets.Widget, bounds core.Rect, state core.WidgetState) {
+	if t == nil || w == nil || !w.Visible() {
+		return
+	}
+	if frame, ok := w.(*widgets.Frame); ok {
+		t.drawRowFrame(frame, bounds, state)
+		return
+	}
+	t.drawRowLeaf(w, bounds, state)
+}
+
+// drawRowFrame draws an attached frame background and its children
+// translated by the frame origin.
+func (t *Theme) drawRowFrame(frame *widgets.Frame, origin core.Rect, state core.WidgetState) {
+	info := frame.Snapshot(state)
+	info.Bounds = origin
+	info.State = state
+	t.DrawWidget(info, "", 0, false)
+	children := frame.AppendChildren(t.listChildScratch[:0])
+	for _, child := range children {
+		if child == nil || !child.Visible() {
+			continue
+		}
+		t.drawRowWidget(child, shiftRect(child.Bounds(), origin), state)
+	}
+	clear(children)
+	t.listChildScratch = children[:0]
+}
+
+// shiftRect translates content-local bounds by a positioned parent origin.
+func shiftRect(local, origin core.Rect) core.Rect {
+	local.X += origin.X
+	local.Y += origin.Y
+	return local
+}
+
+// drawRowLeaf draws one content leaf: canvases run their draw function,
+// rich text draws wrapped without link activation, and every other kind
+// draws through the single-line control path with scratch segments.
+func (t *Theme) drawRowLeaf(w widgets.Widget, bounds core.Rect, state core.WidgetState) {
+	if bounds.W <= 0 || bounds.H <= 0 {
+		return
+	}
+	if canvas, ok := w.(*widgets.Canvas); ok {
+		if fn := canvas.CanvasDraw(); fn != nil {
+			fn(bounds)
+		}
+		return
+	}
+	info := w.Snapshot(state)
+	info.Bounds = bounds
+	info.State = state
+	if rich, ok := w.(*widgets.RichText); ok {
+		t.listSegScratch = rich.CopyRichSegmentsInto(t.listSegScratch[:0])
+		segments := t.listSegScratch
+		t.DrawRichText(info, segments, -1)
+		clear(segments)
+		t.listSegScratch = segments[:0]
+		return
+	}
+	value, segments := t.rowLeafText(w)
+	t.DrawControl(info, value, segments, 0, false)
+	if len(segments) > 0 {
+		clear(segments)
+		t.listSegScratch = segments[:0]
+	}
+}
+
+// rowLeafText resolves a leaf's plain text and scratch rich segments.
+// Segments stay borrowed until the caller releases the scratch.
+func (t *Theme) rowLeafText(w widgets.Widget) (string, []core.RichSegment) {
+	provider, ok := w.(widgets.RichProvider)
+	if !ok || !provider.HasRichText() {
+		return w.Text(), nil
+	}
+	switch w.Kind() {
+	case core.WidgetButton, core.WidgetLabel, core.WidgetFrame, core.WidgetCheckbox:
+		t.listSegScratch = provider.CopyRichSegmentsInto(t.listSegScratch[:0])
+		return w.Text(), t.listSegScratch
+	default:
+		return w.Text(), nil
 	}
 }
 

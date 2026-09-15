@@ -2,6 +2,7 @@ package render
 
 import (
 	"image/color"
+	"math"
 
 	"github.com/draxxris/rtgui/core"
 	"github.com/draxxris/rtgui/skin"
@@ -91,15 +92,45 @@ func (t *Theme) drawFixedRowAccent(info core.WidgetInfo, row core.Rect, width fl
 	}
 }
 
-// drawFixedRowSeparator paints the shared one-pixel row divider.
+// drawFixedRowSeparator paints the shared one-pixel row divider. The divider
+// covers exactly one physical pixel (see fixedRowDividerRect) so it stays
+// visible at every window scale instead of fading on bad subpixel phases.
 func (t *Theme) drawFixedRowSeparator(info core.WidgetInfo, row core.Rect) {
 	if row.W <= 0 || row.H <= 0 {
 		return
 	}
-	line := core.Rect{X: row.X, Y: row.Y + row.H - 1, W: row.W, H: 1}
+	line := t.fixedRowDividerRect(row)
 	tint := color.RGBA{R: 255, G: 255, B: 255, A: 16}
 	t.logDrawCall(info.Kind, skin.PartOverlay, core.StateNormal, row, t.snap(line), skin.SkinDescriptor{}, tint, false)
 	if rl.IsWindowReady() {
 		rl.DrawRectangleRec(toRaylibRect(t.snap(line)), tint)
 	}
+}
+
+// fixedRowDividerRect quantizes a row-bottom divider to exactly one physical
+// pixel anchored inside the row: at downscaled sizes a 1-logical-px line
+// would straddle two physical rows and fade, with the worst phase dropping
+// below visibility as the window resizes. Anchoring to the row bottom keeps
+// the following row's opaque state backgrounds from ever covering it.
+// Without a usable transform it falls back to the 1-logical-px line.
+func (t *Theme) fixedRowDividerRect(row core.Rect) core.Rect {
+	fallback := core.Rect{X: row.X, Y: row.Y + row.H - 1, W: row.W, H: 1}
+	if t == nil || t.transform == nil {
+		return fallback
+	}
+	_, sy := t.transform.Scale()
+	if math.IsNaN(float64(sy)) || math.IsInf(float64(sy), 0) || sy <= 0 {
+		return fallback
+	}
+	bottomPhys := float64(t.transform.ViewportToPhysical(core.Vec2{Y: row.Y + row.H}).Y)
+	topPhys := math.Round(bottomPhys) - 1
+	if topPhys < 0 {
+		topPhys = 0
+	}
+	top := t.transform.PhysicalToViewport(core.Vec2{Y: float32(topPhys)}).Y
+	x, w := row.X, row.W
+	if t.GetPixelSnap() {
+		x, w = t.transform.Snap(x), t.transform.Snap(w)
+	}
+	return core.Rect{X: x, Y: top, W: w, H: 1 / sy}
 }

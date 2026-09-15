@@ -110,9 +110,12 @@ func (l *Label) SetAlign(align core.TextAlign) *Label {
 	return l
 }
 
-// Frame is a container/panel widget.
+// Frame is a container/panel widget. Frames also host render-only row
+// content: Attach records detached child widgets and links their layout
+// nodes so list rows can draw a small widget tree without UI registration.
 type Frame struct {
 	base
+	children []Widget
 }
 
 // NewFrame returns an enabled visual frame with immutable name and kind.
@@ -124,4 +127,43 @@ func NewFrame(name string, bounds core.Rect) *Frame {
 func (f *Frame) SetTooltip(text string) *Frame {
 	f.base.SetTooltip(text)
 	return f
+}
+
+// Attach records detached child widgets for render-only subtree drawing
+// and links their layout nodes under the frame. Children already parented
+// elsewhere, nil children, and the frame itself are skipped without error
+// so UI-registered widgets can never be silently reparented. It returns the
+// frame for chaining. Attached widgets are borrowed: the frame never copies
+// them, and draw paths position them without taking UI ownership.
+func (f *Frame) Attach(children ...Widget) *Frame {
+	if f == nil || f.frame == nil {
+		return f
+	}
+	for _, child := range children {
+		if child == nil || child.Frame() == nil || child.Frame() == f.frame {
+			continue
+		}
+		if err := f.frame.AddChild(child.Frame()); err != nil {
+			continue
+		}
+		f.children = append(f.children, child)
+	}
+	return f
+}
+
+// Children returns a defensive copy of the attached row-content widgets.
+func (f *Frame) Children() []Widget {
+	if f == nil || len(f.children) == 0 {
+		return nil
+	}
+	return append([]Widget(nil), f.children...)
+}
+
+// AppendChildren copies attached widgets into caller-owned storage for
+// allocation-free draw paths.
+func (f *Frame) AppendChildren(dst []Widget) []Widget {
+	if f == nil {
+		return dst
+	}
+	return append(dst, f.children...)
 }

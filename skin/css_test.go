@@ -128,8 +128,50 @@ func TestParseCSSDeclarations(t *testing.T) {
 	if bg.Padding != ([4]float32{5, 10, 5, 10}) {
 		t.Fatalf("padding expansion=%v", bg.Padding)
 	}
-	if border == nil || border.Image != "ring.png" || !border.HasSlice || border.Slice != 8 {
+	if border == nil || border.Image != "ring.png" || !border.HasSlice || border.Slice != [4]int32{8, 8, 8, 8} {
 		t.Fatalf("border entry=%+v", border)
+	}
+}
+
+// TestParseCSSLeadingTextureStack verifies one leading texture retains the
+// following translucent radial and linear layers in CSS order.
+func TestParseCSSLeadingTextureStack(t *testing.T) {
+	rules, err := ParseCSS(`Button {
+		background-image: url("surface.png"), radial-gradient(circle at 30% 20%, #ffffff66, #ffffff00 60%), linear-gradient(to bottom, #2b3d54aa, #0b1524ee);
+	}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rules) != 1 {
+		t.Fatalf("expected one background rule, got %d", len(rules))
+	}
+	rule := rules[0]
+	if !rule.HasImage || rule.Image != "surface.png" || rule.GradientCount != 2 {
+		t.Fatalf("mixed stack = %+v", rule)
+	}
+	if rule.Gradients[0].Kind != GradientRadial || rule.Gradients[0].CenterX != 0.3 || rule.Gradients[0].CenterY != 0.2 {
+		t.Fatalf("radial layer = %+v", rule.Gradients[0])
+	}
+	if rule.Gradients[0].Stops[0].Color.A != 0x66 || rule.Gradients[1].Stops[0].Color.A != 0xaa {
+		t.Fatalf("alpha layers = %+v/%+v", rule.Gradients[0].Stops[0], rule.Gradients[1].Stops[0])
+	}
+	if rule.Gradients[1].Kind != GradientLinear || rule.Gradients[1].Direction != GradientToBottom {
+		t.Fatalf("linear layer = %+v", rule.Gradients[1])
+	}
+}
+
+// TestParseCSSLeadingTextureStackErrors verifies the constrained syntax keeps
+// the texture first and rejects non-gradient layers after it.
+func TestParseCSSLeadingTextureStackErrors(t *testing.T) {
+	cases := []string{
+		`Button { background-image: linear-gradient(#112233, #445566), url("surface.png"); }`,
+		`Button { background-image: url("surface.png"), #112233; }`,
+		`Button { background-image: url("surface.png"), linear-gradient(#112233, #445566), linear-gradient(#112233, #445566), linear-gradient(#112233, #445566), linear-gradient(#112233, #445566), linear-gradient(#112233, #445566); }`,
+	}
+	for _, text := range cases {
+		if _, err := ParseCSS(text); err == nil {
+			t.Fatalf("expected mixed-stack error for %q", text)
+		}
 	}
 }
 
@@ -145,7 +187,7 @@ func TestParseCSSOrder(t *testing.T) {
 }
 
 // assertSliceRule verifies a parsed SkinRule matches the expected kind, part, and slice.
-func assertSliceRule(t *testing.T, rule SkinRule, kind core.WidgetKind, part SkinPart, slice int32) {
+func assertSliceRule(t *testing.T, rule SkinRule, kind core.WidgetKind, part SkinPart, slice [4]int32) {
 	t.Helper()
 	if rule.Kind != kind || rule.Part != part || rule.Slice != slice {
 		t.Fatalf("slice rule mismatch: %+v", rule)
@@ -178,14 +220,67 @@ func TestParseScrollbarCSS(t *testing.T) {
 	if len(rules) != 5 {
 		t.Fatalf("expected 5 rules, got %d", len(rules))
 	}
-	assertSliceRule(t, rules[0], core.WidgetScrollPanel, PartBorder, 8)
+	assertSliceRule(t, rules[0], core.WidgetScrollPanel, PartBorder, [4]int32{8, 8, 8, 8})
 	if rules[1].Kind != core.WidgetScrollPanel || rules[1].Part != PartBackground || !rules[1].HasPadding || rules[1].Padding[0] != 8 {
 		t.Fatalf("padding rule mismatch: %+v", rules[1])
 	}
-	assertSliceRule(t, rules[2], core.WidgetScrollPanel, PartTrack, 8)
-	assertSliceRule(t, rules[3], core.WidgetScrollPanel, PartThumb, 8)
+	assertSliceRule(t, rules[2], core.WidgetScrollPanel, PartTrack, [4]int32{8, 8, 8, 8})
+	assertSliceRule(t, rules[3], core.WidgetScrollPanel, PartThumb, [4]int32{8, 8, 8, 8})
 	if rules[4].Kind != core.WidgetScrollPanel || rules[4].Part != PartThumb || rules[4].State != core.StateHovered || !rules[4].HasTint {
 		t.Fatalf("thumb hover rule mismatch: %+v", rules[4])
+	}
+}
+
+// TestParseSlicePerSide verifies 1-4 value border-image-slice expansion.
+func TestParseSlicePerSide(t *testing.T) {
+	cases := []struct {
+		css  string
+		want [4]int32
+	}{
+		{`Frame { border-image-source: url("r.png"); border-image-slice: 8; }`, [4]int32{8, 8, 8, 8}},
+		{`Frame { border-image-source: url("r.png"); border-image-slice: 95 75 75 75; }`, [4]int32{95, 75, 75, 75}},
+		{`Frame { border-image-source: url("r.png"); border-image-slice: 10 20; }`, [4]int32{10, 20, 10, 20}},
+		{`Frame { border-image-source: url("r.png"); border-image-slice: 10 20 30; }`, [4]int32{10, 20, 30, 20}},
+		{`Frame { border-image-source: url("r.png"); border-image-slice: 95px 75px 75px 75px; }`, [4]int32{95, 75, 75, 75}},
+	}
+	for _, tc := range cases {
+		rules, err := ParseCSS(tc.css)
+		if err != nil {
+			t.Fatalf("ParseCSS %q: %v", tc.css, err)
+		}
+		if len(rules) != 1 || !rules[0].HasSlice || rules[0].Slice != tc.want {
+			t.Fatalf("slice %q = %+v, want %+v", tc.css, rules, tc.want)
+		}
+	}
+	for _, css := range []string{
+		`Frame { border-image-source: url("r.png"); border-image-slice: 1 2 3 4 5; }`,
+		`Frame { border-image-source: url("r.png"); border-image-slice: -1; }`,
+		`Frame { border-image-source: url("r.png"); border-image-slice: lots; }`,
+	} {
+		if _, err := ParseCSS(css); err == nil {
+			t.Fatalf("expected slice error for %q", css)
+		}
+	}
+}
+
+// TestParseBorderImageWidth verifies destination widths parse separately.
+func TestParseBorderImageWidth(t *testing.T) {
+	rules, err := ParseCSS(`Frame { border-image-source: url("r.png"); border-image-slice: 95 75 75 75; border-image-width: 64 45 45 45; }`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rules) != 1 || !rules[0].HasSlice || rules[0].Slice != [4]int32{95, 75, 75, 75} {
+		t.Fatalf("slice = %+v", rules)
+	}
+	if !rules[0].HasWidth || rules[0].Width != [4]int32{64, 45, 45, 45} {
+		t.Fatalf("width = %+v", rules)
+	}
+	plain, err := ParseCSS(`Frame { border-image-source: url("r.png"); border-image-slice: 8; }`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plain[0].HasWidth {
+		t.Fatalf("width must default unset: %+v", plain[0])
 	}
 }
 

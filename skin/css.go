@@ -14,8 +14,10 @@
 // Gradient layers for background-image: one to four comma-separated layers,
 // first layer on top. Each layer is linear-gradient([to <dir> | <angle>deg,]
 // <color> [<pos>%], ...) with 2-4 stops, or radial-gradient([circle
-// [at <x>% <y>%],] <color> [<pos>%], ...) with 2-4 stops. Missing stop
-// positions follow CSS Images 3 (ends anchor at 0%/100%, runs interpolate).
+// [at <x>% <y>%],] <color> [<pos>%], ...) with 2-4 stops. A background
+// stack may instead start with one url(...) texture followed by up to four
+// gradient layers; the URL must be first and none cannot be mixed. Missing
+// stop positions follow CSS Images 3 (ends anchor at 0%/100%, runs interpolate).
 // Example: radial-gradient(circle at 30% 20%, #3a5a7a80, #00000000 60%),
 // linear-gradient(135deg, #17b978 0%, #0ea071 50%, #086972 100%),
 // linear-gradient(to bottom, #2b3d54, #0b1524),
@@ -55,10 +57,18 @@ type SkinRule struct {
 	// entry, so one flag serves both properties.
 	NoTexture bool
 
-	// Slice is border-image-slice in pixels when HasSlice is true.
-	Slice int32
+	// Slice holds border-image-slice as top, right, bottom, left pixels.
+	// A single CSS value expands to all four sides to keep uniform
+	// nine-patches working without per-side authoring.
+	Slice [4]int32
 	// HasSlice reports whether Slice was declared.
 	HasSlice bool
+	// Width holds border-image-width as top, right, bottom, left
+	// destination pixels. Empty means destination matches Slice, so
+	// existing uniform nine-patches keep their 1:1 source mapping.
+	Width [4]int32
+	// HasWidth reports whether Width was declared.
+	HasWidth bool
 
 	// Tint is the authored *-tint color when HasTint is true.
 	Tint core.Color
@@ -322,6 +332,7 @@ func parseBlock(selector string, kind core.WidgetKind, className string, part Sk
 		if err := parseBlockStyle(selector, kind, part, hasPart, imageTarget, borderTarget, paddingTarget, allowBorder, allowPadding, take, style); err != nil {
 			return nil, err
 		}
+		}
 	}
 	entries := make([]SkinRule, 0, len(order))
 	for _, part := range order {
@@ -341,7 +352,7 @@ func parseBlockStyle(selector string, kind core.WidgetKind, part SkinPart, hasPa
 			return fmt.Errorf("skin: background-image in %q is not allowed on Table::arrow; the sort arrow is geometry-only (use color or background-image-tint)", selector)
 		}
 		return applyBackgroundProp(take(imageTarget), selector, property, value)
-	case "border-image-source", "border-image-source-tint", "border-image-slice":
+	case "border-image-source", "border-image-source-tint", "border-image-slice", "border-image-width":
 		if !allowBorder {
 			return fmt.Errorf("skin: %s in %q applies to widgets, ::popup, ::track, and ::thumb parts, not other parts", property, selector)
 		}
@@ -371,14 +382,14 @@ func applyBackgroundProp(entry *SkinRule, selector, property, value string) erro
 	case "background-image":
 		trimmed := strings.TrimSpace(value)
 		lower := strings.ToLower(trimmed)
-		if strings.HasPrefix(lower, "url(") {
-			path, err := extractURL(selector, property, value)
-			if err != nil {
-				return err
-			}
-			entry.Image, entry.HasImage = path, true
-			entry.NoTexture = false
+		if lower == "none" {
+			entry.Image, entry.HasImage = "", false
+			entry.Gradients, entry.GradientCount = [MaxGradientLayers]Gradient{}, 0
+			entry.NoTexture = true
 			return nil
+		}
+		if strings.HasPrefix(lower, "url(") {
+			return parseBackgroundTextureStack(entry, selector, property, trimmed)
 		}
 		if strings.Contains(lower, "linear-gradient(") || strings.Contains(lower, "radial-gradient(") {
 			layers, count, err := parseBackgroundGradients(selector, property, value)
@@ -386,16 +397,11 @@ func applyBackgroundProp(entry *SkinRule, selector, property, value string) erro
 				return err
 			}
 			entry.Gradients, entry.GradientCount = layers, count
+			entry.Image, entry.HasImage = "", false
 			entry.NoTexture = false
 			return nil
 		}
-		if lower == "none" {
-			entry.Image, entry.HasImage = "", false
-			entry.Gradients, entry.GradientCount = [MaxGradientLayers]Gradient{}, 0
-			entry.NoTexture = true
-			return nil
-		}
-		return fmt.Errorf("skin: %s in %q must be url(...), linear-gradient(...), radial-gradient(...), or up to four comma-separated gradient layers, got %q", property, selector, value)
+		return fmt.Errorf("skin: %s in %q must be none, url(...), gradients, or a leading url(...) followed by gradients, got %q", property, selector, value)
 	case "border-radius":
 		return applyRadiusProp(entry, selector, property, value)
 	case "background-color":
@@ -413,6 +419,35 @@ func applyBackgroundProp(entry *SkinRule, selector, property, value string) erro
 		entry.Tint, entry.HasTint = tint, true
 		return nil
 	}
+}
+
+// parseBackgroundTextureStack parses one leading texture and its lower CSS
+// layers. Only the first comma-separated item may be url(...); all remaining
+// items must be gradients so the renderer can preserve CSS paint order.
+func parseBackgroundTextureStack(entry *SkinRule, selector, property, value string) error {
+	parts, err := splitParenArgs(value)
+	if err != nil {
+		return fmt.Errorf("skin: %s in %q: %w", property, selector, err)
+	}
+	if len(parts) > MaxGradientLayers+1 {
+		return fmt.Errorf("skin: %s in %q allows one texture and at most %d gradient layers", property, selector, MaxGradientLayers)
+	}
+	path, err := extractURL(selector, property, parts[0])
+	if err != nil {
+		return err
+	}
+	entry.Image, entry.HasImage = path, true
+	entry.Gradients, entry.GradientCount = [MaxGradientLayers]Gradient{}, 0
+	entry.NoTexture = false
+	for index, raw := range parts[1:] {
+		gradient, parseErr := parseGradientLayer(selector, property, raw)
+		if parseErr != nil {
+			return parseErr
+		}
+		entry.Gradients[index] = gradient
+		entry.GradientCount++
+	}
+	return nil
 }
 
 // applyRadiusProp stores a border-radius declaration on the entry. Zero
@@ -453,8 +488,15 @@ func applyBorderProp(entry *SkinRule, selector, property, value string) error {
 		}
 		entry.Tint, entry.HasTint = tint, true
 		return nil
+	case "border-image-width":
+		width, err := expandSlice(selector, property, value)
+		if err != nil {
+			return err
+		}
+		entry.Width, entry.HasWidth = width, true
+		return nil
 	default:
-		slice, err := parsePixels(selector, property, value, true)
+		slice, err := expandSlice(selector, property, value)
 		if err != nil {
 			return err
 		}
@@ -553,6 +595,36 @@ func parsePixels(selector, property, value string, whole bool) (int32, error) {
 		return 0, fmt.Errorf("skin: %s in %q must be numeric, got %q", property, selector, value)
 	}
 	return int32(number), nil
+}
+
+// expandSlice expands CSS 1-4 value border-image-slice or border-image-width
+// into top, right, bottom, left. One value covers uniform nine-patches;
+// four values carry the titled-frame top band (for example 95 75 75 75).
+// Values are non-negative integers with optional px suffix.
+func expandSlice(selector, property, value string) ([4]int32, error) {
+	fields := strings.Fields(value)
+	numbers := make([]int32, 0, len(fields))
+	for _, field := range fields {
+		trimmed := strings.TrimSuffix(strings.TrimSpace(field), "px")
+		trimmed = strings.TrimSpace(trimmed)
+		number, err := strconv.Atoi(trimmed)
+		if err != nil || number < 0 {
+			return [4]int32{}, fmt.Errorf("skin: %s in %q must be non-negative integers, got %q", property, selector, value)
+		}
+		numbers = append(numbers, int32(number))
+	}
+	switch len(numbers) {
+	case 1:
+		return [4]int32{numbers[0], numbers[0], numbers[0], numbers[0]}, nil
+	case 2:
+		return [4]int32{numbers[0], numbers[1], numbers[0], numbers[1]}, nil
+	case 3:
+		return [4]int32{numbers[0], numbers[1], numbers[2], numbers[1]}, nil
+	case 4:
+		return [4]int32{numbers[0], numbers[1], numbers[2], numbers[3]}, nil
+	default:
+		return [4]int32{}, fmt.Errorf("skin: %s in %q needs 1-4 values, got %q", property, selector, value)
+	}
 }
 
 // expandPadding expands CSS 1–4 value padding into top, right, bottom, left.
@@ -691,7 +763,10 @@ func parseGradientLayer(selector, property, layer string) (LinearGradient, error
 	if strings.HasPrefix(lower, "radial-gradient(") {
 		return parseRadialGradient(selector, property, trimmed)
 	}
-	return LinearGradient{}, fmt.Errorf("skin: %s in %q must be linear-gradient(...) or radial-gradient(...), got %q", property, selector, layer)
+	if strings.HasPrefix(lower, "inner-gradient(") {
+		return parseInnerGradient(selector, property, trimmed)
+	}
+	return LinearGradient{}, fmt.Errorf("skin: %s in %q must be linear-gradient(...), radial-gradient(...), or inner-gradient(...), got %q", property, selector, layer)
 }
 
 // parseLinearGradient parses a single linear-gradient(...) layer.
@@ -823,6 +898,39 @@ func parseRadialGradient(selector, property, value string) (LinearGradient, erro
 		return LinearGradient{}, fmt.Errorf("skin: %s in %q: %w", property, selector, err)
 	}
 	return buildRadialGradient(selector, property, args)
+}
+
+// parseInnerGradient parses an inner-gradient(stop, ...) layer. Stops run
+// from every border (position 0) to the center (position 1) with no head
+// argument, so one layer replaces four directional linear gradients.
+func parseInnerGradient(selector, property, value string) (LinearGradient, error) {
+	inner, err := gradientInner(selector, property, value, "inner-gradient(")
+	if err != nil {
+		return LinearGradient{}, err
+	}
+	if inner == "" {
+		return LinearGradient{}, fmt.Errorf("skin: %s in %q has empty inner-gradient", property, selector)
+	}
+	args, err := splitParenArgs(inner)
+	if err != nil {
+		return LinearGradient{}, fmt.Errorf("skin: %s in %q: %w", property, selector, err)
+	}
+	if len(args) < 2 || len(args) > MaxGradientStops {
+		return LinearGradient{}, fmt.Errorf("skin: %s in %q expects 2-%d color stops (got %d)", property, selector, MaxGradientStops, len(args))
+	}
+	stops := make([]ColorStop, 0, len(args))
+	for _, raw := range args {
+		stop, parseErr := parseColorStopAuto(selector, property, raw)
+		if parseErr != nil {
+			return LinearGradient{}, parseErr
+		}
+		stops = append(stops, stop)
+	}
+	grad, ok := NewInnerGradient(stops...)
+	if !ok {
+		return LinearGradient{}, fmt.Errorf("skin: %s in %q has invalid inner stops", property, selector)
+	}
+	return grad, nil
 }
 
 // buildRadialGradient resolves the optional center and 2-4 stops.

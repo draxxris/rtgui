@@ -56,8 +56,10 @@ type mergedRule struct {
 	image              string
 	hasImage           bool
 	noTexture          bool
-	slice              int32
+	slice              [4]int32
 	hasSlice           bool
+	width              [4]int32
+	hasWidth           bool
 	tint               core.Color
 	hasTint            bool
 	padding            [4]float32
@@ -68,7 +70,7 @@ type mergedRule struct {
 	hasRadius          bool
 	gradients          [skin.MaxGradientLayers]skin.LinearGradient
 	gradientCount      int
-	hasGradientDecl    bool
+	hasImageDecl       bool
 	font               string
 	hasFont            bool
 	italicFont         string
@@ -156,26 +158,31 @@ func mergeSkinRules(rules []skin.SkinRule) (map[skin.SkinKey]mergedRule, []skin.
 }
 
 // mergeRuleImage applies one rule's image, gradient, and explicit none
-// declarations. Later declarations win: a url or gradient clears an earlier
-// none, and none clears an earlier image and gradient.
+// declarations. A mixed leading-url stack keeps both layers; URL-only and
+// gradient-only declarations still replace the previous background stack.
 func mergeRuleImage(entry *mergedRule, rule skin.SkinRule) {
-	if rule.HasImage {
-		entry.image, entry.hasImage = rule.Image, true
-		entry.gradients, entry.gradientCount = [skin.MaxGradientLayers]skin.LinearGradient{}, 0
-		entry.hasGradientDecl = false
-		entry.noTexture = false
+	if rule.HasImage || rule.NoTexture || rule.GradientCount > 0 {
+		entry.hasImageDecl = true
 	}
 	if rule.NoTexture {
 		entry.image, entry.hasImage = "", false
 		entry.gradients, entry.gradientCount = [skin.MaxGradientLayers]skin.LinearGradient{}, 0
-		entry.hasGradientDecl = false
 		entry.noTexture = true
+		return
+	}
+	if rule.HasImage {
+		entry.image, entry.hasImage = rule.Image, true
+		entry.noTexture = false
+		if rule.GradientCount == 0 {
+			entry.gradients, entry.gradientCount = [skin.MaxGradientLayers]skin.LinearGradient{}, 0
+		}
 	}
 	if rule.GradientCount > 0 {
 		entry.gradients, entry.gradientCount = rule.Gradients, rule.GradientCount
-		entry.image, entry.hasImage = "", false
-		entry.hasGradientDecl = true
 		entry.noTexture = false
+		if !rule.HasImage {
+			entry.image, entry.hasImage = "", false
+		}
 	}
 }
 
@@ -184,6 +191,9 @@ func mergeRuleImage(entry *mergedRule, rule skin.SkinRule) {
 func mergeRuleStyle(entry *mergedRule, rule skin.SkinRule) {
 	if rule.HasSlice {
 		entry.slice, entry.hasSlice = rule.Slice, true
+	}
+	if rule.HasWidth {
+		entry.width, entry.hasWidth = rule.Width, true
 	}
 	if rule.HasTint {
 		entry.tint, entry.hasTint = rule.Tint, true
@@ -230,12 +240,11 @@ func inheritNormalRules(merged map[skin.SkinKey]mergedRule, order []skin.SkinKey
 
 // inheritNormalVisuals copies omitted visual declarations from the normal-state rule.
 func inheritNormalVisuals(entry *mergedRule, base mergedRule) {
-	if !entry.hasImage && !entry.noTexture {
-		entry.image, entry.hasImage = base.image, base.hasImage
-		entry.noTexture = base.noTexture
-	}
 	if !entry.hasSlice {
 		entry.slice, entry.hasSlice = base.slice, base.hasSlice
+	}
+	if !entry.hasWidth {
+		entry.width, entry.hasWidth = base.width, base.hasWidth
 	}
 	if !entry.hasTint {
 		entry.tint, entry.hasTint = base.tint, base.hasTint
@@ -250,9 +259,11 @@ func inheritNormalVisuals(entry *mergedRule, base mergedRule) {
 		entry.radius, entry.hasRadius = base.radius, base.hasRadius
 	}
 	// An explicit background-image replaces every layer, so states inherit
-	// the whole stack only when they declare no gradient of their own.
-	if !entry.hasGradientDecl {
+	// the whole stack only when they declare no image or gradient of their own.
+	if !entry.hasImageDecl {
+		entry.image, entry.hasImage = base.image, base.hasImage
 		entry.gradients, entry.gradientCount = base.gradients, base.gradientCount
+		entry.noTexture = base.noTexture
 	}
 }
 
@@ -392,16 +403,21 @@ func (t *Theme) buildCSSDescriptor(key skin.SkinKey, entry mergedRule, base stri
 }
 
 // applyCSSBox populates nine-patch, three-patch, and padding geometry from
-// merged rule declarations.
+// merged rule declarations. Track and thumb caps use a vertical three-patch
+// on scroll panels, lists, chat logs, and tables so cap art never stretches.
 func applyCSSBox(descriptor *skin.SkinDescriptor, key skin.SkinKey, entry mergedRule) {
 	if (key.Part == skin.PartBorder || key.Part == skin.PartPopupBorder) && entry.hasSlice {
-		descriptor.NinePatch.Left, descriptor.NinePatch.Top = entry.slice, entry.slice
-		descriptor.NinePatch.Right, descriptor.NinePatch.Bottom = entry.slice, entry.slice
+		descriptor.NinePatch.Top, descriptor.NinePatch.Right = entry.slice[0], entry.slice[1]
+		descriptor.NinePatch.Bottom, descriptor.NinePatch.Left = entry.slice[2], entry.slice[3]
 		descriptor.HasNinePatch = true
 		descriptor.CenterFill = false
+		if entry.hasWidth {
+			descriptor.BorderWidth = entry.width
+			descriptor.HasBorderWidth = true
+		}
 	} else if (key.Widget == core.WidgetScrollPanel || key.Widget == core.WidgetList || key.Widget == core.WidgetChatLog || key.Widget == core.WidgetTable) && (key.Part == skin.PartTrack || key.Part == skin.PartThumb) && entry.hasSlice {
-		descriptor.ThreePatch.Top = entry.slice
-		descriptor.ThreePatch.Bottom = entry.slice
+		descriptor.ThreePatch.Top = entry.slice[0]
+		descriptor.ThreePatch.Bottom = entry.slice[2]
 		descriptor.HasThreePatch = true
 	}
 	if entry.hasPadding {

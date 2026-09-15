@@ -52,6 +52,36 @@ func TestCSSGradientStackMergesByState(t *testing.T) {
 	}
 }
 
+// TestCSSMixedTextureStackReplacesInheritedStackAsUnit verifies a mixed
+// normal background is inherited together, while explicit URL-only and
+// gradient-only states retain the existing replacement behavior.
+func TestCSSMixedTextureStackReplacesInheritedStackAsUnit(t *testing.T) {
+	base := gradientTestRule(
+		skin.LinearGradient{Kind: skin.GradientRadial, Stops: gradientTestStops(30, 40), StopCount: 2},
+		skin.LinearGradient{Direction: skin.GradientToBottom, Stops: gradientTestStops(10, 20), StopCount: 2},
+	)
+	base.Image, base.HasImage = "surface.png", true
+	hovered := skin.SkinRule{Kind: core.WidgetTooltip, Part: skin.PartBackground, State: core.StateHovered,
+		BackgroundColor: core.Color{R: 1, G: 2, B: 3, A: 255}, HasBackgroundColor: true}
+	urlOnly := skin.SkinRule{Kind: core.WidgetTooltip, Part: skin.PartBackground, State: core.StatePressed,
+		Image: "pressed.png", HasImage: true}
+	gradientOnly := gradientTestRule(skin.LinearGradient{Direction: skin.GradientToTop, Stops: gradientTestStops(50, 60), StopCount: 2})
+	gradientOnly.State = core.StateFocused
+	merged, _ := mergeSkinRules([]skin.SkinRule{base, hovered, urlOnly, gradientOnly})
+	hover := merged[skin.SkinKey{Widget: core.WidgetTooltip, Part: skin.PartBackground, State: core.StateHovered}]
+	if !hover.hasImage || hover.image != "surface.png" || hover.gradientCount != 2 {
+		t.Fatalf("mixed stack inheritance = %+v", hover)
+	}
+	pressed := merged[skin.SkinKey{Widget: core.WidgetTooltip, Part: skin.PartBackground, State: core.StatePressed}]
+	if !pressed.hasImage || pressed.image != "pressed.png" || pressed.gradientCount != 0 {
+		t.Fatalf("URL-only replacement = %+v", pressed)
+	}
+	focused := merged[skin.SkinKey{Widget: core.WidgetTooltip, Part: skin.PartBackground, State: core.StateFocused}]
+	if focused.hasImage || focused.gradientCount != 1 || focused.gradients[0].Direction != skin.GradientToTop {
+		t.Fatalf("gradient-only replacement = %+v", focused)
+	}
+}
+
 // TestCSSGradientNoneClearsStack verifies none drops every layer.
 func TestCSSGradientNoneClearsStack(t *testing.T) {
 	rules, err := skin.ParseCSS(`

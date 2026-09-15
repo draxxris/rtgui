@@ -9,6 +9,7 @@ import (
 	"github.com/draxxris/rtgui/core"
 	"github.com/draxxris/rtgui/skin"
 	"github.com/draxxris/rtgui/transform"
+	"github.com/draxxris/rtgui/widgets"
 	rl "github.com/gen2brain/raylib-go/raylib"
 )
 
@@ -35,6 +36,13 @@ type Theme struct {
 	// consume spans synchronously on the owning goroutine, so one buffer
 	// serves every control without steady-state allocation.
 	singleScratch []RichSpanLayout
+	// listSegScratch reuses rich-segment storage for render-only list row
+	// content. Row widgets are borrowed and drawn synchronously, so one
+	// buffer serves every row without steady-state allocation.
+	listSegScratch []core.RichSegment
+	// listChildScratch reuses attached-children storage while drawing one
+	// row content tree.
+	listChildScratch []widgets.Widget
 }
 
 // fontFace owns one font path and its size-specific raster cache.

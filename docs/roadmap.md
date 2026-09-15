@@ -201,6 +201,8 @@ The generic drag controller and rich tooltip renderer are DONE. Item widgets sti
 - **PLANNED — Broader table and list features:** multiple selection, richer
   incremental feeds, and shared production use by auction, guild roster, friends,
   LFG, mail, quests, and combat logs.
+- List row content is render-only (plain string fast path or a borrowed
+  widget tree); event forwarding to widgets inside rows remains planned.
 
 ### ChatBox and Combat Log
 
