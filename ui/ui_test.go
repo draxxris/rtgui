@@ -595,3 +595,23 @@ func TestPollRaylibInputHeadless(t *testing.T) {
 		t.Fatalf("expected zero result in headless mode, got %+v", result)
 	}
 }
+
+// TestDrawRendersImageWidget checks that registered images draw through the theme.
+func TestDrawRendersImageWidget(t *testing.T) {
+	u := New(800, 600)
+	recorder := attachDrawRecorder(t, u)
+	img := widgets.NewImage("banner", core.Rect{X: 10, Y: 10, W: 100, H: 100})
+	if err := u.Add(img); err != nil {
+		t.Fatal(err)
+	}
+	u.Draw()
+	if len(recorder.Calls()) != 0 {
+		t.Fatal("an image without a texture must draw nothing")
+	}
+	img.SetTexture(skin.Texture{ID: 5, Width: 200, Height: 100})
+	u.Draw()
+	calls := recorder.Calls()
+	if len(calls) != 1 || calls[0].Kind != core.WidgetImage || calls[0].Dest != (core.Rect{X: 10, Y: 35, W: 100, H: 50}) {
+		t.Fatalf("calls = %+v", calls)
+	}
+}

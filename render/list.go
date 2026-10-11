@@ -2,7 +2,6 @@ package render
 
 import (
 	"image/color"
-	"math"
 
 	"github.com/draxxris/rtgui/core"
 	"github.com/draxxris/rtgui/skin"
@@ -287,6 +286,10 @@ func (t *Theme) drawRowLeaf(w widgets.Widget, bounds core.Rect, state core.Widge
 		if fn := canvas.CanvasDraw(); fn != nil {
 			fn(bounds)
 		}
+		return
+	}
+	if img, ok := w.(*widgets.Image); ok {
+		t.DrawImage(bounds, img.Texture(), img.Source(), img.Tint(), img.Fit())
 		return
 	}
 	info := w.Snapshot(state)

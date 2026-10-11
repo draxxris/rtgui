@@ -20,6 +20,7 @@ type fakeTextureBackend struct {
 	uploadCalls int
 	failUpload  int
 	filterCalls int
+	smoothCalls int
 	failFilter  int
 	unloaded    []uint32
 	uploaded    [][]byte
@@ -45,6 +46,8 @@ func (f *fakeTextureBackend) setFilter(skin.Texture) error {
 	}
 	return nil
 }
+
+func (f *fakeTextureBackend) setSmooth(skin.Texture) { f.smoothCalls++ }
 
 func (f *fakeTextureBackend) unload(texture skin.Texture) {
 	f.unloaded = append(f.unloaded, texture.ID)

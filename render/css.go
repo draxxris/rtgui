@@ -21,6 +21,7 @@ type textureBackend interface {
 	ready() bool
 	upload(fileType string, data []byte) (skin.Texture, error)
 	setFilter(texture skin.Texture) error
+	setSmooth(texture skin.Texture)
 	unload(texture skin.Texture)
 }
 
@@ -45,6 +46,11 @@ func (raylibTextureBackend) upload(fileType string, data []byte) (skin.Texture, 
 func (raylibTextureBackend) setFilter(texture skin.Texture) error {
 	rl.SetTextureFilter(toRaylibTexture(texture), rl.FilterPoint)
 	return nil
+}
+
+// setSmooth switches a texture to bilinear filtering for photographic content.
+func (raylibTextureBackend) setSmooth(texture skin.Texture) {
+	rl.SetTextureFilter(toRaylibTexture(texture), rl.FilterBilinear)
 }
 
 func (raylibTextureBackend) unload(texture skin.Texture) {

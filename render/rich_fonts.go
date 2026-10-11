@@ -67,7 +67,7 @@ func (t *Theme) richFont(size float32, font string) rl.Font {
 	size = clampRichFontSize(size)
 	if t != nil && font != "" && t.namedFonts != nil {
 		if face := t.namedFonts[font]; face != nil {
-			return face.forSize(size)
+			return face.forSize(size, t.glyphRanges)
 		}
 	}
 	if t != nil {

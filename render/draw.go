@@ -634,7 +634,7 @@ func (t *Theme) drawTextInContent(info core.WidgetInfo, value string, content co
 	t.logDrawCall(info.Kind, skin.PartText, state, content, content, skin.SkinDescriptor{}, textColor, false)
 	if desc.HasFont && t != nil && t.HasNamedFont(desc.Font) && rl.IsWindowReady() {
 		face := t.namedFonts[desc.Font]
-		rl.DrawTextEx(face.forSize(fontSize), value, rl.NewVector2(x, y), fontSize, fontSize/10, textColor)
+		rl.DrawTextEx(face.forSize(fontSize, t.glyphRanges), value, rl.NewVector2(x, y), fontSize, fontSize/10, textColor)
 		return
 	}
 	t.DrawText(value, x, y, fontSize, info.Italic, textColor)

@@ -97,8 +97,24 @@ const (
 	WidgetChatLog
 	// WidgetTable displays a sortable, selectable multi-column data table.
 	WidgetTable
+	// WidgetImage displays a texture scaled into its bounds.
+	WidgetImage
 	// WidgetAny represents any widget kind for universal CSS rules.
 	WidgetAny WidgetKind = -1
+)
+
+// ImageFit selects how an image is scaled into its widget bounds.
+type ImageFit int32
+
+const (
+	// ImageContain scales the image uniformly to fit inside the bounds and
+	// centers it, leaving empty bands on the unfilled axis.
+	ImageContain ImageFit = iota
+	// ImageCover scales the image uniformly to fill the bounds and crops the
+	// overflow symmetrically.
+	ImageCover
+	// ImageStretch scales each axis independently to fill the bounds.
+	ImageStretch
 )
 
 // SortDir selects the direction of a table's sorted view. None is reserved

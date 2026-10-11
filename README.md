@@ -32,8 +32,11 @@ drag-and-drop, and simulation operations follow a single-owning-goroutine model.
 ## Requirements
 
 - Go 1.27 or newer
-- A native C toolchain and raylib system dependencies for packages that use
-  `render` or `ui`, including the gallery
+- For packages that use `render` or `ui`, including the gallery, either:
+  - `CGO_ENABLED=0` on Linux, where raylib-go loads raylib through its purego
+    backend and no C compiler or headers are needed (the gallery builds and renders
+    this way); or
+  - a native C toolchain and the raylib system dependencies below
 - MinGW-w64 when using the Windows cross-build task
 
 On Debian or Ubuntu:
@@ -168,6 +171,28 @@ Opaque surfaces block clicks and wheel input, even when disabled.
 `BringToFront` raises the whole root subtree. Captured releases cannot become world clicks.
 Call `CancelInput` when the OS loses focus. `PollRaylibInput` handles this automatically.
 
+## Images
+
+`widgets.Image` draws a texture scaled into its bounds with `ImageContain`
+(letterbox), `ImageCover` (crop to fill), or `ImageStretch`, with an optional
+source sub-rectangle and tint. It is non-interactive. Load textures through the
+theme, which owns and filters them, and release them while the window is open:
+
+```go
+tex, err := u.Theme().LoadImage(".png", downloadedBytes) // or LoadImageFile(path)
+if err != nil {
+    log.Fatal(err)
+}
+banner := widgets.NewImage("banner", core.Rect{X: 20, Y: 20, W: 480, H: 200}).
+    SetTexture(tex).SetFit(core.ImageCover)
+_ = u.Add(banner)
+// Later, once nothing displays it: u.Theme().UnloadImage(tex)
+// At shutdown, before closing the window: u.Theme().UnloadImages()
+```
+
+Updating an image's texture takes effect on the next `Draw`; keep the old texture
+alive until then.
+
 ## Drag controllers
 
 The UI can own the whole gesture. Register a source and a widget-bound target:
@@ -287,10 +312,13 @@ and programmatic textures remain borrowed. Call `UnloadSkin` while the graphics
 context is still active, before closing the raylib window. `ClearSkin` also
 clears borrowed programmatic descriptors but never unloads their handles.
 
-Font atlases currently contain printable ASCII plus en dash, em dash, bullet,
-and ellipsis. UTF-8 storage therefore does not promise glyph coverage for every
-Unicode script; callers needing other scripts must provide an appropriate font
-and later rasterization strategy.
+Font atlases cover Basic Latin, Latin-1 Supplement, Latin Extended-A, Greek,
+Cyrillic, general punctuation, and currency symbols (about 820 glyphs) at sizes up
+to 48px. Larger sizes use a compact set (ASCII, en/em dash, bullet, ellipsis) to
+bound atlas memory. `Theme.SetGlyphRanges` replaces the coverage at every size, for
+example to add kana or Hangul; an empty slice restores the defaults. The loaded font
+must contain the glyphs it is asked for: the bundled test fonts cover Latin only.
+Text shaping, bidirectional text, and IME composition are not supported.
 Each font retains at most 32 raster sizes, capped at 256 pixels. Additional sizes
 use the nearest retained raster. Unload fonts while the graphics context remains active.
 

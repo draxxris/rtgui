@@ -37,6 +37,7 @@ CSS skinning, gradient layers, and tooltip classes are in [skinning.md](skinning
 
   - `Button`, `Label`, `Checkbox`, `Textbox`, `Dropdown`, `Slider`, and `ProgressBar`.
   - `Frame`, `ScrollPanel`, and `Canvas` for containers and custom drawing.
+  - `Image` for theme-owned textures with contain, cover, and stretch fit (DONE).
   - Explicit text color, font size, italic style, and alignment on supported controls.
 
 - **DONE — TabBar foundation**
@@ -274,11 +275,12 @@ depends on a concrete raylib theme, and the host applies the drawing matrix.
 
 ### International Text and Renderer Evaluation
 
-Current font atlases cover printable ASCII and a small punctuation set. UTF-8 storage
-does not imply complete glyph coverage or text shaping.
+Font atlases cover Latin, Greek, Cyrillic, and common punctuation and currency
+symbols (DONE), and `Theme.SetGlyphRanges` extends coverage per theme (DONE). UTF-8
+storage still does not imply text shaping or coverage for scripts outside the ranges.
 
-- Add broader glyph coverage, fallback fonts, IME composition, and grapheme-aware
-  editing.
+- Add fallback fonts, on-demand glyph rasterization for large scripts such as CJK,
+  IME composition, and grapheme-aware editing.
 - Evaluate shaping and kerning support for international chat and player names.
 - Replace request-side font oversizing with a consistent sizing contract.
 - Evaluate shared metrics for headless layout and windowed drawing.
