@@ -13,6 +13,9 @@ func (u *UI) drawOneSpecial(widget widgets.Widget) bool {
 			fn(w.Bounds())
 		}
 		return true
+	case *widgets.Image:
+		u.theme.DrawImage(w.Bounds(), w.Texture(), w.Source(), w.Tint(), w.Fit())
+		return true
 	case *widgets.ScrollPanel:
 		u.drawScrollPanel(w, u.visualState(w))
 		return true

@@ -632,3 +632,14 @@ func AsTable(w Widget) (*Table, error) {
 	}
 	return nil, fmt.Errorf("%w: widget %q is %v, expected %v", ErrKindMismatch, w.Name(), w.Kind(), core.WidgetTable)
 }
+
+// AsImage asserts that w is an *Image.
+func AsImage(w Widget) (*Image, error) {
+	if w == nil {
+		return nil, ErrNilWidget
+	}
+	if img, ok := w.(*Image); ok {
+		return img, nil
+	}
+	return nil, fmt.Errorf("%w: widget %q is %v, expected %v", ErrKindMismatch, w.Name(), w.Kind(), core.WidgetImage)
+}

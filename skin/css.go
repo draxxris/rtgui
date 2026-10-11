@@ -332,7 +332,6 @@ func parseBlock(selector string, kind core.WidgetKind, className string, part Sk
 		if err := parseBlockStyle(selector, kind, part, hasPart, imageTarget, borderTarget, paddingTarget, allowBorder, allowPadding, take, style); err != nil {
 			return nil, err
 		}
-		}
 	}
 	entries := make([]SkinRule, 0, len(order))
 	for _, part := range order {

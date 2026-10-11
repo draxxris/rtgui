@@ -19,6 +19,7 @@ type Theme struct {
 	programmatic      *skin.Registry
 	css               *skin.Registry
 	ownedSkinTextures []skin.Texture
+	images            []skin.Texture
 	textureBackend    textureBackend
 	transform         *transform.Transform
 	recorder          *DrawRecorder
@@ -32,6 +33,7 @@ type Theme struct {
 	inlineIcons       map[string]core.TooltipIcon
 	linkColors        map[core.LinkKind]core.Color
 	namedFonts        map[string]*fontFace
+	glyphRanges       []GlyphRange
 	// singleScratch reuses single-line span storage across draws. Draws
 	// consume spans synchronously on the owning goroutine, so one buffer
 	// serves every control without steady-state allocation.
@@ -308,7 +310,7 @@ func (t *Theme) HasItalicFont() bool { return t != nil && t.italic.available }
 // when none is recorded. Prefer FontForSize for crisp text.
 func (t *Theme) Font() rl.Font {
 	if t != nil {
-		return t.font.forSize(32)
+		return t.font.forSize(32, t.glyphRanges)
 	}
 	return rl.GetFontDefault()
 }
@@ -317,7 +319,7 @@ func (t *Theme) Font() rl.Font {
 // when none is recorded. Prefer ItalicForSize for crisp text.
 func (t *Theme) ItalicFont() rl.Font {
 	if t != nil {
-		return t.italic.forSize(32)
+		return t.italic.forSize(32, t.glyphRanges)
 	}
 	return rl.GetFontDefault()
 }
@@ -329,7 +331,7 @@ func (t *Theme) FontForSize(size float32) rl.Font {
 	if t == nil {
 		return rl.GetFontDefault()
 	}
-	return t.font.forSize(size)
+	return t.font.forSize(size, t.glyphRanges)
 }
 
 // ItalicForSize returns the accent font rasterized at the requested size.
@@ -338,7 +340,7 @@ func (t *Theme) ItalicForSize(size float32) rl.Font {
 	if t == nil {
 		return rl.GetFontDefault()
 	}
-	return t.italic.forSize(size)
+	return t.italic.forSize(size, t.glyphRanges)
 }
 
 // UnloadFonts releases all rasterized font atlases and forgets recorded paths.
@@ -421,8 +423,9 @@ func (f *fontFace) load(path string) error {
 	return nil
 }
 
-// forSize rasterizes the recorded face once per rounded positive pixel size.
-func (f *fontFace) forSize(size float32) rl.Font {
+// forSize rasterizes the recorded face once per rounded positive pixel size,
+// covering the theme glyph ranges (see glyphCodepoints).
+func (f *fontFace) forSize(size float32, ranges []GlyphRange) rl.Font {
 	if !f.available {
 		return rl.GetFontDefault()
 	}
@@ -448,7 +451,7 @@ func (f *fontFace) forSize(size float32) rl.Font {
 	if len(f.cache) >= 32 {
 		return f.nearestRaster(pixels)
 	}
-	font := rl.LoadFontEx(f.path, pixels, fontCodepoints(), 0)
+	font := rl.LoadFontEx(f.path, pixels, glyphCodepoints(ranges, pixels), 0)
 	if !rl.IsFontValid(font) {
 		return rl.GetFontDefault()
 	}
@@ -484,17 +487,6 @@ func (f *fontFace) clearCache() {
 		rl.UnloadFont(font)
 	}
 	f.cache = nil
-}
-
-// fontCodepoints lists the glyphs rasterized into theme font atlases: printable
-// ASCII plus the punctuation the gallery uses (em/en dashes, bullet, ellipsis).
-// Glyphs outside this set render as missing-glyph marks.
-func fontCodepoints() []rune {
-	points := make([]rune, 0, 100)
-	for r := rune(32); r <= rune(126); r++ {
-		points = append(points, r)
-	}
-	return append(points, '\u2013', '\u2014', '\u2022', '\u2026')
 }
 
 // ensureTransform creates the transform lazily for a zero-value theme.
